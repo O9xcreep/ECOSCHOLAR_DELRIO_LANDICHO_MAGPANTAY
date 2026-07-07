@@ -4,3 +4,6 @@ Thumbs.db
 
 # Stray package managers if ever reintroduced at root
 node_modules/
+
+# Claude Code local session state
+.claude/
