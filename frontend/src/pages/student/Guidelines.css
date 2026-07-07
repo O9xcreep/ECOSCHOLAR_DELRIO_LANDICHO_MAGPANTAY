@@ -1,0 +1,222 @@
+.guidelines-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── HEADER ── */
+.gl-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.page-sub {
+  font-size: 13px;
+  color: #888;
+}
+
+/* ── CARD ── */
+.gl-card {
+  background: white;
+  border-radius: 14px;
+  padding: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── SECTION TITLE ── */
+.gl-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.gl-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.gl-dot.blue   { background: #2563eb; }
+.gl-dot.yellow { background: #f59e0b; }
+
+/* ── LIST ── */
+.gl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 4px;
+}
+
+.gl-list li {
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.6;
+  padding-left: 16px;
+  position: relative;
+  list-style: none;
+}
+
+.gl-list li::before {
+  content: '●';
+  position: absolute;
+  left: 0;
+  color: #7c3aed;
+  font-size: 10px;
+  top: 4px;
+}
+
+/* ── TABLE ── */
+.gl-table-wrapper {
+  overflow-x: auto;
+}
+
+.gl-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gl-table th {
+  text-align: left;
+  font-size: 12px;
+  color: #888;
+  font-weight: 600;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border-bottom: 1px solid #f0f0f0;
+  text-transform: uppercase;
+}
+
+.gl-table td {
+  padding: 12px 14px;
+  font-size: 14px;
+  color: #374151;
+  border-bottom: 1px solid #f9f9f9;
+}
+
+.gl-table tr:last-child td {
+  border-bottom: none;
+}
+
+.gl-table tr:hover td {
+  background: #f9fafb;
+}
+
+/* ── STEPS ── */
+.gl-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gl-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.gl-step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #7c3aed;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.gl-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.gl-step-desc {
+  font-size: 13px;
+  color: #888;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* ── WARNING CARD ── */
+.gl-warning-card {
+  border-left: 4px solid #f59e0b;
+}
+
+.gl-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #fef3c7;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #92400e;
+  line-height: 1.6;
+}
+
+.gl-warning span {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+/* ── REMINDERS ── */
+.gl-reminders {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gl-reminder-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px;
+  background: #f9fafb;
+  border-radius: 10px;
+}
+
+.reminder-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.reminder-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.reminder-desc {
+  font-size: 13px;
+  color: #555;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 600px) {
+  .gl-table th:nth-child(3),
+  .gl-table td:nth-child(3) {
+    display: none;
+  }
+}

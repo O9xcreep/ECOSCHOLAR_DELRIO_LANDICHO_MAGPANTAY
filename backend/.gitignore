@@ -1,0 +1,17 @@
+# Environment / secrets
+.env
+
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# Local scratch space for temporary OCR files only - real uploads live in
+# MongoDB GridFS now, nothing permanent is ever written here.
+uploads/
+
+# Old, retired model - superseded by model_combined.pkl
+model.pkl
+
+# model_combined.pkl is intentionally NOT ignored - the deployed backend
+# needs it in the repo to load the eligibility model (see schema/ml_model.md).

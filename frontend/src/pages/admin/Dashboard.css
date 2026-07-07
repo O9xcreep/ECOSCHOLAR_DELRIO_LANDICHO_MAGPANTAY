@@ -1,0 +1,263 @@
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ── HEADER ── */
+.dash-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dash-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.dash-sub {
+  font-size: 14px;
+  color: #888;
+  margin-top: 2px;
+}
+
+/* ── STATS ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.stat-card {
+  background: white;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  border-left: 4px solid transparent;
+}
+
+.stat-purple { border-left-color: #7c3aed; }
+.stat-yellow { border-left-color: #f59e0b; }
+.stat-green  { border-left-color: #10b981; }
+.stat-red    { border-left-color: #ef4444; }
+
+.stat-icon {
+  font-size: 28px;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.stat-label {
+  font-size: 13px;
+  color: #888;
+  margin-top: 2px;
+}
+
+/* ── CARD ── */
+.dash-card {
+  background: white;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.card-header h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.view-all {
+  font-size: 13px;
+  color: #7c3aed;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.view-all:hover {
+  text-decoration: underline;
+}
+
+/* ── TABLE ── */
+.dash-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.dash-table th {
+  text-align: left;
+  font-size: 12px;
+  color: #888;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dash-table td {
+  padding: 14px 12px;
+  font-size: 14px;
+  color: #374151;
+  border-bottom: 1px solid #f9f9f9;
+}
+
+.dash-table tr:last-child td {
+  border-bottom: none;
+}
+
+.gwa {
+  font-weight: 600;
+  color: #7c3aed !important;
+}
+
+.date {
+  color: #888 !important;
+  font-size: 13px !important;
+}
+
+/* ── BADGES ── */
+.badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-green  { background: #d1fae5; color: #065f46; }
+.badge-yellow { background: #fef3c7; color: #92400e; }
+.badge-red    { background: #fee2e2; color: #991b1b; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1024px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-table th:nth-child(2),
+  .dash-table td:nth-child(2) {
+    display: none;
+  }
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #888;
+  font-size: 14px;
+}
+/* ── DUPLICATE ALERTS ── */
+.duplicate-alert-card {
+  border-left: 4px solid #ef4444 !important;
+}
+
+.duplicate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.duplicate-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: #fff5f5;
+  border-radius: 10px;
+  border: 1px solid #fee2e2;
+  gap: 12px;
+}
+
+.duplicate-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+}
+
+.duplicate-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.duplicate-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.duplicate-detail {
+  font-size: 12px;
+  color: #888;
+  margin-top: 2px;
+}
+
+.duplicate-date {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 2px;
+}
+
+.btn-resolve {
+  padding: 7px 14px;
+  background: #d1fae5;
+  color: #065f46;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-resolve:hover {
+  background: #a7f3d0;
+}
+
+/* ── DUPLICATE REASON BOX ── */
+.duplicate-reason-box {
+  background: #fff5f5;
+  border: 1px solid #fee2e2;
+  border-radius: 10px;
+  padding: 14px 18px;
+  max-width: 400px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.duplicate-reason-box p {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.duplicate-note {
+  font-size: 12px !important;
+  color: #888 !important;
+  font-style: italic;
+}

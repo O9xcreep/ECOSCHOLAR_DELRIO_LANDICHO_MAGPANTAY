@@ -1,0 +1,234 @@
+.av-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── HEADER ── */
+.av-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.av-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.av-sub {
+  font-size: 13px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.av-id {
+  color: #7c3aed;
+  font-weight: 700;
+}
+
+/* ── STATUS BANNER ── */
+.av-status-banner {
+  padding: 16px 20px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.banner-green { background: #d1fae5; color: #065f46; border-left: 4px solid #10b981; }
+.banner-red   { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
+.banner-blue  { background: #dbeafe; color: #1d4ed8; border-left: 4px solid #2563eb; }
+
+.av-submitted {
+  font-size: 12px;
+  margin-top: 6px;
+  opacity: 0.8;
+}
+
+/* ── CARD ── */
+.av-card {
+  background: white;
+  border-radius: 14px;
+  padding: 20px 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.av-card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1e293b;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+/* ── GRID ── */
+.av-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
+.av-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.av-field.full {
+  grid-column: 1 / -1;
+}
+
+.av-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.av-field p {
+  font-size: 14px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+.av-gwa {
+  color: #7c3aed !important;
+  font-weight: 700 !important;
+  font-size: 16px !important;
+}
+
+/* ── DOCUMENTS ── */
+.av-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.av-doc-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+
+.av-doc-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+}
+
+/* ── FOOTER ── */
+.av-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.av-btn-primary {
+  padding: 11px 24px;
+  background: #7c3aed;
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.av-btn-primary:hover { background: #6d28d9; }
+
+.av-btn-secondary {
+  padding: 11px 20px;
+  background: white;
+  color: #374151;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.av-btn-secondary:hover {
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+
+/* ── LOADING / EMPTY ── */
+.av-loading {
+  text-align: center;
+  padding: 60px;
+  color: #888;
+  background: white;
+  border-radius: 14px;
+}
+
+.av-empty {
+  text-align: center;
+  padding: 60px 40px;
+  background: white;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.av-empty-icon {
+  font-size: 48px;
+}
+
+.av-empty h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.av-empty p {
+  font-size: 14px;
+  color: #888;
+}
+
+/* ── BADGES ── */
+.badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-green  { background: #d1fae5; color: #065f46; }
+.badge-red    { background: #fee2e2; color: #991b1b; }
+.badge-blue   { background: #dbeafe; color: #1d4ed8; }
+.badge-yellow { background: #fef3c7; color: #92400e; }
+.badge-purple { background: #ede9fe; color: #6d28d9; }
+.badge-gray   { background: #f3f4f6; color: #6b7280; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 600px) {
+  .av-grid {
+    grid-template-columns: 1fr;
+  }
+  .av-field.full {
+    grid-column: 1;
+  }
+}
+.av-reviewed {
+  font-size: 12px;
+  margin-top: 6px;
+  opacity: 0.85;
+}

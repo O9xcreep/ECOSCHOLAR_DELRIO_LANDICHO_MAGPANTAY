@@ -1,0 +1,361 @@
+.applications-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── STAT CARDS ── */
+.app-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.app-stat-card {
+  background: white;
+  border-radius: 14px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  border-top: 4px solid transparent;
+}
+
+.app-stat-card h3 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.app-stat-card p {
+  font-size: 13px;
+  color: #888;
+  margin-top: 4px;
+}
+
+.stat-newly-submitted    { border-top-color: #2563eb; }
+.stat-pending-verification { border-top-color: #f59e0b; }
+.stat-not-yet-reviewed   { border-top-color: #7c3aed; }
+.stat-incomplete         { border-top-color: #ef4444; }
+
+/* ── HEADER ── */
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: white;
+  padding: 14px 16px;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ── SEARCH ── */
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 8px 14px;
+  min-width: 220px;
+}
+
+.search-box input {
+  border: none;
+  outline: none;
+  font-size: 14px;
+  background: transparent;
+  width: 100%;
+}
+
+/* ── TABS ── */
+.tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 20px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  font-size: 12px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+
+.tab-btn.active {
+  background: #7c3aed;
+  color: white;
+  border-color: #7c3aed;
+}
+
+.tab-count {
+  background: rgba(0,0,0,0.1);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tab-btn.active .tab-count {
+  background: rgba(255,255,255,0.25);
+}
+
+/* ── EXPORT BTN ── */
+.btn-export {
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #374151;
+  transition: all 0.2s;
+}
+
+.btn-export:hover {
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+
+/* ── TABLE ── */
+.table-card {
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+
+.app-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.app-table th {
+  text-align: left;
+  font-size: 11px;
+  color: #888;
+  font-weight: 600;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #fafafa;
+}
+
+.app-table td {
+  padding: 14px 16px;
+  font-size: 13px;
+  color: #374151;
+  border-bottom: 1px solid #f9f9f9;
+  vertical-align: middle;
+}
+
+.app-table tr:last-child td {
+  border-bottom: none;
+}
+
+.app-table tr:hover td {
+  background: #fafafa;
+}
+
+.selected-row td {
+  background: #f5f3ff !important;
+}
+
+/* ── CELLS ── */
+.applicant-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mini-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.cell-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.cell-email {
+  font-size: 11px;
+  color: #aaa;
+}
+
+.cell-gwa {
+  font-weight: 700;
+  color: #7c3aed !important;
+}
+
+.cell-date {
+  color: #aaa !important;
+  font-size: 12px !important;
+}
+
+.cell-app {
+  font-size: 12px !important;
+  color: #555 !important;
+}
+
+.cell-course {
+  font-size: 12px !important;
+}
+
+/* ── BADGES ── */
+.badge {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-blue   { background: #dbeafe; color: #1d4ed8; }
+.badge-yellow { background: #fef3c7; color: #92400e; }
+.badge-purple { background: #ede9fe; color: #6d28d9; }
+.badge-red    { background: #fee2e2; color: #991b1b; }
+
+/* ── ACTION BUTTONS ── */
+.action-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.action-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.action-btn.view    { background: #f0f0f0; }
+.action-btn.approve { background: #d1fae5; color: #065f46; }
+.action-btn.reject  { background: #fee2e2; color: #991b1b; }
+
+.action-btn:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+/* ── EMPTY ROW ── */
+.empty-row {
+  text-align: center;
+  color: #aaa;
+  padding: 40px !important;
+}
+
+/* ── PAGINATION ── */
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.pagination-info {
+  font-size: 13px;
+  color: #888;
+}
+
+.pagination-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.page-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  font-size: 13px;
+  cursor: pointer;
+  color: #374151;
+  transition: all 0.2s;
+}
+
+.page-btn:hover {
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+
+.page-btn.active {
+  background: #7c3aed;
+  color: white;
+  border-color: #7c3aed;
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 1024px) {
+  .app-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .app-table th:nth-child(3),
+  .app-table td:nth-child(3),
+  .app-table th:nth-child(6),
+  .app-table td:nth-child(6) {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .app-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+/* ── SCHOLARSHIP FLAG ── */
+.scholarship-flag {
+  margin-left: 6px;
+  font-size: 13px;
+  cursor: help;
+}
