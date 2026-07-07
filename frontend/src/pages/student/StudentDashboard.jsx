@@ -16,7 +16,7 @@ const DEFAULT_DOCS = [
   { document_name: 'Enrollment Form', status: 'Missing' },
   { document_name: 'Barangay Endorsement', status: 'Missing' },
   { document_name: 'School ID', status: 'Missing' },
-  { document_name: 'Grade 12 Grades', status: 'Not Required' },
+  { document_name: 'Grade 12 Grades', status: 'Missing' },
   { document_name: '4Ps Certificate', status: 'Not Required' },
   { document_name: 'Proof of Income', status: 'Missing' },
 ]
