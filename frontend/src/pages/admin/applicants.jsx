@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../api'
-import './Applicants.css'
+import './applicants.css'
 import ApplicantModal from '../../components/ApplicantModal'
 
 const STATUS_TABS = ['All', 'Approved', 'Rejected']
