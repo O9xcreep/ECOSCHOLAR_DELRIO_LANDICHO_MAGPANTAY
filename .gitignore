@@ -1,0 +1,6 @@
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+
+# Stray package managers if ever reintroduced at root
+node_modules/
