@@ -6,7 +6,7 @@ const DEFAULT_DOCS = [
   { id: 1, document_name: 'Copy of Enrollment Form', required: true, status: 'Missing', file: null },
   { id: 2, document_name: 'Copy of Barangay Endorsement', required: true, status: 'Missing', file: null },
   { id: 3, document_name: 'School ID', required: true, status: 'Missing', file: null },
-  { id: 4, document_name: 'Grade 12 Grades', required: false, status: 'Not Required', file: null },
+  { id: 4, document_name: 'Grade 12 Grades', required: true, status: 'Missing', file: null },
   { id: 5, document_name: '4Ps Certificate', required: false, status: 'Not Required', file: null },
   { id: 6, document_name: 'Proof of Income (Certificate of Indigency)', required: true, status: 'Missing', file: null },
 ]

@@ -124,6 +124,7 @@ function validateStep3(data, consent) {
     { key: 'enrollmentForm', label: 'Enrollment Form' },
     { key: 'barangayEndorsement', label: 'Barangay Endorsement' },
     { key: 'schoolId', label: 'School ID' },
+    { key: 'grade12', label: 'Grade 12 Grades' },
     { key: 'proofOfIncome', label: 'Proof of Income' },
   ]
   required.forEach(({ key, label }) => {
@@ -520,7 +521,7 @@ function Step3({ data, onChange, errors, consent, onConsentChange }) {
     { key: 'enrollmentForm', label: 'Copy of Enrollment Form', required: true },
     { key: 'barangayEndorsement', label: 'Copy of Barangay Endorsement', required: true },
     { key: 'schoolId', label: 'School ID', required: true },
-    { key: 'grade12', label: 'If incoming 1st yr college, 1 copy of Grade 12 grades', required: false },
+    { key: 'grade12', label: 'Copy of Grade 12 Grades', required: true },
     { key: 'fourPsCert', label: 'If 4Ps member, 1 copy of 4Ps Certificate', required: false },
     { key: 'proofOfIncome', label: 'Proof of Income (Certificate of Indig ency)', required: true },
   ]

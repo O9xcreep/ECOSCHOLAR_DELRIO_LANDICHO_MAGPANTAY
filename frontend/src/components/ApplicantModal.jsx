@@ -14,7 +14,7 @@ const REQUIRED_DOC_TYPES = [
   { label: 'Enrollment Form', required: true },
   { label: 'Barangay Endorsement', required: true },
   { label: 'School ID', required: true },
-  { label: 'Grade 12 Grades', required: false },
+  { label: 'Grade 12 Grades', required: true },
   { label: '4Ps Certificate', required: false },
   { label: 'Proof of Income', required: true },
 ]
