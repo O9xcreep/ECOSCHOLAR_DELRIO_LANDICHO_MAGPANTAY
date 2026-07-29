@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { getUser, clearSession } from '../api'
+import { getUser, logout } from '../api'
 import NotificationBell from '../components/NotificationBell'
 import './AdminLayout.css'
 
@@ -8,8 +8,8 @@ function AdminLayout() {
   const user = getUser() || {}
   const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'A'
 
-  const handleLogout = () => {
-    clearSession()
+  const handleLogout = async () => {
+    await logout()
     navigate('/login')
   }
 

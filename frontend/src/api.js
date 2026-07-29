@@ -22,6 +22,24 @@ export function clearSession() {
   localStorage.removeItem('token')
 }
 
+// Tells the backend to blacklist the current token (so it can't be reused if
+// leaked) before clearing the local session. Best-effort: logging out locally
+// still proceeds even if this request fails.
+export async function logout() {
+  const token = getToken()
+  if (token) {
+    try {
+      await fetch(`${API_BASE_URL}/api/logout`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+    } catch {
+      // ignore - clearing the local session below is what actually logs the user out client-side
+    }
+  }
+  clearSession()
+}
+
 // fetch wrapper that prefixes the API base URL and attaches the auth token.
 // On a 401 (expired/invalid session) it clears the session and redirects to /login.
 export async function apiFetch(path, options = {}) {

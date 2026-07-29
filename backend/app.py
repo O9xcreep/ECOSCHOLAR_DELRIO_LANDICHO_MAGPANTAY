@@ -1,10 +1,13 @@
 import pickle
 import re
+import hashlib
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, g, send_file
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from pymongo import MongoClient
 import gridfs
 from bson import ObjectId
@@ -63,6 +66,17 @@ except Exception as e:
 app = Flask(__name__)
 CORS_ORIGINS = [o.strip() for o in os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(',') if o.strip()]
 CORS(app, supports_credentials=True, origins=CORS_ORIGINS)
+
+limiter = Limiter(get_remote_address, app=app, storage_uri="memory://", default_limits=[])
+
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = "default-src 'none'"
+    response.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains'
+    return response
 
 # Fields every applicant must have for the combined model to score them.
 # Applicants who registered before this model was wired in won't have these
@@ -144,6 +158,15 @@ def build_score_breakdown(row, applicant):
 # ── UPLOAD CONFIG ──
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
+# Serving files back to the browser with a client-supplied Content-Type is a stored-XSS
+# vector (e.g. an upload named "photo.png" claiming Content-Type: text/html). Always
+# derive the served mimetype from this fixed map instead of trusting the upload metadata.
+SAFE_MIME_TYPES = {
+    'pdf': 'application/pdf',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB, matches the limit shown in the UI
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -152,12 +175,19 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+def safe_mime_for(filename):
+    ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+    return SAFE_MIME_TYPES.get(ext, 'application/octet-stream')
+
 # ── DATABASE CONNECTION (MongoDB Atlas) ──
 _mongo_client = MongoClient(os.getenv('MONGO_URI'))
 _mongo_db = _mongo_client[os.getenv('MONGO_DB_NAME', 'ecoscholars')]
 # Uploaded documents live in GridFS (not local disk) so they survive redeploys
 # on hosts with ephemeral filesystems.
 _fs = gridfs.GridFS(_mongo_db)
+# Logged-out tokens land here until their natural expiry so a stolen/leaked token
+# can be invalidated before TOKEN_MAX_AGE runs out. TTL index auto-purges entries.
+_mongo_db.revoked_tokens.create_index("expires_at", expireAfterSeconds=0)
 
 def get_db():
     return _mongo_db
@@ -183,6 +213,19 @@ def issue_token(user):
 def verify_token(token):
     return _serializer.loads(token, max_age=TOKEN_MAX_AGE)
 
+def hash_token(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def revoke_token(token):
+    """Blacklist a token until its own natural expiry (logout can't un-sign a
+    stateless itsdangerous token, so we track that it's no longer welcome)."""
+    try:
+        _, issued_at = _serializer.loads(token, max_age=TOKEN_MAX_AGE, return_timestamp=True)
+    except (SignatureExpired, BadSignature):
+        return
+    expires_at = issued_at + timedelta(seconds=TOKEN_MAX_AGE)
+    _mongo_db.revoked_tokens.insert_one({"token_hash": hash_token(token), "expires_at": expires_at})
+
 def require_auth(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
@@ -196,6 +239,9 @@ def require_auth(f):
             return jsonify({"error": "Session expired, please log in again"}), 401
         except BadSignature:
             return jsonify({"error": "Invalid session"}), 401
+        if _mongo_db.revoked_tokens.find_one({"token_hash": hash_token(token)}):
+            return jsonify({"error": "Session has been logged out, please log in again"}), 401
+        g.current_token = token
         return f(*args, **kwargs)
     return wrapper
 
@@ -319,6 +365,7 @@ def test():
 
 # ── AUTH: LOGIN ──
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("8 per minute")
 def login():
     data = request.get_json()
     email = (data.get('email') or '').strip().lower()
@@ -363,9 +410,17 @@ def login():
             raise
         return jsonify({"error": "Login failed"}), 500
 
+# ── AUTH: LOGOUT ──
+@app.route('/api/logout', methods=['POST'])
+@require_auth
+def logout():
+    revoke_token(g.current_token)
+    return jsonify({"message": "Logged out"})
+
 
 # ── AUTH: REGISTER ──
 @app.route("/api/register", methods=["POST"])
+@limiter.limit("8 per minute")
 def register():
     data = request.get_json()
     full_name = data.get("full_name", "").strip()
@@ -374,6 +429,9 @@ def register():
 
     if not full_name or not email or not password:
         return jsonify({"error": "All fields are required"}), 400
+
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
 
     try:
         db = get_db()
@@ -857,7 +915,7 @@ def upload_document():
 
             new_gridfs_id = _fs.put(
                 file.read(), filename=unique_filename,
-                content_type=file.content_type
+                content_type=safe_mime_for(unique_filename)
             )
 
             result = db.applicants.update_one(
@@ -1014,7 +1072,7 @@ def view_document_file(applicant_id):
 
         return send_file(
             grid_out,
-            mimetype=grid_out.content_type or 'application/octet-stream',
+            mimetype=safe_mime_for(grid_out.filename),
             download_name=grid_out.filename,
             as_attachment=False
         )

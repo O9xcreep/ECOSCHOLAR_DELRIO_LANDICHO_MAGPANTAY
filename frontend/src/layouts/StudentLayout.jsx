@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { getUser, clearSession } from '../api'
+import { getUser, logout } from '../api'
 import NotificationBell from '../components/NotificationBell'
 import './StudentLayout.css'
 
@@ -9,8 +9,8 @@ function StudentLayout() {
 
   const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'S'
 
-  const handleLogout = () => {
-    clearSession()
+  const handleLogout = async () => {
+    await logout()
     navigate('/login')
   }
 
