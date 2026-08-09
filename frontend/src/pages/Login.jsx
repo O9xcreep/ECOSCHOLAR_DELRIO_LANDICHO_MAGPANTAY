@@ -234,6 +234,14 @@ const css = `
   }
   .lp-section-title:first-of-type { margin-top: 4px; }
 
+  .lp-subsection-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin: 14px 0 8px;
+  }
+  .lp-subsection-title:first-of-type { margin-top: 0; }
+
   .lp-step-indicator {
     font-size: 12.5px;
     font-weight: 600;
@@ -1185,6 +1193,8 @@ function Login() {
                     </div>
 
                     <p className="lp-section-title">Parental Details</p>
+
+                    <p className="lp-subsection-title">Father's Information</p>
                     <div className="lp-form-grid-2">
                       <div className="lp-field">
                         <label>Father's Name</label>
@@ -1219,7 +1229,10 @@ function Login() {
                         </select>
                         {regFieldErrors.fatherEducation && <p className="lp-field-err">{regFieldErrors.fatherEducation}</p>}
                       </div>
+                    </div>
 
+                    <p className="lp-subsection-title">Mother's Information</p>
+                    <div className="lp-form-grid-2">
                       <div className="lp-field">
                         <label>Mother's Name</label>
                         <input
@@ -1253,7 +1266,10 @@ function Login() {
                         </select>
                         {regFieldErrors.motherEducation && <p className="lp-field-err">{regFieldErrors.motherEducation}</p>}
                       </div>
+                    </div>
 
+                    <p className="lp-subsection-title">Household</p>
+                    <div className="lp-form-grid-2">
                       <div className="lp-field">
                         <label>Monthly Household Income (₱)</label>
                         <input
