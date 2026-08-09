@@ -78,6 +78,12 @@ def set_security_headers(response):
     response.headers['Strict-Transport-Security'] = 'max-age=63072000; includeSubDomains'
     return response
 
+# Public, unauthenticated, no DB access - meant for uptime pingers to keep the free-tier
+# instance from sleeping, and for basic "is it up" checks.
+@app.route('/api/health')
+def health():
+    return jsonify({"status": "ok"})
+
 # Fields every applicant must have for the combined model to score them.
 # Applicants who registered before this model was wired in won't have these
 # (see schema/ml_model.md) - they're excluded from scoring rather than guessed at.
