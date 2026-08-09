@@ -600,7 +600,7 @@ const ADDRESS_CITIES = [
 ]
 
 const EMPTY_REG_DATA = {
-  full_name: '', email: '', password: '', confirm_password: '',
+  lastName: '', firstName: '', middleName: '', email: '', password: '', confirm_password: '',
   dob: '', gender: '', religion: '', citizenship: 'Filipino', contactNumber: '',
   street: '', city: '',
   fatherName: '', fatherOccupation: '', fatherEducation: '',
@@ -733,9 +733,10 @@ function Login() {
   // ── REGISTER STEP 1 -> STEP 2 ──
   const handleRegNext = useCallback(() => {
     setRegError('')
-    const { full_name, email, password, confirm_password } = regData
+    const { lastName, firstName, email, password, confirm_password } = regData
 
-    if (!full_name.trim())                    { setRegError('Full name is required'); return }
+    if (!lastName.trim())                     { setRegError('Last name is required'); return }
+    if (!firstName.trim())                    { setRegError('First name is required'); return }
     if (!email.trim())                        { setRegError('Email is required'); return }
     if (!/\S+@\S+\.\S+/.test(email))         { setRegError('Enter a valid email address'); return }
     if (!password)                            { setRegError('Password is required'); return }
@@ -760,6 +761,8 @@ function Login() {
 
     const selectedCity = ADDRESS_CITIES.find(c => c.city === regData.city)
     const address = `${regData.street.trim()}, ${regData.city}, ${selectedCity ? selectedCity.province : ''}`
+    const middleInitial = regData.middleName.trim() ? `${regData.middleName.trim().charAt(0)}. ` : ''
+    const full_name = `${regData.firstName.trim()} ${middleInitial}${regData.lastName.trim()}`.replace(/\s+/g, ' ').trim()
 
     setRegLoading(true)
     try {
@@ -767,7 +770,7 @@ function Login() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          full_name: regData.full_name.trim(),
+          full_name,
           email: regData.email.trim().toLowerCase(),
           password: regData.password,
           dob: regData.dob,
@@ -959,15 +962,43 @@ function Login() {
 
                     {regError && <div className="lp-alert error">{regError}</div>}
 
+                    <div className="lp-form-grid-2">
+                      <div className="lp-field">
+                        <label>Last Name</label>
+                        <input
+                          className="lp-input"
+                          type="text"
+                          placeholder="Dela Cruz"
+                          value={regData.lastName}
+                          autoComplete="family-name"
+                          onChange={e => { setRegData(p => ({ ...p, lastName: e.target.value })); setRegError('') }}
+                          onKeyDown={handleKeyDown}
+                        />
+                      </div>
+
+                      <div className="lp-field">
+                        <label>First Name</label>
+                        <input
+                          className="lp-input"
+                          type="text"
+                          placeholder="Juan"
+                          value={regData.firstName}
+                          autoComplete="given-name"
+                          onChange={e => { setRegData(p => ({ ...p, firstName: e.target.value })); setRegError('') }}
+                          onKeyDown={handleKeyDown}
+                        />
+                      </div>
+                    </div>
+
                     <div className="lp-field">
-                      <label>Full Name</label>
+                      <label>Middle Name <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
                       <input
                         className="lp-input"
                         type="text"
-                        placeholder="Enter your full name"
-                        value={regData.full_name}
-                        autoComplete="name"
-                        onChange={e => { setRegData(p => ({ ...p, full_name: e.target.value })); setRegError('') }}
+                        placeholder="Santos"
+                        value={regData.middleName}
+                        autoComplete="additional-name"
+                        onChange={e => { setRegData(p => ({ ...p, middleName: e.target.value })); setRegError('') }}
                         onKeyDown={handleKeyDown}
                       />
                     </div>
