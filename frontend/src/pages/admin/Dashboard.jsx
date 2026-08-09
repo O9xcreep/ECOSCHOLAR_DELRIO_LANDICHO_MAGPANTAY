@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { apiFetch } from '../../api'
+import { apiFetch, displayStatus } from '../../api'
 import './Dashboard.css'
 
 const statusClass = {
   'Approved': 'badge-green',
   'Under Review': 'badge-yellow',
   'Rejected': 'badge-red',
+  'Waitlisted': 'badge-yellow',
   'Newly Submitted': 'badge-blue',
   'Pending Verification': 'badge-yellow',
   'Not Yet Reviewed': 'badge-purple',
@@ -198,8 +199,8 @@ useEffect(() => {
                   <td>{app.course}</td>
                   <td className="gwa">{app.gpa}</td>
                   <td>
-                    <span className={`badge ${statusClass[app.application_status] || 'badge-yellow'}`}>
-                      {app.application_status || 'Pending'}
+                    <span className={`badge ${statusClass[displayStatus(app.application_status, app.ml_status)] || 'badge-yellow'}`}>
+                      {displayStatus(app.application_status, app.ml_status) || 'Pending'}
                     </span>
                   </td>
                   <td className="date">
@@ -244,8 +245,8 @@ useEffect(() => {
                       : 'N/A'}
                   </p>
                 </div>
-                <span className={`badge ${statusClass[entry.new_status] || 'badge-yellow'}`}>
-                  {entry.new_status}
+                <span className={`badge ${statusClass[entry.display_status] || 'badge-yellow'}`}>
+                  {entry.display_status}
                 </span>
               </div>
             ))}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from '../api'
+import { apiFetch, displayStatus } from '../api'
 import './ApplicantModal.css'
 
 const MOCK_BREAKDOWN = [
@@ -93,6 +93,10 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const isApproved = currentStatus === 'Approved'
   const isRejected = currentStatus === 'Rejected'
   const isPending = !isApproved && !isRejected
+  // Display-only: an eligible applicant bumped by the accepted-applicant limit
+  // reads as "Waitlisted" rather than "Rejected" - isRejected etc. above still
+  // drive actual behavior (buttons, overrides) off the real stored status.
+  const displayCurrentStatus = displayStatus(currentStatus, applicant.ml_status)
 
   const handleVerifyDoc = async (doc, applicantId) => {
     setVerifying(true)
@@ -237,9 +241,9 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           <div className="modal-header-right">
             <span className={`modal-status-badge ${
               isApproved ? 'badge-green' :
-              isRejected ? 'badge-red' : 'badge-yellow'
+              isRejected ? (displayCurrentStatus === 'Waitlisted' ? 'badge-yellow' : 'badge-red') : 'badge-yellow'
             }`}>
-              {currentStatus || 'Pending'}
+              {displayCurrentStatus || 'Pending'}
             </span>
             <button className="modal-close" onClick={onClose}>&times;</button>
           </div>
@@ -503,7 +507,10 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                         <p className="audit-status-change">
                           <span className="audit-old">{entry.old_status}</span>
                           {' → '}
-                          <span className="audit-new">{entry.new_status}</span>
+                          <span className="audit-new">
+                            {entry.new_status === 'Rejected' && entry.performed_by_role === 'system'
+                              ? 'Waitlisted' : entry.new_status}
+                          </span>
                         </p>
                       )}
                       {entry.remarks && (
@@ -522,17 +529,23 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
         <div className="modal-footer">
           <button className="btn-close-modal" onClick={onClose}>Close</button>
 
-          {updateSuccess && (
-            <div className={`update-success ${
-              updateSuccess === 'Approved' ? 'success-green' : 'success-red'
-            }`}>
-              {updateSuccess === 'Approved'
-                ? 'Application Approved'
-                : updateSuccess === 'Rejected'
-                ? 'Application Rejected'
-                : 'Status Updated'}
-            </div>
-          )}
+          {updateSuccess && (() => {
+            const label = displayStatus(updateSuccess, mlData?.ml_status)
+            return (
+              <div className={`update-success ${
+                updateSuccess === 'Approved' ? 'success-green' :
+                label === 'Waitlisted' ? 'success-yellow' : 'success-red'
+              }`}>
+                {updateSuccess === 'Approved'
+                  ? 'Application Approved'
+                  : label === 'Waitlisted'
+                  ? 'Applicant Waitlisted'
+                  : updateSuccess === 'Rejected'
+                  ? 'Application Rejected'
+                  : 'Status Updated'}
+              </div>
+            )
+          })()}
 
           <div className="footer-actions">
             {isApproved && (

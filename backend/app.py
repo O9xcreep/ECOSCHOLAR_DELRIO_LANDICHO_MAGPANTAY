@@ -206,12 +206,19 @@ def recompute_approvals(db, limit, reviewed_by='System'):
         if current == should_be:
             continue
 
-        remarks = (
-            f'A scholarship slot became available (applicant limit: {limit}).'
-            if should_be == 'Approved' else
-            f'This applicant met the eligibility criteria, but the accepted applicant '
-            f'limit ({limit}) was reached by higher-ranked applicants.'
-        )
+        if should_be == 'Approved':
+            remarks = f'A scholarship slot became available (applicant limit: {limit}).'
+            notif_message = STATUS_MESSAGES['Approved'] + ' ' + remarks
+        else:
+            remarks = (
+                f'This applicant met the eligibility criteria, but the accepted applicant '
+                f'limit ({limit}) was reached by higher-ranked applicants.'
+            )
+            notif_message = (
+                f'Your application met the eligibility criteria, but the accepted applicant '
+                f'limit ({limit}) has been reached by higher-ranked applicants. You have been '
+                f'waitlisted and may be promoted automatically if a slot opens up.'
+            )
 
         db.applicants.update_one(
             {"_id": applicant["_id"]},
@@ -239,7 +246,7 @@ def recompute_approvals(db, limit, reviewed_by='System'):
         notify_user_id = resolve_notify_user_id(db, applicant)
         create_notification(
             db, notify_user_id, applicant["_id"],
-            STATUS_MESSAGES[should_be] + ' ' + remarks, STATUS_NOTIF_TYPE[should_be]
+            notif_message, STATUS_NOTIF_TYPE[should_be]
         )
 
 # ── UPLOAD CONFIG ──
@@ -706,6 +713,7 @@ def submit_application():
             existing_app = {
                 "id": str(existing['_id']),
                 "application_status": (existing.get('application') or {}).get('status'),
+                "ml_status": existing.get('ml_status'),
                 "submitted_at": iso((existing.get('application') or {}).get('submitted_at')),
                 "course": (existing.get('academic') or {}).get('course'),
                 "gpa": (existing.get('academic') or {}).get('gpa'),
@@ -1453,19 +1461,29 @@ def get_history_log():
                 "new_status": "$audit_trail.new_status",
                 "remarks": "$audit_trail.remarks",
                 "performed_by": "$audit_trail.performed_by",
+                "performed_by_role": "$audit_trail.performed_by_role",
                 "performed_at": "$audit_trail.performed_at",
             }},
         ]
         results = list(db.applicants.aggregate(pipeline))
         history = []
         for r in results:
+            new_status = r.get("new_status")
+            # A "Rejected" entry from the automatic limit re-rank means this applicant
+            # was actually eligible, just bumped by a higher-ranked one - "Waitlisted"
+            # is a more accurate label for the admin than "Rejected" in that case.
+            display_status = (
+                'Waitlisted' if new_status == 'Rejected' and r.get('performed_by_role') == 'system'
+                else new_status
+            )
             history.append({
                 "applicant_id": r["applicant_id"],
                 "full_name": r.get("full_name"),
                 "city": derive_city(r.get("address")),
                 "course": r.get("course"),
                 "old_status": r.get("old_status"),
-                "new_status": r.get("new_status"),
+                "new_status": new_status,
+                "display_status": display_status,
                 "remarks": r.get("remarks"),
                 "performed_by": r.get("performed_by"),
                 "performed_at": iso(r.get("performed_at")),

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { apiFetch, getUser } from '../../api'
+import { apiFetch, getUser, displayStatus } from '../../api'
 import './StudentDashboard.css'
 
 const STATUS_COLORS = {
   'Approved': 'badge-green',
   'Rejected': 'badge-red',
+  'Waitlisted': 'badge-yellow',
   'Newly Submitted': 'badge-blue',
   'Pending Verification': 'badge-yellow',
   'Not Yet Reviewed': 'badge-purple',
@@ -138,8 +139,8 @@ function StudentDashboard() {
               <div className="sd-card-header">
                 <h3>Application Status</h3>
                 {application ? (
-                  <span className={`badge ${STATUS_COLORS[application.application_status] || 'badge-yellow'}`}>
-                    {application.application_status || 'Pending'}
+                  <span className={`badge ${STATUS_COLORS[displayStatus(application.application_status, application.ml_status)] || 'badge-yellow'}`}>
+                    {displayStatus(application.application_status, application.ml_status) || 'Pending'}
                   </span>
                 ) : (
                   <span className="status-badge-incomplete">Not Started</span>
@@ -171,7 +172,9 @@ function StudentDashboard() {
                   <p className="sd-progress-text">
                     {application.application_status === 'Approved' &&
                       'Congratulations. Your scholarship application has been approved.'}
-                    {application.application_status === 'Rejected' &&
+                    {application.application_status === 'Rejected' && application.ml_status === 'Eligible' &&
+                      'Your application met the eligibility criteria, but there were more qualified applicants than available slots. You have been waitlisted and may be promoted automatically if a slot opens up.'}
+                    {application.application_status === 'Rejected' && application.ml_status !== 'Eligible' &&
                       'Unfortunately your application was not approved this time.'}
                     {application.application_status === 'Newly Submitted' &&
                       'Your application has been submitted and is waiting for review.'}
@@ -183,7 +186,7 @@ function StudentDashboard() {
                       'Your application is incomplete. Please upload all required documents.'}
                   </p>
 
-                  {application.application_status === 'Rejected' && application.rejection_reason && (
+                  {application.application_status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
                     <p className="sd-rejection-reason">{application.rejection_reason}</p>
                   )}
 

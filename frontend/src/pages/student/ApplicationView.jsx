@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch, getUser } from '../../api'
+import { apiFetch, getUser, displayStatus } from '../../api'
 import './ApplicationView.css'
 
 const STATUS_COLORS = {
   'Approved': 'badge-green',
   'Rejected': 'badge-red',
+  'Waitlisted': 'badge-yellow',
   'Newly Submitted': 'badge-blue',
   'Pending Verification': 'badge-yellow',
   'Not Yet Reviewed': 'badge-purple',
@@ -15,6 +16,7 @@ const STATUS_COLORS = {
 const STATUS_MESSAGES = {
   'Approved': 'Congratulations. Your scholarship application has been approved.',
   'Rejected': 'Unfortunately your application was not approved this time.',
+  'Waitlisted': 'Your application met the eligibility criteria, but there were more qualified applicants than available slots. You have been waitlisted and may be promoted automatically if a slot opens up.',
   'Newly Submitted': 'Your application has been submitted and is waiting for review.',
   'Pending Verification': 'Your documents are being verified by our team.',
   'Not Yet Reviewed': 'Your application is in the queue and will be reviewed soon.',
@@ -68,6 +70,7 @@ function ApplicationView() {
   }
 
   const status = application.application_status || 'Pending'
+  const displayed = displayStatus(status, application.ml_status)
 
   return (
     <div className="av-container">
@@ -82,19 +85,20 @@ function ApplicationView() {
             </span>
           </p>
         </div>
-        <span className={`badge ${STATUS_COLORS[status] || 'badge-yellow'}`}>
-          {status}
+        <span className={`badge ${STATUS_COLORS[displayed] || 'badge-yellow'}`}>
+          {displayed}
         </span>
       </div>
 
       {/* Status Banner */}
       <div className={`av-status-banner ${
-        status === 'Approved' ? 'banner-green' :
-        status === 'Rejected' ? 'banner-red' : 'banner-blue'
+        displayed === 'Approved' ? 'banner-green' :
+        displayed === 'Waitlisted' ? 'banner-yellow' :
+        displayed === 'Rejected' ? 'banner-red' : 'banner-blue'
       }`}>
-        <p>{STATUS_MESSAGES[status] || 'Your application is being processed.'}</p>
+        <p>{STATUS_MESSAGES[displayed] || 'Your application is being processed.'}</p>
 
-        {status === 'Rejected' && application.rejection_reason && (
+        {status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
           <p className="av-rejection-reason">{application.rejection_reason}</p>
         )}
 

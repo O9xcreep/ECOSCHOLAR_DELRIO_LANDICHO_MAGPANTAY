@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from '../../api'
+import { apiFetch, displayStatus } from '../../api'
 import './Ranking.css'
 
 function Ranking() {
@@ -210,11 +210,11 @@ function Ranking() {
                     </td>
                     <td>
                       <span className={`badge ${
-                        app.application_status === 'Approved' ? 'badge-green' :
-                        app.application_status === 'Rejected' ? 'badge-red' :
+                        displayStatus(app.application_status, app.ml_status) === 'Approved' ? 'badge-green' :
+                        displayStatus(app.application_status, app.ml_status) === 'Rejected' ? 'badge-red' :
                         'badge-yellow'
                       }`}>
-                        {app.application_status}
+                        {displayStatus(app.application_status, app.ml_status)}
                       </span>
                     </td>
                   </tr>
@@ -269,11 +269,11 @@ function Ranking() {
                       </td>
                       <td>
                         <span className={`badge ${
-                          app.application_status === 'Approved' ? 'badge-green' :
-                          app.application_status === 'Rejected' ? 'badge-red' :
+                          displayStatus(app.application_status, app.ml_status) === 'Approved' ? 'badge-green' :
+                          displayStatus(app.application_status, app.ml_status) === 'Rejected' ? 'badge-red' :
                           'badge-yellow'
                         }`}>
-                          {app.application_status}
+                          {displayStatus(app.application_status, app.ml_status)}
                         </span>
                       </td>
                     </tr>

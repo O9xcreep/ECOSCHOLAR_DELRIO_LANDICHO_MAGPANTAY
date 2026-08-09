@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from '../../api'
+import { apiFetch, displayStatus } from '../../api'
 import './applicants.css'
 import ApplicantModal from '../../components/ApplicantModal'
 
@@ -8,6 +8,7 @@ const STATUS_TABS = ['All', 'Approved', 'Rejected']
 const statusClass = {
   'Approved': 'badge-green',
   'Rejected': 'badge-red',
+  'Waitlisted': 'badge-yellow',
   'Not Yet Reviewed': 'badge-yellow',
   'Newly Submitted': 'badge-blue',
   'Pending Verification': 'badge-yellow',
@@ -117,8 +118,8 @@ function Applicants() {
                   style={{ background: avatarColors[i % avatarColors.length] }}>
                   {getInitials(applicant.full_name)}
                 </div>
-                <span className={`badge ${statusClass[applicant.application_status] || 'badge-yellow'}`}>
-                  {applicant.application_status || 'Pending'}
+                <span className={`badge ${statusClass[displayStatus(applicant.application_status, applicant.ml_status)] || 'badge-yellow'}`}>
+                  {displayStatus(applicant.application_status, applicant.ml_status) || 'Pending'}
                 </span>
               </div>
               <div className="card-body">

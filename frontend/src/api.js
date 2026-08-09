@@ -1,5 +1,14 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
 
+// A "Rejected" applicant who was actually eligible just lost their slot to a
+// higher-ranked applicant (see the accepted-applicant limit on the Ranking page) -
+// display that as "Waitlisted" rather than "Rejected", since it isn't a judgment
+// on them and they can be promoted back automatically if a slot opens up. Applicants
+// the model found genuinely ineligible still show "Rejected" as-is.
+export function displayStatus(status, mlStatus) {
+  return status === 'Rejected' && mlStatus === 'Eligible' ? 'Waitlisted' : status
+}
+
 export function getToken() {
   return localStorage.getItem('token')
 }

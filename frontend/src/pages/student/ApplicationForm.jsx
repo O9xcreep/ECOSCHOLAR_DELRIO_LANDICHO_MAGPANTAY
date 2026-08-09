@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../../api'
+import { apiFetch, displayStatus } from '../../api'
 import './ApplicationForm.css'
 
 // ── DATA ──
@@ -860,12 +860,12 @@ function ApplicationForm() {
           <div className="existing-app-row">
             <span className="existing-app-label">Status</span>
             <span className={`badge ${
-              existingApplication.application_status === 'Approved'
+              displayStatus(existingApplication.application_status, existingApplication.ml_status) === 'Approved'
                 ? 'badge-green' :
-              existingApplication.application_status === 'Rejected'
+              displayStatus(existingApplication.application_status, existingApplication.ml_status) === 'Rejected'
                 ? 'badge-red' : 'badge-yellow'
             }`}>
-              {existingApplication.application_status || 'Pending'}
+              {displayStatus(existingApplication.application_status, existingApplication.ml_status) || 'Pending'}
             </span>
           </div>
           <div className="existing-app-row">

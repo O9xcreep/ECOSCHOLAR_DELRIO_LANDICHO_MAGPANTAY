@@ -519,6 +519,11 @@
   background: #fee2e2;
   color: #991b1b;
 }
+
+.success-yellow {
+  background: #fef3c7;
+  color: #92400e;
+}
 /* ── AUDIT TRAIL ── */
 .audit-empty {
   padding: 14px;

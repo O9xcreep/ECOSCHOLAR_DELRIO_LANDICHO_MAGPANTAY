@@ -42,6 +42,7 @@
 .banner-green { background: #d1fae5; color: #065f46; border-left: 4px solid #10b981; }
 .banner-red   { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
 .banner-blue  { background: #dbeafe; color: #1d4ed8; border-left: 4px solid #2563eb; }
+.banner-yellow { background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; }
 
 .av-submitted {
   font-size: 12px;
