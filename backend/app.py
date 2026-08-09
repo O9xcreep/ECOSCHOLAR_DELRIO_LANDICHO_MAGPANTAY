@@ -161,6 +161,24 @@ def build_score_breakdown(row, applicant):
         {"label": "Housing Need Score", "value": house_s, "color": "#ec4899"},
     ]
 
+# Every value in build_score_breakdown() is oriented so that higher = more favorable
+# for approval (better grades, lower income, more financial need, etc.), so the
+# lowest-scoring component(s) are a reasonable plain-language explanation for a
+# rejection - not the model's actual internal feature attribution, same caveat as
+# build_score_breakdown() itself.
+REJECTION_REASON_TEXT = {
+    "GWA Score": "academic performance (GWA) was below the typical threshold for approved applicants",
+    "Income Need Score": "estimated household income was higher than typical for approved applicants",
+    "Family Size Score": "household/family size was smaller than typical for approved applicants",
+    "Parental Education Need": "parents' education level was higher than typical for approved applicants, indicating comparatively lower financial need",
+    "Housing Need Score": "housing situation showed less financial need than typical for approved applicants",
+}
+
+def generate_rejection_reason(breakdown):
+    weakest = sorted(breakdown, key=lambda b: b['value'])[:2]
+    reasons = [REJECTION_REASON_TEXT.get(b['label'], b['label']) for b in weakest]
+    return "Primary factors: " + "; and ".join(reasons) + "."
+
 # ── UPLOAD CONFIG ──
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
@@ -207,6 +225,14 @@ def oid(id_str):
 
 def iso(dt):
     return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else None
+
+def derive_city(address):
+    """Addresses are stored as "street, city, province" (see the registration/
+    application address field) - pull out just the city for display in listings."""
+    if not address:
+        return None
+    parts = [p.strip() for p in address.split(',') if p.strip()]
+    return parts[-2] if len(parts) >= 2 else None
 
 # ── AUTH HELPERS ──
 def issue_token(user):
@@ -313,6 +339,8 @@ def serialize_applicant(doc):
         "reviewed_at": iso(application.get('reviewed_at')),
         "reviewed_by_name": application.get('reviewed_by_name'),
         "application_type": application.get('application_type'),
+        "rejection_reason": application.get('rejection_reason'),
+        "city": derive_city(doc.get('address')),
     }
 
 def serialize_document(d):
@@ -829,17 +857,26 @@ def verify_and_decide(applicant_id):
         final_status = 'Approved' if ml_status == 'Eligible' else 'Rejected'
         old_status = (applicant.get('application') or {}).get('status', '')
         now = datetime.utcnow()
+        breakdown = build_score_breakdown(row, applicant)
+
+        rejection_reason = generate_rejection_reason(breakdown) if final_status == 'Rejected' else None
+        remarks = f'ML score: {ml_score} ({ml_status})'
+        if rejection_reason:
+            remarks += f' - {rejection_reason}'
+
+        set_fields = {
+            "application.status": final_status,
+            "application.reviewed_at": now,
+            "application.reviewed_by_name": reviewed_by,
+            "ml_score": ml_score,
+            "ml_status": ml_status,
+            "application.rejection_reason": rejection_reason,
+        }
 
         db.applicants.update_one(
             {"_id": applicant_oid},
             {
-                "$set": {
-                    "application.status": final_status,
-                    "application.reviewed_at": now,
-                    "application.reviewed_by_name": reviewed_by,
-                    "ml_score": ml_score,
-                    "ml_status": ml_status,
-                },
+                "$set": set_fields,
                 "$push": {
                     "audit_trail": {
                         "action": f'Documents verified by admin - model decided: {final_status}',
@@ -847,7 +884,7 @@ def verify_and_decide(applicant_id):
                         "performed_by_role": "admin",
                         "old_status": old_status,
                         "new_status": final_status,
-                        "remarks": f'ML score: {ml_score} ({ml_status})',
+                        "remarks": remarks,
                         "performed_at": now,
                     }
                 }
@@ -855,9 +892,12 @@ def verify_and_decide(applicant_id):
         )
 
         notify_user_id = resolve_notify_user_id(db, applicant)
+        notif_message = STATUS_MESSAGES[final_status]
+        if rejection_reason:
+            notif_message += f' {rejection_reason}'
         create_notification(
             db, notify_user_id, applicant_oid,
-            STATUS_MESSAGES[final_status], STATUS_NOTIF_TYPE[final_status]
+            notif_message, STATUS_NOTIF_TYPE[final_status]
         )
 
         return jsonify({
@@ -866,7 +906,8 @@ def verify_and_decide(applicant_id):
             "ml_score": ml_score,
             "ml_status": ml_status,
             "regressor_cutoff": ml_regressor_cutoff,
-            "breakdown": build_score_breakdown(row, applicant),
+            "breakdown": breakdown,
+            "rejection_reason": rejection_reason,
             "reviewed_by": reviewed_by
         })
 
@@ -1263,6 +1304,71 @@ def get_stats():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
+# ── SCHOLARS APPROVED PER ACADEMIC YEAR ──
+@app.route('/api/stats/scholars-per-year', methods=['GET'])
+@require_role('admin')
+def scholars_per_year():
+    try:
+        db = get_db()
+        pipeline = [
+            {"$match": {"application.status": "Approved", "academic.academic_year": {"$ne": None}}},
+            {"$group": {"_id": "$academic.academic_year", "count": {"$sum": 1}}},
+            {"$sort": {"_id": 1}},
+        ]
+        results = list(db.applicants.aggregate(pipeline))
+        return jsonify({"scholars_per_year": [{"year": r["_id"], "count": r["count"]} for r in results]})
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── SYSTEM-WIDE DECISION HISTORY LOG (for the admin dashboard) ──
+@app.route('/api/history-log', methods=['GET'])
+@require_role('admin')
+def get_history_log():
+    try:
+        limit = min(max(int(request.args.get('limit', 20)), 1), 100)
+        db = get_db()
+        pipeline = [
+            {"$unwind": "$audit_trail"},
+            {"$match": {"audit_trail.new_status": {"$in": ["Approved", "Rejected"]}}},
+            {"$sort": {"audit_trail.performed_at": -1}},
+            {"$limit": limit},
+            {"$project": {
+                "_id": 0,
+                "applicant_id": {"$toString": "$_id"},
+                "full_name": "$full_name",
+                "address": "$address",
+                "course": "$academic.course",
+                "old_status": "$audit_trail.old_status",
+                "new_status": "$audit_trail.new_status",
+                "remarks": "$audit_trail.remarks",
+                "performed_by": "$audit_trail.performed_by",
+                "performed_at": "$audit_trail.performed_at",
+            }},
+        ]
+        results = list(db.applicants.aggregate(pipeline))
+        history = []
+        for r in results:
+            history.append({
+                "applicant_id": r["applicant_id"],
+                "full_name": r.get("full_name"),
+                "city": derive_city(r.get("address")),
+                "course": r.get("course"),
+                "old_status": r.get("old_status"),
+                "new_status": r.get("new_status"),
+                "remarks": r.get("remarks"),
+                "performed_by": r.get("performed_by"),
+                "performed_at": iso(r.get("performed_at")),
+            })
+        return jsonify({"history": history})
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
 # ── SCORE SINGLE APPLICANT ──
 @app.route('/api/score-applicant/<applicant_id>', methods=['GET'])
 @require_role('admin')
@@ -1336,6 +1442,7 @@ def rank_applicants():
                 ranked.append({
                     'id': str(applicant['_id']),
                     'full_name': applicant['full_name'],
+                    'city': derive_city(applicant.get('address')),
                     'course': academic.get('course'),
                     'gpa': row['gpa'],
                     'monthly_income': applicant.get('monthly_income'),

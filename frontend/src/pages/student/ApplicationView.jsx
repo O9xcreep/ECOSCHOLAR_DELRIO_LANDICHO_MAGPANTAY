@@ -94,6 +94,10 @@ function ApplicationView() {
       }`}>
         <p>{STATUS_MESSAGES[status] || 'Your application is being processed.'}</p>
 
+        {status === 'Rejected' && application.rejection_reason && (
+          <p className="av-rejection-reason">{application.rejection_reason}</p>
+        )}
+
         {application.submitted_at && (
           <p className="av-submitted">
             Submitted: {new Date(application.submitted_at).toLocaleDateString('en-PH', {

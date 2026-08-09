@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { apiFetch } from '../../api'
 import './Dashboard.css'
 
@@ -25,6 +26,8 @@ function Dashboard() {
   const user = JSON.parse(localStorage.getItem('user') || '{}')
 
   const [duplicateFlags, setDuplicateFlags] = useState([])
+  const [scholarsPerYear, setScholarsPerYear] = useState([])
+  const [historyLog, setHistoryLog] = useState([])
 
 useEffect(() => {
   // Fetch stats
@@ -50,6 +53,18 @@ useEffect(() => {
     .then(res => res.json())
     .then(data => setDuplicateFlags(data.flags || []))
     .catch(err => console.error('Flags error:', err))
+
+  // Fetch scholars approved per academic year
+  apiFetch('/api/stats/scholars-per-year')
+    .then(res => res.json())
+    .then(data => setScholarsPerYear(data.scholars_per_year || []))
+    .catch(err => console.error('Scholars per year error:', err))
+
+  // Fetch recent decision history log
+  apiFetch('/api/history-log?limit=10')
+    .then(res => res.json())
+    .then(data => setHistoryLog(data.history || []))
+    .catch(err => console.error('History log error:', err))
 }, [])
 
   const statCards = [
@@ -87,6 +102,26 @@ useEffect(() => {
           ))}
         </div>
       )}
+
+      {/* Scholars Approved Per Year */}
+      <div className="dash-card">
+        <div className="card-header">
+          <h3>Scholars Approved Per Academic Year</h3>
+        </div>
+        {scholarsPerYear.length > 0 ? (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={scholarsPerYear}>
+              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="count" name="Scholars" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="chart-sub">No approved scholars yet.</p>
+        )}
+      </div>
+
       {/* Duplicate Alerts */}
       {duplicateFlags.length > 0 && (
         <div className="dash-card duplicate-alert-card">
@@ -141,6 +176,7 @@ useEffect(() => {
           <thead>
             <tr>
               <th>Applicant</th>
+              <th>City</th>
               <th>Course</th>
               <th>GWA</th>
               <th>Status</th>
@@ -150,7 +186,7 @@ useEffect(() => {
           <tbody>
             {recentApps.length === 0 ? (
               <tr>
-                <td colSpan="5" style={{ textAlign: 'center', color: '#aaa', padding: '20px' }}>
+                <td colSpan="6" style={{ textAlign: 'center', color: '#aaa', padding: '20px' }}>
                   No recent applications
                 </td>
               </tr>
@@ -158,6 +194,7 @@ useEffect(() => {
               recentApps.map((app, i) => (
                 <tr key={i}>
                   <td>{app.full_name}</td>
+                  <td className="date">{app.city || 'N/A'}</td>
                   <td>{app.course}</td>
                   <td className="gwa">{app.gpa}</td>
                   <td>
@@ -177,6 +214,43 @@ useEffect(() => {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* History Log - recent Approved/Rejected decisions with interpreted reasons */}
+      <div className="dash-card">
+        <div className="card-header">
+          <h3>History Log</h3>
+        </div>
+        {historyLog.length === 0 ? (
+          <p className="chart-sub">No decisions have been made yet.</p>
+        ) : (
+          <div className="history-list">
+            {historyLog.map((entry, i) => (
+              <div key={i} className="history-row">
+                <div className="history-info">
+                  <p className="history-name">
+                    {entry.full_name}
+                    {entry.city && <span className="history-city"> · {entry.city}</span>}
+                  </p>
+                  {entry.new_status === 'Rejected' && entry.remarks && (
+                    <p className="history-reason">{entry.remarks}</p>
+                  )}
+                  <p className="history-date">
+                    Decided by {entry.performed_by || 'System'} on{' '}
+                    {entry.performed_at
+                      ? new Date(entry.performed_at).toLocaleDateString('en-PH', {
+                          month: 'short', day: 'numeric', year: 'numeric'
+                        })
+                      : 'N/A'}
+                  </p>
+                </div>
+                <span className={`badge ${statusClass[entry.new_status] || 'badge-yellow'}`}>
+                  {entry.new_status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
     </div>

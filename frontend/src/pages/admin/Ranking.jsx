@@ -123,6 +123,7 @@ function Ranking() {
                     </td>
                     <td>
                       <p className="rank-name">{app.full_name}</p>
+                      {app.city && <p className="rank-city">{app.city}</p>}
                     </td>
                     <td className="rank-course">{app.course}</td>
                     <td className="rank-gwa">{app.gpa}</td>
@@ -190,7 +191,10 @@ function Ranking() {
                   {waitlisted.map(app => (
                     <tr key={app.id} className="waitlist-row">
                       <td>#{app.rank}</td>
-                      <td><p className="rank-name">{app.full_name}</p></td>
+                      <td>
+                        <p className="rank-name">{app.full_name}</p>
+                        {app.city && <p className="rank-city">{app.city}</p>}
+                      </td>
                       <td className="rank-course">{app.course}</td>
                       <td className="rank-gwa">{app.gpa}</td>
                       <td>

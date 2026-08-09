@@ -185,6 +185,13 @@
   font-size: 13px;
 }
 
+.rank-city {
+  font-weight: 400;
+  color: #888;
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
 .rank-course {
   font-size: 12px !important;
   color: #7c3aed !important;

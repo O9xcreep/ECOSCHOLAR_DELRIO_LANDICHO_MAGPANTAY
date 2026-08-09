@@ -49,6 +49,13 @@
   opacity: 0.8;
 }
 
+.av-rejection-reason {
+  font-size: 13px;
+  margin-top: 8px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
 /* ── CARD ── */
 .av-card {
   background: white;

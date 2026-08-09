@@ -149,6 +149,12 @@
   color: #1e293b;
 }
 
+.applicant-city {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: #888;
+}
+
 .applicant-course {
   font-size: 13px;
   color: #7c3aed;

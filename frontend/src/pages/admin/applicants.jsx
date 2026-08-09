@@ -122,7 +122,10 @@ function Applicants() {
                 </span>
               </div>
               <div className="card-body">
-                <h4 className="applicant-name">{applicant.full_name}</h4>
+                <h4 className="applicant-name">
+                  {applicant.full_name}
+                  {applicant.city && <span className="applicant-city"> · {applicant.city}</span>}
+                </h4>
                 <p className="applicant-course">{applicant.course}</p>
                 <p className="applicant-gwa">GWA: <strong>{applicant.gpa}</strong></p>
                 <p className="applicant-date">

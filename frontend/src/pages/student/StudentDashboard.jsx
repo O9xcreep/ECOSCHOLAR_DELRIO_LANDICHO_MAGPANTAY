@@ -183,6 +183,10 @@ function StudentDashboard() {
                       'Your application is incomplete. Please upload all required documents.'}
                   </p>
 
+                  {application.application_status === 'Rejected' && application.rejection_reason && (
+                    <p className="sd-rejection-reason">{application.rejection_reason}</p>
+                  )}
+
                   {/* Progress Bar */}
                   <div className="sd-progress-track">
                     <div
