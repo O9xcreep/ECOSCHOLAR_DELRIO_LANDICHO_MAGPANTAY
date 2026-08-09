@@ -6,6 +6,10 @@ function Ranking() {
   const [ranked, setRanked] = useState([])
   const [loading, setLoading] = useState(true)
   const [slots, setSlots] = useState(20)
+  const [savedLimit, setSavedLimit] = useState(20)
+  const [approvedCount, setApprovedCount] = useState(0)
+  const [savingLimit, setSavingLimit] = useState(false)
+  const [limitError, setLimitError] = useState('')
 
   const fetchRanking = async () => {
     setLoading(true)
@@ -19,12 +23,51 @@ function Ranking() {
     setLoading(false)
   }
 
+  const fetchSettings = async () => {
+    try {
+      const res = await apiFetch('/api/settings')
+      const data = await res.json()
+      if (typeof data.max_accepted === 'number') {
+        setSlots(data.max_accepted)
+        setSavedLimit(data.max_accepted)
+      }
+      if (typeof data.approved_count === 'number') setApprovedCount(data.approved_count)
+    } catch (err) {
+      console.error('Settings error:', err)
+    }
+  }
+
   useEffect(() => {
     fetchRanking()
+    fetchSettings()
   }, [])
 
-  const withinSlots = ranked.slice(0, slots)
-  const waitlisted = ranked.slice(slots)
+  const handleSaveLimit = async () => {
+    setLimitError('')
+    setSavingLimit(true)
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_accepted: slots })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setLimitError(data.error || 'Failed to update the applicant limit')
+        return
+      }
+      setSavedLimit(data.max_accepted)
+      setApprovedCount(data.approved_count)
+      await fetchRanking()
+    } catch {
+      setLimitError('Cannot connect to server. Please try again.')
+    } finally {
+      setSavingLimit(false)
+    }
+  }
+
+  const withinSlots = ranked.slice(0, savedLimit)
+  const waitlisted = ranked.slice(savedLimit)
 
   return (
     <div className="ranking-page">
@@ -39,21 +82,34 @@ function Ranking() {
         </div>
         <div className="ranking-controls">
           <div className="slots-control">
-            <label>Scholarship Slots:</label>
+            <label>Accepted Applicant Limit:</label>
             <input
               type="number"
               value={slots}
               min={1}
-              max={ranked.length}
               onChange={e => setSlots(Number(e.target.value))}
               className="slots-input"
             />
+            <button
+              className="btn-save-limit"
+              onClick={handleSaveLimit}
+              disabled={savingLimit || slots === savedLimit}>
+              {savingLimit ? 'Saving...' : 'Save'}
+            </button>
           </div>
           <button className="btn-refresh" onClick={fetchRanking}>
             Refresh
           </button>
         </div>
       </div>
+
+      {limitError && <div className="limit-error">{limitError}</div>}
+      <p className="limit-note">
+        Currently <strong>{approvedCount}</strong> of <strong>{savedLimit}</strong> slots
+        accepted. Approved status is always the top-{savedLimit} eligible applicants by ML
+        score - raising or lowering this limit, or verifying a new stronger applicant, can
+        automatically promote or bump others.
+      </p>
 
       {/* Stats */}
       <div className="ranking-stats">

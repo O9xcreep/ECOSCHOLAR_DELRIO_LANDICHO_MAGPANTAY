@@ -179,6 +179,69 @@ def generate_rejection_reason(breakdown):
     reasons = [REJECTION_REASON_TEXT.get(b['label'], b['label']) for b in weakest]
     return "Primary factors: " + "; and ".join(reasons) + "."
 
+# ── ACCEPTED APPLICANT LIMIT ──
+DEFAULT_APPLICANT_LIMIT = 20
+
+def get_applicant_limit(db):
+    doc = db.settings.find_one({"_id": "global"})
+    return (doc or {}).get("max_accepted", DEFAULT_APPLICANT_LIMIT)
+
+def recompute_approvals(db, limit, reviewed_by='System'):
+    """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score) among
+    everyone the classifier found Eligible. Run after every verify decision and
+    whenever the limit changes, since either can promote or bump applicants who
+    weren't directly touched by that specific action - a newly-verified strong
+    applicant can displace a previously-Approved weaker one, and raising the
+    limit can promote applicants who were waiting just below the old cutoff."""
+    eligible = list(db.applicants.find(
+        {"ml_status": "Eligible"},
+        {"ml_score": 1, "application": 1, "full_name": 1, "email": 1, "user_id": 1}
+    ))
+    eligible.sort(key=lambda a: a.get('ml_score', 0), reverse=True)
+
+    now = datetime.utcnow()
+    for i, applicant in enumerate(eligible):
+        should_be = 'Approved' if i < limit else 'Rejected'
+        current = (applicant.get('application') or {}).get('status')
+        if current == should_be:
+            continue
+
+        remarks = (
+            f'A scholarship slot became available (applicant limit: {limit}).'
+            if should_be == 'Approved' else
+            f'This applicant met the eligibility criteria, but the accepted applicant '
+            f'limit ({limit}) was reached by higher-ranked applicants.'
+        )
+
+        db.applicants.update_one(
+            {"_id": applicant["_id"]},
+            {
+                "$set": {
+                    "application.status": should_be,
+                    "application.reviewed_at": now,
+                    "application.reviewed_by_name": reviewed_by,
+                    "application.rejection_reason": remarks if should_be == 'Rejected' else None,
+                },
+                "$push": {
+                    "audit_trail": {
+                        "action": f'Auto re-ranked due to applicant limit - now {should_be}',
+                        "performed_by": reviewed_by,
+                        "performed_by_role": "system",
+                        "old_status": current,
+                        "new_status": should_be,
+                        "remarks": remarks,
+                        "performed_at": now,
+                    }
+                }
+            }
+        )
+
+        notify_user_id = resolve_notify_user_id(db, applicant)
+        create_notification(
+            db, notify_user_id, applicant["_id"],
+            STATUS_MESSAGES[should_be] + ' ' + remarks, STATUS_NOTIF_TYPE[should_be]
+        )
+
 # ── UPLOAD CONFIG ──
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
@@ -854,51 +917,67 @@ def verify_and_decide(applicant_id):
             }), 409
 
         ml_score, ml_status = score_with_model(row)
-        final_status = 'Approved' if ml_status == 'Eligible' else 'Rejected'
         old_status = (applicant.get('application') or {}).get('status', '')
         now = datetime.utcnow()
         breakdown = build_score_breakdown(row, applicant)
 
-        rejection_reason = generate_rejection_reason(breakdown) if final_status == 'Rejected' else None
-        remarks = f'ML score: {ml_score} ({ml_status})'
-        if rejection_reason:
-            remarks += f' - {rejection_reason}'
+        if ml_status == 'Not Eligible':
+            # Ineligible on the classifier's own terms - rejected outright, the
+            # accepted-applicant limit never even comes into play for this one.
+            final_status = 'Rejected'
+            rejection_reason = generate_rejection_reason(breakdown)
+            remarks = f'ML score: {ml_score} ({ml_status}) - {rejection_reason}'
 
-        set_fields = {
-            "application.status": final_status,
-            "application.reviewed_at": now,
-            "application.reviewed_by_name": reviewed_by,
-            "ml_score": ml_score,
-            "ml_status": ml_status,
-            "application.rejection_reason": rejection_reason,
-        }
-
-        db.applicants.update_one(
-            {"_id": applicant_oid},
-            {
-                "$set": set_fields,
-                "$push": {
-                    "audit_trail": {
-                        "action": f'Documents verified by admin - model decided: {final_status}',
-                        "performed_by": reviewed_by,
-                        "performed_by_role": "admin",
-                        "old_status": old_status,
-                        "new_status": final_status,
-                        "remarks": remarks,
-                        "performed_at": now,
+            db.applicants.update_one(
+                {"_id": applicant_oid},
+                {
+                    "$set": {
+                        "application.status": final_status,
+                        "application.reviewed_at": now,
+                        "application.reviewed_by_name": reviewed_by,
+                        "ml_score": ml_score,
+                        "ml_status": ml_status,
+                        "application.rejection_reason": rejection_reason,
+                    },
+                    "$push": {
+                        "audit_trail": {
+                            "action": f'Documents verified by admin - model decided: {final_status}',
+                            "performed_by": reviewed_by,
+                            "performed_by_role": "admin",
+                            "old_status": old_status,
+                            "new_status": final_status,
+                            "remarks": remarks,
+                            "performed_at": now,
+                        }
                     }
                 }
-            }
-        )
+            )
 
-        notify_user_id = resolve_notify_user_id(db, applicant)
-        notif_message = STATUS_MESSAGES[final_status]
-        if rejection_reason:
-            notif_message += f' {rejection_reason}'
-        create_notification(
-            db, notify_user_id, applicant_oid,
-            notif_message, STATUS_NOTIF_TYPE[final_status]
-        )
+            notify_user_id = resolve_notify_user_id(db, applicant)
+            create_notification(
+                db, notify_user_id, applicant_oid,
+                STATUS_MESSAGES[final_status] + ' ' + rejection_reason, STATUS_NOTIF_TYPE[final_status]
+            )
+        else:
+            # Eligible on its own - but whether it's actually Approved depends on
+            # how it ranks against everyone else within the accepted applicant
+            # limit, so hand the final call to recompute_approvals(). That also
+            # re-evaluates every other Eligible applicant, since this one entering
+            # the pool can bump a previously-Approved but lower-scoring applicant.
+            db.applicants.update_one(
+                {"_id": applicant_oid},
+                {"$set": {
+                    "ml_score": ml_score,
+                    "ml_status": ml_status,
+                    "application.reviewed_by_name": reviewed_by,
+                }}
+            )
+            limit = get_applicant_limit(db)
+            recompute_approvals(db, limit, reviewed_by=reviewed_by)
+
+            applicant = db.applicants.find_one({"_id": applicant_oid})
+            final_status = applicant['application']['status']
+            rejection_reason = applicant['application'].get('rejection_reason')
 
         return jsonify({
             "applicant_id": applicant_id,
@@ -1274,6 +1353,35 @@ def resolve_flag(flag_id):
         db = get_db()
         db.duplicate_flags.update_one({"_id": flag_oid}, {"$set": {"resolved": True}})
         return jsonify({"message": "Flag resolved"})
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── ACCEPTED APPLICANT LIMIT SETTING ──
+@app.route('/api/settings', methods=['GET'])
+@require_role('admin')
+def get_settings():
+    db = get_db()
+    limit = get_applicant_limit(db)
+    approved_count = db.applicants.count_documents({"application.status": "Approved"})
+    return jsonify({"max_accepted": limit, "approved_count": approved_count})
+
+@app.route('/api/settings', methods=['PUT'])
+@require_role('admin')
+def update_settings():
+    data = request.get_json() or {}
+    max_accepted = data.get('max_accepted')
+    if not isinstance(max_accepted, int) or isinstance(max_accepted, bool) or max_accepted < 1:
+        return jsonify({"error": "max_accepted must be a positive integer"}), 400
+
+    try:
+        db = get_db()
+        db.settings.update_one({"_id": "global"}, {"$set": {"max_accepted": max_accepted}}, upsert=True)
+        recompute_approvals(db, max_accepted, reviewed_by=g.current_user.get('email', 'Admin'))
+        approved_count = db.applicants.count_documents({"application.status": "Approved"})
+        return jsonify({"message": "Settings updated", "max_accepted": max_accepted, "approved_count": approved_count})
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
