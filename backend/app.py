@@ -260,6 +260,10 @@ def require_role(*roles):
 def too_large(e):
     return jsonify({"error": "File exceeds the 5MB upload limit"}), 413
 
+@app.errorhandler(429)
+def rate_limited(e):
+    return jsonify({"error": "Too many attempts. Please wait a minute and try again."}), 429
+
 # ── SERIALIZATION HELPERS ──
 def serialize_applicant(doc):
     """Flatten an applicant document (with embedded academic/application) into
