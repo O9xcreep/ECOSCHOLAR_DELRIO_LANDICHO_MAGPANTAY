@@ -976,7 +976,7 @@ function Login() {
                         <input
                           className="lp-input"
                           type="text"
-                          placeholder="Dela Cruz"
+                          placeholder="Last Name"
                           value={regData.lastName}
                           autoComplete="family-name"
                           onChange={e => { setRegData(p => ({ ...p, lastName: e.target.value })); setRegError('') }}
@@ -989,7 +989,7 @@ function Login() {
                         <input
                           className="lp-input"
                           type="text"
-                          placeholder="Juan"
+                          placeholder="First Name"
                           value={regData.firstName}
                           autoComplete="given-name"
                           onChange={e => { setRegData(p => ({ ...p, firstName: e.target.value })); setRegError('') }}
@@ -999,11 +999,12 @@ function Login() {
                     </div>
 
                     <div className="lp-field">
-                      <label>Middle Name <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
+                      <label>Middle Initial <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
                       <input
                         className="lp-input"
                         type="text"
-                        placeholder="Santos"
+                        placeholder="Middle Initial"
+                        maxLength={1}
                         value={regData.middleName}
                         autoComplete="additional-name"
                         onChange={e => { setRegData(p => ({ ...p, middleName: e.target.value })); setRegError('') }}
@@ -1107,7 +1108,7 @@ function Login() {
 
                     {regError && <div className="lp-alert error">{regError}</div>}
 
-                    <p className="lp-section-title">Core Identity</p>
+                    <p className="lp-section-title">Personal Info</p>
                     <div className="lp-form-grid-2">
                       <div className="lp-field">
                         <label>Gender</label>
