@@ -418,6 +418,20 @@ def logout():
     return jsonify({"message": "Logged out"})
 
 
+# Personal-info fields collected at registration (mirrors ApplicationForm's Step 1) so an
+# applicant doesn't have to retype them when they later submit an application - see
+# get_profile() below, which hands these back for ApplicationForm to prefill itself with.
+PROFILE_FIELDS = [
+    'dob', 'gender', 'religion', 'citizenship', 'contactNumber', 'address',
+    'fatherName', 'fatherOccupation', 'fatherEducation',
+    'motherName', 'motherOccupation', 'motherEducation',
+    'monthlyIncome', 'familySize', 'numSiblings', 'numSiblingsStudying',
+    'housingSituation', 'hasOtherScholarship', 'otherScholarshipDetails',
+]
+
+def _is_blank(v):
+    return v is None or (isinstance(v, str) and v.strip() == '')
+
 # ── AUTH: REGISTER ──
 @app.route("/api/register", methods=["POST"])
 @limiter.limit("8 per minute")
@@ -433,6 +447,37 @@ def register():
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
+    profile_data = {}
+    for field in PROFILE_FIELDS:
+        value = data.get(field, '')
+        profile_data[field] = value.strip() if isinstance(value, str) else value
+
+    required_profile_fields = [f for f in PROFILE_FIELDS if f != 'otherScholarshipDetails']
+    missing = [f for f in required_profile_fields if _is_blank(profile_data.get(f))]
+    if missing:
+        return jsonify({"error": "All personal information fields are required"}), 400
+
+    if profile_data['gender'] not in ('Male', 'Female'):
+        return jsonify({"error": "Gender must be Male or Female"}), 400
+    if profile_data['fatherEducation'] not in ml_education_map or profile_data['motherEducation'] not in ml_education_map:
+        return jsonify({"error": "Invalid education level"}), 400
+    if profile_data['fatherOccupation'] not in ml_occupation_categories or profile_data['motherOccupation'] not in ml_occupation_categories:
+        return jsonify({"error": "Invalid occupation category"}), 400
+    if profile_data['housingSituation'] not in ml_housing_situations:
+        return jsonify({"error": "Invalid housing situation"}), 400
+    if profile_data['hasOtherScholarship'] not in ('yes', 'no'):
+        return jsonify({"error": "Invalid scholarship answer"}), 400
+    if profile_data['hasOtherScholarship'] == 'yes' and _is_blank(profile_data.get('otherScholarshipDetails')):
+        return jsonify({"error": "Please provide details about your other scholarship"}), 400
+
+    try:
+        profile_data['monthlyIncome'] = float(profile_data['monthlyIncome'])
+        profile_data['familySize'] = int(profile_data['familySize'])
+        profile_data['numSiblings'] = int(profile_data['numSiblings'])
+        profile_data['numSiblingsStudying'] = int(profile_data['numSiblingsStudying'])
+    except (TypeError, ValueError):
+        return jsonify({"error": "Income, family size, and sibling counts must be numbers"}), 400
+
     try:
         db = get_db()
 
@@ -447,6 +492,7 @@ def register():
             "status": "active",
             "created_at": datetime.utcnow(),
             "privacy_consent": True,
+            **profile_data,
         })
 
         user_payload = {"id": str(result.inserted_id), "full_name": full_name, "email": email, "role": "student"}
@@ -461,6 +507,26 @@ def register():
         if DEBUG:
             raise
         return jsonify({"error": "Registration failed"}), 500
+
+# ── AUTH: GET PROFILE (for pre-filling the application form) ──
+@app.route('/api/profile', methods=['GET'])
+@require_auth
+def get_profile():
+    db = get_db()
+    user = db.users.find_one({"_id": oid(g.current_user['id'])})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    profile = {"fullName": user.get('full_name', ''), "email": user.get('email', '')}
+    for field in PROFILE_FIELDS:
+        value = user.get(field, '')
+        if isinstance(value, float):
+            profile[field] = str(int(value)) if value.is_integer() else str(value)
+        elif isinstance(value, int):
+            profile[field] = str(value)
+        else:
+            profile[field] = value or ''
+    return jsonify({"profile": profile})
 
 # ── GET ALL APPLICANTS ──
 @app.route('/api/applicants', methods=['GET'])

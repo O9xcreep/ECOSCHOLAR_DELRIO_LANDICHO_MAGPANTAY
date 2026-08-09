@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../../api'
 import './ApplicationForm.css'
@@ -632,6 +632,28 @@ function ApplicationForm() {
     schoolId: null, grade12: null,
     fourPsCert: null, proofOfIncome: null
   })
+
+  // Personal info collected at registration pre-fills Step 1 so it isn't retyped here.
+  // Only blank fields are filled in, so anything the user has already started editing wins.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/api/profile')
+        if (!res.ok) return
+        const { profile } = await res.json()
+        setStep1Data(prev => {
+          const next = { ...prev }
+          for (const key of Object.keys(profile)) {
+            if (key === 'email') continue
+            if (profile[key] && !next[key]) next[key] = profile[key]
+          }
+          return next
+        })
+      } catch {
+        // profile pre-fill is a convenience, not required for the form to work
+      }
+    })()
+  }, [])
 
   const handleStep1Change = (field, value) => {
     if (field === 'email') return

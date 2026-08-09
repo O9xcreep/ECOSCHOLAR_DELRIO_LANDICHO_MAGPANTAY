@@ -132,6 +132,7 @@ const css = `
     max-width: 460px;
     box-shadow: var(--shadow-lg);
     animation: slideUp .4s ease;
+    transition: max-width .2s ease;
   }
 
   @keyframes slideUp {
@@ -218,6 +219,59 @@ const css = `
   }
 
   /* ── FIELDS ── */
+  .lp-card-wide { max-width: 760px; }
+
+  .lp-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+  @media (max-width: 640px) { .lp-form-grid-2 { grid-template-columns: 1fr; } }
+
+  .lp-section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin: 22px 0 12px;
+  }
+  .lp-section-title:first-of-type { margin-top: 4px; }
+
+  .lp-step-indicator {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+
+  select.lp-input { cursor: pointer; }
+
+  .lp-radio-group { display: flex; flex-direction: column; gap: 8px; }
+  .lp-radio-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 13.5px;
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .lp-radio-option input { margin-top: 3px; accent-color: var(--brand); flex-shrink: 0; }
+
+  .lp-field-err { font-size: 12px; color: var(--danger); margin-top: 4px; }
+
+  .lp-step-btns { display: flex; gap: 12px; margin-top: 4px; }
+  .lp-step-btns .lp-btn { width: auto; flex: 1; }
+  .lp-btn-back {
+    flex: 0 0 auto;
+    padding: 13px 22px;
+    border-radius: var(--radius);
+    border: 1.5px solid var(--border);
+    background: #fff;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 14.5px;
+    cursor: pointer;
+    transition: background var(--transition);
+  }
+  .lp-btn-back:hover { background: var(--bg-input); }
+
   .lp-field { margin-bottom: 16px; }
 
   .lp-field label {
@@ -525,6 +579,70 @@ function getStrength(pw) {
   return score // 0 = none, 1 = weak, 2 = fair, 3 = strong
 }
 
+// These three lists must match the eligibility model's encoding exactly
+// (see backend/schema/ml_model.md) - keep in sync with ApplicationForm.jsx.
+const EDUCATION_LEVELS = ['None', 'Elementary', 'High School', 'Vocational', 'College', 'Postgraduate']
+const OCCUPATION_CATEGORIES = [
+  'Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade',
+  'Office/Clerical', 'Professional', 'Deceased/Not Applicable'
+]
+const HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
+const RELIGIONS = [
+  'Roman Catholic', 'Iglesia ni Cristo', 'Islam', 'Born Again Christian',
+  'Seventh Day Adventist', 'Jesus Miracle Crusade', 'Others'
+]
+
+// Municipalities currently served. Add another { city, province } entry here to make
+// it selectable in the registration address dropdown - nothing else needs to change.
+const ADDRESS_CITIES = [
+  { city: 'Liliw', province: 'Laguna' },
+  { city: 'Tiaong', province: 'Quezon' },
+]
+
+const EMPTY_REG_DATA = {
+  full_name: '', email: '', password: '', confirm_password: '',
+  dob: '', gender: '', religion: '', citizenship: 'Filipino', contactNumber: '',
+  street: '', city: '',
+  fatherName: '', fatherOccupation: '', fatherEducation: '',
+  motherName: '', motherOccupation: '', motherEducation: '',
+  monthlyIncome: '', familySize: '', numSiblings: '', numSiblingsStudying: '',
+  housingSituation: '', hasOtherScholarship: '', otherScholarshipDetails: '',
+}
+
+// ── VALIDATE STEP 2 OF REGISTRATION (personal info) ──
+function validateRegPersonalInfo(d) {
+  const errors = {}
+  if (!d.dob) errors.dob = 'Date of birth is required'
+  if (!d.gender) errors.gender = 'Gender is required'
+  if (!d.religion) errors.religion = 'Religion is required'
+  if (!d.citizenship.trim()) errors.citizenship = 'Citizenship is required'
+  if (!d.contactNumber.trim()) errors.contactNumber = 'Contact number is required'
+  else if (!/^09\d{9}$/.test(d.contactNumber.replace(/\s/g, '')))
+    errors.contactNumber = 'Enter a valid PH number (e.g. 09123456789)'
+  if (!d.street.trim()) errors.street = 'Street/Barangay is required'
+  if (!d.city) errors.city = 'City/Municipality is required'
+  if (!d.fatherName.trim()) errors.fatherName = "Father's name is required"
+  if (!d.fatherOccupation) errors.fatherOccupation = "Father's occupation is required"
+  if (!d.fatherEducation) errors.fatherEducation = "Father's education level is required"
+  if (!d.motherName.trim()) errors.motherName = "Mother's name is required"
+  if (!d.motherOccupation) errors.motherOccupation = "Mother's occupation is required"
+  if (!d.motherEducation) errors.motherEducation = "Mother's education level is required"
+  if (!d.monthlyIncome) errors.monthlyIncome = 'Monthly household income is required'
+  else if (d.monthlyIncome < 0) errors.monthlyIncome = 'Enter a valid amount'
+  if (!d.familySize) errors.familySize = 'Family size is required'
+  else if (d.familySize < 1 || d.familySize > 20) errors.familySize = 'Enter a valid family size (1-20)'
+  if (d.numSiblings === '') errors.numSiblings = 'Number of siblings is required'
+  else if (d.numSiblings < 0 || d.numSiblings > 20) errors.numSiblings = 'Enter a valid number (0-20)'
+  if (d.numSiblingsStudying === '') errors.numSiblingsStudying = 'This field is required'
+  else if (d.numSiblingsStudying < 0 || Number(d.numSiblingsStudying) > Number(d.numSiblings || 0))
+    errors.numSiblingsStudying = 'Cannot exceed total number of siblings'
+  if (!d.housingSituation) errors.housingSituation = 'Housing situation is required'
+  if (!d.hasOtherScholarship) errors.hasOtherScholarship = 'Please indicate if you have other scholarships'
+  if (d.hasOtherScholarship === 'yes' && !d.otherScholarshipDetails.trim())
+    errors.otherScholarshipDetails = 'Please provide details about your other scholarships'
+  return errors
+}
+
 function PasswordStrength({ password }) {
   if (!password) return null
   const score = getStrength(password)
@@ -553,7 +671,9 @@ function Login() {
   const [loginLoading, setLoginLoading] = useState(false)
 
   // ── REGISTER ──
-  const [regData, setRegData] = useState({ full_name: '', email: '', password: '', confirm_password: '' })
+  const [regStep, setRegStep] = useState(1)
+  const [regData, setRegData] = useState(EMPTY_REG_DATA)
+  const [regFieldErrors, setRegFieldErrors] = useState({})
   const [showRegPw, setShowRegPw] = useState(false)
   const [showConfirmPw, setShowConfirmPw] = useState(false)
   const [regError, setRegError] = useState('')
@@ -573,6 +693,8 @@ function Login() {
   setLoginError('')
   setRegError('')
   setPrivacyConsent(false)
+  setRegStep(1)
+  setRegFieldErrors({})
 }
 
   // ── LOGIN HANDLER ──
@@ -608,8 +730,8 @@ function Login() {
     }
   }, [loginData, navigate])
 
-  // ── REGISTER HANDLER ──
-  const handleRegister = useCallback(async () => {
+  // ── REGISTER STEP 1 -> STEP 2 ──
+  const handleRegNext = useCallback(() => {
     setRegError('')
     const { full_name, email, password, confirm_password } = regData
 
@@ -617,17 +739,57 @@ function Login() {
     if (!email.trim())                        { setRegError('Email is required'); return }
     if (!/\S+@\S+\.\S+/.test(email))         { setRegError('Enter a valid email address'); return }
     if (!password)                            { setRegError('Password is required'); return }
-    if (password.length < 6)                  { setRegError('Password must be at least 6 characters'); return }
+    if (password.length < 8)                  { setRegError('Password must be at least 8 characters'); return }
     if (getStrength(password) < 1)            { setRegError('Please choose a stronger password'); return }
     if (password !== confirm_password)        { setRegError('Passwords do not match'); return }
     if (!privacyConsent)                      {setRegError('You must agree to the Data Privacy Act to create an account');return}
+
+    setRegStep(2)
+  }, [regData, privacyConsent])
+
+  // ── REGISTER SUBMIT (STEP 2) ──
+  const handleRegister = useCallback(async () => {
+    setRegError('')
+    const fieldErrors = validateRegPersonalInfo(regData)
+    if (Object.keys(fieldErrors).length > 0) {
+      setRegFieldErrors(fieldErrors)
+      setRegError('Please fill in all required fields')
+      return
+    }
+    setRegFieldErrors({})
+
+    const selectedCity = ADDRESS_CITIES.find(c => c.city === regData.city)
+    const address = `${regData.street.trim()}, ${regData.city}, ${selectedCity ? selectedCity.province : ''}`
 
     setRegLoading(true)
     try {
       const res = await fetch(`${API_BASE_URL}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_name: full_name.trim(), email: email.trim().toLowerCase(), password })
+        body: JSON.stringify({
+          full_name: regData.full_name.trim(),
+          email: regData.email.trim().toLowerCase(),
+          password: regData.password,
+          dob: regData.dob,
+          gender: regData.gender,
+          religion: regData.religion,
+          citizenship: regData.citizenship.trim(),
+          contactNumber: regData.contactNumber.trim(),
+          address,
+          fatherName: regData.fatherName.trim(),
+          fatherOccupation: regData.fatherOccupation,
+          fatherEducation: regData.fatherEducation,
+          motherName: regData.motherName.trim(),
+          motherOccupation: regData.motherOccupation,
+          motherEducation: regData.motherEducation,
+          monthlyIncome: regData.monthlyIncome,
+          familySize: regData.familySize,
+          numSiblings: regData.numSiblings,
+          numSiblingsStudying: regData.numSiblingsStudying,
+          housingSituation: regData.housingSituation,
+          hasOtherScholarship: regData.hasOtherScholarship,
+          otherScholarshipDetails: regData.otherScholarshipDetails,
+        })
       })
       const data = await res.json()
 
@@ -642,7 +804,7 @@ function Login() {
     } finally {
       setRegLoading(false)
     }
-  }, [regData, privacyConsent])
+  }, [regData])
 
   // ── FORGOT HANDLER ──
   const handleForgot = useCallback(async () => {
@@ -658,7 +820,10 @@ function Login() {
   }, [forgotEmail])
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter') tab === 'login' ? handleLogin() : handleRegister()
+    if (e.key !== 'Enter') return
+    if (tab === 'login') handleLogin()
+    else if (regStep === 1) handleRegNext()
+    else handleRegister()
   }
 
   return (
@@ -684,7 +849,7 @@ function Login() {
 
         {/* ── RIGHT ── */}
         <div className="lp-right">
-          <div className="lp-card">
+          <div className={`lp-card${tab === 'register' && regStep === 2 && !regSuccess ? ' lp-card-wide' : ''}`}>
 
             {/* Mobile logo */}
             <div className="lp-mobile-logo">
@@ -780,15 +945,17 @@ function Login() {
                     <button className="lp-btn" onClick={() => {
                       setTab('login')
                       setRegSuccess(false)
-                      setRegData({ full_name: '', email: '', password: '', confirm_password: '' })
+                      setRegStep(1)
+                      setRegData(EMPTY_REG_DATA)
                     }}>
                       Go to Sign In
                     </button>
                   </div>
-                ) : (
+                ) : regStep === 1 ? (
                   <>
                     <h2 className="lp-title">Create Account</h2>
                     <p className="lp-sub">Register as a student to apply for scholarships</p>
+                    <p className="lp-step-indicator">Step 1 of 2 — Account</p>
 
                     {regError && <div className="lp-alert error">{regError}</div>}
 
@@ -824,7 +991,7 @@ function Login() {
                         <input
                           className="lp-input has-icon"
                           type={showRegPw ? 'text' : 'password'}
-                          placeholder="At least 6 characters"
+                          placeholder="At least 8 characters"
                           value={regData.password}
                           autoComplete="new-password"
                           onChange={e => { setRegData(p => ({ ...p, password: e.target.value })); setRegError('') }}
@@ -882,14 +1049,273 @@ function Login() {
                         </span>
                       </label>
                     </div>
-                    <button className="lp-btn" onClick={handleRegister} disabled={regLoading}>
-                      {regLoading ? <><span className="spinner" /> Creating Account…</> : 'Create Account'}
+                    <button className="lp-btn" onClick={handleRegNext}>
+                      Next: Personal Information
                     </button>
 
                     <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
                       Already have an account?{' '}
                       <button className="lp-link" type="button" onClick={() => switchTab('login')}>Sign in here</button>
                     </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="lp-title">Create Account</h2>
+                    <p className="lp-sub">
+                      This information is reused to pre-fill your scholarship application later, so you won't need to type it twice.
+                    </p>
+                    <p className="lp-step-indicator">Step 2 of 2 — Personal Information</p>
+
+                    {regError && <div className="lp-alert error">{regError}</div>}
+
+                    <p className="lp-section-title">Core Identity</p>
+                    <div className="lp-form-grid-2">
+                      <div className="lp-field">
+                        <label>Gender</label>
+                        <select
+                          className={`lp-input${regFieldErrors.gender ? ' input-err' : ''}`}
+                          value={regData.gender}
+                          onChange={e => { setRegData(p => ({ ...p, gender: e.target.value })); setRegError('') }}>
+                          <option value="">Select gender</option>
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                        </select>
+                        {regFieldErrors.gender && <p className="lp-field-err">{regFieldErrors.gender}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Date of Birth</label>
+                        <input
+                          className={`lp-input${regFieldErrors.dob ? ' input-err' : ''}`}
+                          type="date"
+                          value={regData.dob}
+                          onChange={e => { setRegData(p => ({ ...p, dob: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.dob && <p className="lp-field-err">{regFieldErrors.dob}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Religion</label>
+                        <select
+                          className={`lp-input${regFieldErrors.religion ? ' input-err' : ''}`}
+                          value={regData.religion}
+                          onChange={e => { setRegData(p => ({ ...p, religion: e.target.value })); setRegError('') }}>
+                          <option value="">Select religion</option>
+                          {RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                        {regFieldErrors.religion && <p className="lp-field-err">{regFieldErrors.religion}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Citizenship</label>
+                        <input
+                          className={`lp-input${regFieldErrors.citizenship ? ' input-err' : ''}`}
+                          type="text" placeholder="Filipino"
+                          value={regData.citizenship}
+                          onChange={e => { setRegData(p => ({ ...p, citizenship: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.citizenship && <p className="lp-field-err">{regFieldErrors.citizenship}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Contact Number</label>
+                        <input
+                          className={`lp-input${regFieldErrors.contactNumber ? ' input-err' : ''}`}
+                          type="text" placeholder="09123456789"
+                          value={regData.contactNumber}
+                          onChange={e => { setRegData(p => ({ ...p, contactNumber: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.contactNumber && <p className="lp-field-err">{regFieldErrors.contactNumber}</p>}
+                      </div>
+                    </div>
+
+                    <p className="lp-section-title">Address</p>
+                    <div className="lp-form-grid-2">
+                      <div className="lp-field">
+                        <label>Street / Barangay</label>
+                        <input
+                          className={`lp-input${regFieldErrors.street ? ' input-err' : ''}`}
+                          type="text" placeholder="e.g. Purok 3, Brgy. San Isidro"
+                          value={regData.street}
+                          onChange={e => { setRegData(p => ({ ...p, street: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.street && <p className="lp-field-err">{regFieldErrors.street}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>City / Municipality</label>
+                        <select
+                          className={`lp-input${regFieldErrors.city ? ' input-err' : ''}`}
+                          value={regData.city}
+                          onChange={e => { setRegData(p => ({ ...p, city: e.target.value })); setRegError('') }}>
+                          <option value="">Select city / municipality</option>
+                          {ADDRESS_CITIES.map(c => (
+                            <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
+                          ))}
+                        </select>
+                        {regFieldErrors.city && <p className="lp-field-err">{regFieldErrors.city}</p>}
+                      </div>
+                    </div>
+
+                    <p className="lp-section-title">Parental Details</p>
+                    <div className="lp-form-grid-2">
+                      <div className="lp-field">
+                        <label>Father's Name</label>
+                        <input
+                          className={`lp-input${regFieldErrors.fatherName ? ' input-err' : ''}`}
+                          type="text" placeholder="First M. Last"
+                          value={regData.fatherName}
+                          onChange={e => { setRegData(p => ({ ...p, fatherName: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.fatherName && <p className="lp-field-err">{regFieldErrors.fatherName}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Father's Occupation</label>
+                        <select
+                          className={`lp-input${regFieldErrors.fatherOccupation ? ' input-err' : ''}`}
+                          value={regData.fatherOccupation}
+                          onChange={e => { setRegData(p => ({ ...p, fatherOccupation: e.target.value })); setRegError('') }}>
+                          <option value="">Select occupation</option>
+                          {OCCUPATION_CATEGORIES.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                        {regFieldErrors.fatherOccupation && <p className="lp-field-err">{regFieldErrors.fatherOccupation}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Father's Education Level</label>
+                        <select
+                          className={`lp-input${regFieldErrors.fatherEducation ? ' input-err' : ''}`}
+                          value={regData.fatherEducation}
+                          onChange={e => { setRegData(p => ({ ...p, fatherEducation: e.target.value })); setRegError('') }}>
+                          <option value="">Select education level</option>
+                          {EDUCATION_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                        </select>
+                        {regFieldErrors.fatherEducation && <p className="lp-field-err">{regFieldErrors.fatherEducation}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Mother's Name</label>
+                        <input
+                          className={`lp-input${regFieldErrors.motherName ? ' input-err' : ''}`}
+                          type="text" placeholder="First M. Last"
+                          value={regData.motherName}
+                          onChange={e => { setRegData(p => ({ ...p, motherName: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.motherName && <p className="lp-field-err">{regFieldErrors.motherName}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Mother's Occupation</label>
+                        <select
+                          className={`lp-input${regFieldErrors.motherOccupation ? ' input-err' : ''}`}
+                          value={regData.motherOccupation}
+                          onChange={e => { setRegData(p => ({ ...p, motherOccupation: e.target.value })); setRegError('') }}>
+                          <option value="">Select occupation</option>
+                          {OCCUPATION_CATEGORIES.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                        {regFieldErrors.motherOccupation && <p className="lp-field-err">{regFieldErrors.motherOccupation}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Mother's Education Level</label>
+                        <select
+                          className={`lp-input${regFieldErrors.motherEducation ? ' input-err' : ''}`}
+                          value={regData.motherEducation}
+                          onChange={e => { setRegData(p => ({ ...p, motherEducation: e.target.value })); setRegError('') }}>
+                          <option value="">Select education level</option>
+                          {EDUCATION_LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                        </select>
+                        {regFieldErrors.motherEducation && <p className="lp-field-err">{regFieldErrors.motherEducation}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Monthly Household Income (₱)</label>
+                        <input
+                          className={`lp-input${regFieldErrors.monthlyIncome ? ' input-err' : ''}`}
+                          type="number" placeholder="e.g. 15000" min="0" step="1"
+                          value={regData.monthlyIncome}
+                          onChange={e => { setRegData(p => ({ ...p, monthlyIncome: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.monthlyIncome && <p className="lp-field-err">{regFieldErrors.monthlyIncome}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Housing Situation</label>
+                        <select
+                          className={`lp-input${regFieldErrors.housingSituation ? ' input-err' : ''}`}
+                          value={regData.housingSituation}
+                          onChange={e => { setRegData(p => ({ ...p, housingSituation: e.target.value })); setRegError('') }}>
+                          <option value="">Select housing situation</option>
+                          {HOUSING_SITUATIONS.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                        {regFieldErrors.housingSituation && <p className="lp-field-err">{regFieldErrors.housingSituation}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Family Size</label>
+                        <input
+                          className={`lp-input${regFieldErrors.familySize ? ' input-err' : ''}`}
+                          type="number" placeholder="e.g. 5" min="1" max="20"
+                          value={regData.familySize}
+                          onChange={e => { setRegData(p => ({ ...p, familySize: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.familySize && <p className="lp-field-err">{regFieldErrors.familySize}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Number of Siblings</label>
+                        <input
+                          className={`lp-input${regFieldErrors.numSiblings ? ' input-err' : ''}`}
+                          type="number" placeholder="e.g. 2" min="0" max="20"
+                          value={regData.numSiblings}
+                          onChange={e => { setRegData(p => ({ ...p, numSiblings: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.numSiblings && <p className="lp-field-err">{regFieldErrors.numSiblings}</p>}
+                      </div>
+
+                      <div className="lp-field">
+                        <label>Siblings Currently Studying</label>
+                        <input
+                          className={`lp-input${regFieldErrors.numSiblingsStudying ? ' input-err' : ''}`}
+                          type="number" placeholder="e.g. 1" min="0" max="20"
+                          value={regData.numSiblingsStudying}
+                          onChange={e => { setRegData(p => ({ ...p, numSiblingsStudying: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.numSiblingsStudying && <p className="lp-field-err">{regFieldErrors.numSiblingsStudying}</p>}
+                      </div>
+                    </div>
+
+                    <p className="lp-section-title">Scholarship Information</p>
+                    <div className="lp-field">
+                      <label>Are you currently receiving any scholarship from barangay, city, or provincial level?</label>
+                      <div className="lp-radio-group">
+                        <label className="lp-radio-option">
+                          <input
+                            type="radio" name="hasOtherScholarship" value="no"
+                            checked={regData.hasOtherScholarship === 'no'}
+                            onChange={e => { setRegData(p => ({ ...p, hasOtherScholarship: e.target.value })); setRegError('') }} />
+                          <span>No — I am not receiving any other scholarship</span>
+                        </label>
+                        <label className="lp-radio-option">
+                          <input
+                            type="radio" name="hasOtherScholarship" value="yes"
+                            checked={regData.hasOtherScholarship === 'yes'}
+                            onChange={e => { setRegData(p => ({ ...p, hasOtherScholarship: e.target.value })); setRegError('') }} />
+                          <span>Yes — I am currently receiving another scholarship</span>
+                        </label>
+                      </div>
+                      {regFieldErrors.hasOtherScholarship && <p className="lp-field-err">{regFieldErrors.hasOtherScholarship}</p>}
+                    </div>
+
+                    {regData.hasOtherScholarship === 'yes' && (
+                      <div className="lp-field">
+                        <label>Please specify which scholarship you are receiving</label>
+                        <input
+                          className={`lp-input${regFieldErrors.otherScholarshipDetails ? ' input-err' : ''}`}
+                          type="text" placeholder="e.g. Barangay San Jose Scholarship, CHED Scholarship, etc."
+                          value={regData.otherScholarshipDetails}
+                          onChange={e => { setRegData(p => ({ ...p, otherScholarshipDetails: e.target.value })); setRegError('') }} />
+                        {regFieldErrors.otherScholarshipDetails && <p className="lp-field-err">{regFieldErrors.otherScholarshipDetails}</p>}
+                      </div>
+                    )}
+
+                    <div className="lp-step-btns">
+                      <button className="lp-btn-back" type="button" onClick={() => setRegStep(1)}>Back</button>
+                      <button className="lp-btn" onClick={handleRegister} disabled={regLoading}>
+                        {regLoading ? <><span className="spinner" /> Creating Account…</> : 'Create Account'}
+                      </button>
+                    </div>
                   </>
                 )}
               </>
