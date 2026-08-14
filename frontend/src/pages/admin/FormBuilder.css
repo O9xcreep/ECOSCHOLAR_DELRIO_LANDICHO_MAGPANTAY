@@ -51,6 +51,48 @@
   color: #aaa;
 }
 
+.fb-subheading {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin: 16px 0 8px;
+}
+
+.fb-field-list-core {
+  margin-bottom: 4px;
+}
+
+.fb-field-row-core {
+  background: #f4f4f5;
+}
+
+.fb-field-row-core .fb-field-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.fb-model-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #7c3aed;
+  background: #ede9fe;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.fb-locked-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #9ca3af;
+  background: #e5e7eb;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
 /* ── BUILT-IN FIELDS ── */
 .fb-builtin-list {
   display: flex;

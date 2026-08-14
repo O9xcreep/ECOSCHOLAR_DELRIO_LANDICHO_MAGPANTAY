@@ -8,6 +8,42 @@ const SECTIONS = [
   { key: 'school', label: 'School Information (Step 2)' },
 ]
 
+// Always on the form for every LGU - these can't be hidden or removed here because
+// they're either core record-keeping fields or read directly by the eligibility
+// model's build_feature_row(). Shown so admins can see the whole form, not just
+// what they've customized.
+const CORE_FIELDS = {
+  personal: [
+    { label: 'Full Name', usedByModel: false },
+    { label: 'Email Address', usedByModel: false },
+    { label: 'Address', usedByModel: false },
+    { label: 'Gender', usedByModel: true },
+    { label: 'Date of Birth', usedByModel: false },
+    { label: 'Contact Number', usedByModel: false },
+    { label: "Father's Name", usedByModel: false },
+    { label: "Father's Occupation", usedByModel: true },
+    { label: "Father's Education Level", usedByModel: true },
+    { label: "Mother's Name", usedByModel: false },
+    { label: "Mother's Occupation", usedByModel: true },
+    { label: "Mother's Education Level", usedByModel: true },
+    { label: 'Monthly Household Income', usedByModel: true },
+    { label: 'Housing Situation', usedByModel: true },
+    { label: 'Family Size', usedByModel: true },
+    { label: 'Number of Siblings', usedByModel: true },
+    { label: 'Siblings Currently Studying', usedByModel: true },
+    { label: 'Other Scholarship Status', usedByModel: false },
+  ],
+  school: [
+    { label: 'College / University', usedByModel: false },
+    { label: 'School Address', usedByModel: false },
+    { label: 'Course', usedByModel: false },
+    { label: 'Year Level', usedByModel: false },
+    { label: 'GWA', usedByModel: true },
+    { label: 'Academic Year', usedByModel: false },
+    { label: 'Semester', usedByModel: false },
+  ],
+}
+
 const EMPTY_NEW_FIELD = {
   key: '', label: '', type: 'text', options: '', required: false, section: 'personal',
 }
@@ -143,10 +179,25 @@ function FormBuilder() {
         </div>
       </div>
 
-      {/* Custom fields per section */}
+      {/* Core + custom fields per section */}
       {SECTIONS.map(section => (
         <div key={section.key} className="fb-card">
           <h3 className="fb-card-title">{section.label}</h3>
+
+          <p className="fb-subheading">Core Fields (always shown)</p>
+          <div className="fb-field-list fb-field-list-core">
+            {CORE_FIELDS[section.key].map(f => (
+              <div key={f.label} className="fb-field-row fb-field-row-core">
+                <div className="fb-field-info">
+                  <p className="fb-field-label">{f.label}</p>
+                </div>
+                {f.usedByModel && <span className="fb-model-tag">Used by eligibility model</span>}
+                <span className="fb-locked-tag">Locked</span>
+              </div>
+            ))}
+          </div>
+
+          <p className="fb-subheading">Custom Fields</p>
           {fields.filter(f => f.section === section.key).length === 0 ? (
             <p className="fb-empty">No custom fields added yet.</p>
           ) : (
