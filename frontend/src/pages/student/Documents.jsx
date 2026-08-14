@@ -2,17 +2,8 @@ import { useState, useEffect } from 'react'
 import { apiFetch, getUser } from '../../api'
 import './Documents.css'
 
-const DEFAULT_DOCS = [
-  { id: 1, document_name: 'Copy of Enrollment Form', required: true, status: 'Missing', file: null },
-  { id: 2, document_name: 'Copy of Barangay Endorsement', required: true, status: 'Missing', file: null },
-  { id: 3, document_name: 'School ID', required: true, status: 'Missing', file: null },
-  { id: 4, document_name: 'Grade 12 Grades', required: true, status: 'Missing', file: null },
-  { id: 5, document_name: '4Ps Certificate', required: false, status: 'Not Required', file: null },
-  { id: 6, document_name: 'Proof of Income (Certificate of Indigency)', required: true, status: 'Missing', file: null },
-]
-
 function Documents() {
-  const [docs, setDocs] = useState(DEFAULT_DOCS)
+  const [docs, setDocs] = useState([])
   const [applicantId, setApplicantId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [dragOver, setDragOver] = useState(null)
@@ -20,32 +11,39 @@ function Documents() {
   const user = getUser() || {}
 
   useEffect(() => {
-    if (!user.email) { setLoading(false); return }
+    (async () => {
+      try {
+        const reqRes = await apiFetch('/api/document-requirements')
+        const reqData = await reqRes.json()
+        const requirements = (reqData.requirements || []).filter(r => r.enabled)
 
-    apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.application) {
-          setApplicantId(data.application.id)
+        let defaultDocs = requirements.map(r => ({
+          id: r.id,
+          document_name: r.label,
+          required: r.required,
+          status: r.required ? 'Missing' : 'Not Required',
+          file: null,
+        }))
 
-          if (data.documents && data.documents.length > 0) {
-            // Merge real DB docs with default list
-            const merged = DEFAULT_DOCS.map(defaultDoc => {
-              const found = data.documents.find(d =>
-                d.document_name?.toLowerCase().includes(
-                  defaultDoc.document_name.toLowerCase().split(' ')[0]
-                )
-              )
-              return found
-                ? { ...defaultDoc, status: found.status }
-                : defaultDoc
-            })
-            setDocs(merged)
+        if (user.email) {
+          const appRes = await apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
+          const appData = await appRes.json()
+          if (appData.application) {
+            setApplicantId(appData.application.id)
+            if (appData.documents && appData.documents.length > 0) {
+              defaultDocs = defaultDocs.map(d => {
+                const found = appData.documents.find(u => u.document_name === d.document_name)
+                return found ? { ...d, status: found.status } : d
+              })
+            }
           }
         }
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+        setDocs(defaultDocs)
+      } catch (err) {
+        console.error('Error:', err)
+      }
+      setLoading(false)
+    })()
   }, [])
 
   const uploaded = docs.filter(d => d.status === 'Uploaded').length

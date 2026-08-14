@@ -421,7 +421,7 @@ def parse_document_fields(text, doc_type):
         if school: fields['school'] = school
         if course: fields['course'] = course
 
-    elif doc_type == 'Copy of Barangay Endorsement':
+    elif doc_type == 'Barangay Endorsement':
         name = find_name(lines)
         address = find_address(lines)
         barangay = find_barangay(text)
@@ -430,7 +430,7 @@ def parse_document_fields(text, doc_type):
         if address: fields['address'] = address
         if barangay: fields['barangay'] = barangay
 
-    elif doc_type == 'Proof of Income (Certificate of Indigency)':
+    elif doc_type == 'Proof of Income':
         name = find_name(lines)
         address = find_address(lines)
         income = find_income(text)
@@ -443,7 +443,7 @@ def parse_document_fields(text, doc_type):
         if father: fields['fatherName'] = father
         if mother: fields['motherName'] = mother
 
-    elif doc_type == 'If incoming 1st yr college, 1 copy of Grade 12 grades':
+    elif doc_type == 'Grade 12 Grades':
         name = find_name(lines)
         school = find_school(lines)
         gpa = find_gpa(text)

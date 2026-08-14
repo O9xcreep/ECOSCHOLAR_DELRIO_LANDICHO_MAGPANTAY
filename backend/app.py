@@ -1569,6 +1569,117 @@ def delete_form_field(field_id):
         return jsonify({"error": "Field not found"}), 404
     return jsonify({"message": "Field deleted"})
 
+# ── DOCUMENT REQUIREMENTS ──
+# Which documents an LGU asks applicants to upload. The "label" here IS the
+# document_name stored against every upload (see upload_document()) - one string
+# used consistently as the storage key, the OCR verify_document()/parse_document_fields()
+# doc_type, and the label shown to students/admins, rather than three drifting variants.
+DEFAULT_DOC_REQUIREMENTS = [
+    {"label": "Enrollment Form", "required": True},
+    {"label": "Barangay Endorsement", "required": True},
+    {"label": "School ID", "required": True},
+    {"label": "Grade 12 Grades", "required": True},
+    {"label": "4Ps Certificate", "required": False},
+    {"label": "Proof of Income", "required": True},
+]
+
+def serialize_doc_requirement(d):
+    return {
+        "id": str(d["_id"]),
+        "label": d.get("label"),
+        "required": d.get("required", False),
+        "enabled": d.get("enabled", True),
+        "order": d.get("order", 0),
+    }
+
+def get_doc_requirements_collection(db):
+    """Lazy-seeds the default requirements on first use so existing deployments
+    (and fresh ones) start with the same six documents the form always had."""
+    if db.document_requirements.count_documents({}) == 0:
+        now = datetime.utcnow()
+        db.document_requirements.insert_many([
+            {**d, "enabled": True, "order": i, "created_at": now}
+            for i, d in enumerate(DEFAULT_DOC_REQUIREMENTS)
+        ])
+    return db.document_requirements
+
+@app.route('/api/document-requirements', methods=['GET'])
+@require_auth
+def list_doc_requirements():
+    db = get_db()
+    coll = get_doc_requirements_collection(db)
+    query = {} if g.current_user.get('role') == 'admin' else {"enabled": True}
+    docs = list(coll.find(query).sort("order", 1))
+    return jsonify({"requirements": [serialize_doc_requirement(d) for d in docs]})
+
+@app.route('/api/document-requirements', methods=['POST'])
+@require_role('admin')
+def create_doc_requirement():
+    data = request.get_json() or {}
+    label = (data.get('label') or '').strip()
+    if not label:
+        return jsonify({"error": "Label is required"}), 400
+
+    db = get_db()
+    coll = get_doc_requirements_collection(db)
+    if coll.find_one({"label": label}):
+        return jsonify({"error": "A document requirement with this label already exists"}), 409
+
+    doc = {
+        "label": label,
+        "required": bool(data.get('required', False)),
+        "enabled": True,
+        "order": coll.count_documents({}),
+        "created_at": datetime.utcnow(),
+    }
+    result = coll.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return jsonify({"requirement": serialize_doc_requirement(doc)}), 201
+
+@app.route('/api/document-requirements/<req_id>', methods=['PUT'])
+@require_role('admin')
+def update_doc_requirement(req_id):
+    req_oid = oid(req_id)
+    if not req_oid:
+        return jsonify({"error": "Invalid requirement id"}), 400
+
+    data = request.get_json() or {}
+    set_fields = {}
+    if 'label' in data:
+        label = (data.get('label') or '').strip()
+        if not label:
+            return jsonify({"error": "Label cannot be empty"}), 400
+        set_fields['label'] = label
+    if 'required' in data:
+        set_fields['required'] = bool(data['required'])
+    if 'enabled' in data:
+        set_fields['enabled'] = bool(data['enabled'])
+
+    if not set_fields:
+        return jsonify({"error": "No valid fields provided"}), 400
+
+    db = get_db()
+    coll = get_doc_requirements_collection(db)
+    result = coll.update_one({"_id": req_oid}, {"$set": set_fields})
+    if result.matched_count == 0:
+        return jsonify({"error": "Requirement not found"}), 404
+
+    updated = coll.find_one({"_id": req_oid})
+    return jsonify({"requirement": serialize_doc_requirement(updated)})
+
+@app.route('/api/document-requirements/<req_id>', methods=['DELETE'])
+@require_role('admin')
+def delete_doc_requirement(req_id):
+    req_oid = oid(req_id)
+    if not req_oid:
+        return jsonify({"error": "Invalid requirement id"}), 400
+
+    db = get_db()
+    result = db.document_requirements.delete_one({"_id": req_oid})
+    if result.deleted_count == 0:
+        return jsonify({"error": "Requirement not found"}), 404
+    return jsonify({"message": "Requirement deleted"})
+
 # ── GET DASHBOARD STATS ──
 @app.route('/api/stats', methods=['GET'])
 @require_role('admin')

@@ -9,18 +9,9 @@ const MOCK_BREAKDOWN = [
   { label: 'Location Score', value: 72, color: '#f59e0b' },
 ]
 
-// Same document types students upload against (see student/ApplicationForm.jsx docKeys)
-const REQUIRED_DOC_TYPES = [
-  { label: 'Enrollment Form', required: true },
-  { label: 'Barangay Endorsement', required: true },
-  { label: 'School ID', required: true },
-  { label: 'Grade 12 Grades', required: true },
-  { label: '4Ps Certificate', required: false },
-  { label: 'Proof of Income', required: true },
-]
-
-function mergeDocuments(documents) {
-  return REQUIRED_DOC_TYPES.map(docType => {
+// LGU-configurable (see admin Form Builder) - fetched at runtime, not hardcoded.
+function mergeDocuments(documents, requiredDocTypes) {
+  return requiredDocTypes.map(docType => {
     const uploaded = documents.find(d => d.document_name === docType.label)
     if (uploaded) return { label: docType.label, status: uploaded.status || 'Uploaded' }
     return { label: docType.label, status: docType.required ? 'Missing' : 'Not Required' }
@@ -54,6 +45,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const [documents, setDocuments] = useState([])
   const [viewingDoc, setViewingDoc] = useState('')
   const [customFieldDefs, setCustomFieldDefs] = useState([])
+  const [requiredDocTypes, setRequiredDocTypes] = useState([])
 
   // ALL HOOKS BEFORE EARLY RETURN
  useEffect(() => {
@@ -90,6 +82,12 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     .then(res => res.json())
     .then(data => setCustomFieldDefs(data.fields || []))
     .catch(() => setCustomFieldDefs([]))
+
+  // This LGU's configured document checklist (see admin Form Builder)
+  apiFetch('/api/document-requirements')
+    .then(res => res.json())
+    .then(data => setRequiredDocTypes((data.requirements || []).filter(r => r.enabled)))
+    .catch(() => setRequiredDocTypes([]))
 }, [applicant])
 
   // EARLY RETURN AFTER ALL HOOKS
@@ -435,7 +433,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           <div className="modal-section">
             <h3 className="section-title">Submitted Documents</h3>
             <div className="docs-grid">
-              {mergeDocuments(documents).map((doc, i) => (
+              {mergeDocuments(documents, requiredDocTypes).map((doc, i) => (
                 <div key={i} className="doc-item">
                   <div className="doc-item-left">
                     <span className="doc-label">{doc.label}</span>

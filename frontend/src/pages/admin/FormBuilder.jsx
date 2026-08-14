@@ -48,6 +48,8 @@ const EMPTY_NEW_FIELD = {
   key: '', label: '', type: 'text', options: '', required: false, section: 'personal',
 }
 
+const EMPTY_NEW_DOC = { label: '', required: true }
+
 function FormBuilder() {
   const [fields, setFields] = useState([])
   const [hiddenBuiltins, setHiddenBuiltins] = useState([])
@@ -58,6 +60,74 @@ function FormBuilder() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const [docRequirements, setDocRequirements] = useState([])
+  const [showAddDoc, setShowAddDoc] = useState(false)
+  const [newDoc, setNewDoc] = useState(EMPTY_NEW_DOC)
+  const [docError, setDocError] = useState('')
+  const [savingDoc, setSavingDoc] = useState(false)
+
+  const fetchDocRequirements = async () => {
+    try {
+      const res = await apiFetch('/api/document-requirements')
+      const data = await res.json()
+      setDocRequirements(data.requirements || [])
+    } catch (err) {
+      console.error('Error:', err)
+    }
+  }
+
+  const toggleDocEnabled = async (doc) => {
+    setDocRequirements(prev => prev.map(d => d.id === doc.id ? { ...d, enabled: !d.enabled } : d))
+    await apiFetch(`/api/document-requirements/${doc.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !doc.enabled })
+    })
+  }
+
+  const toggleDocRequired = async (doc) => {
+    setDocRequirements(prev => prev.map(d => d.id === doc.id ? { ...d, required: !d.required } : d))
+    await apiFetch(`/api/document-requirements/${doc.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ required: !doc.required })
+    })
+  }
+
+  const deleteDocRequirement = async (doc) => {
+    if (!window.confirm(`Delete the "${doc.label}" document requirement? Applicants who already uploaded it will keep the file, but it will no longer appear on the checklist.`)) return
+    await apiFetch(`/api/document-requirements/${doc.id}`, { method: 'DELETE' })
+    setDocRequirements(prev => prev.filter(d => d.id !== doc.id))
+  }
+
+  const handleAddDoc = async () => {
+    setDocError('')
+    if (!newDoc.label.trim()) {
+      setDocError('Label is required')
+      return
+    }
+    setSavingDoc(true)
+    try {
+      const res = await apiFetch('/api/document-requirements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: newDoc.label.trim(), required: newDoc.required })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setDocError(data.error || 'Failed to add document requirement')
+        return
+      }
+      setDocRequirements(prev => [...prev, data.requirement])
+      setNewDoc(EMPTY_NEW_DOC)
+      setShowAddDoc(false)
+    } catch {
+      setDocError('Cannot connect to server. Please try again.')
+    } finally {
+      setSavingDoc(false)
+    }
+  }
+
   const fetchFields = async () => {
     try {
       const res = await apiFetch('/api/form-fields')
@@ -65,6 +135,7 @@ function FormBuilder() {
       setFields(data.fields || [])
       setHiddenBuiltins(data.hidden_builtin_fields || [])
       setHideableBuiltins(data.hideable_builtin_fields || {})
+      await fetchDocRequirements()
     } catch (err) {
       console.error('Error:', err)
     }
@@ -311,6 +382,89 @@ function FormBuilder() {
               </button>
               <button className="fb-btn-add" onClick={handleAddField} disabled={saving}>
                 {saving ? 'Adding...' : 'Add Field'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Document requirements */}
+      <div className="fb-card">
+        <h3 className="fb-card-title">Document Requirements</h3>
+        <p className="fb-card-sub">
+          Which documents applicants must upload in Step 3. Disabling one hides it from the
+          checklist entirely; unchecking "Required" keeps it visible but optional. These
+          never feed the eligibility model either - documents only affect verification, not
+          scoring.
+        </p>
+        {docRequirements.length === 0 ? (
+          <p className="fb-empty">No document requirements configured.</p>
+        ) : (
+          <div className="fb-field-list">
+            {docRequirements.map(doc => (
+              <div key={doc.id} className="fb-field-row">
+                <div className="fb-field-info">
+                  <p className="fb-field-label">
+                    {doc.label}
+                    {doc.required && <span className="fb-required-star"> *</span>}
+                  </p>
+                </div>
+                <label className="fb-checkbox-label fb-required-toggle">
+                  <input
+                    type="checkbox"
+                    checked={doc.required}
+                    onChange={() => toggleDocRequired(doc)}
+                  />
+                  Required
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={doc.enabled}
+                    onChange={() => toggleDocEnabled(doc)}
+                  />
+                  <span className="slider" />
+                </label>
+                <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)}>Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!showAddDoc ? (
+          <button className="fb-btn-add fb-btn-add-doc" onClick={() => setShowAddDoc(true)}>
+            + Add Document Requirement
+          </button>
+        ) : (
+          <div className="fb-add-form fb-add-doc-form">
+            {docError && <div className="fb-error">{docError}</div>}
+            <div className="fb-form-grid">
+              <div className="fb-form-field">
+                <label>Document Label</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Certificate of Good Moral Character"
+                  value={newDoc.label}
+                  onChange={e => setNewDoc(p => ({ ...p, label: e.target.value }))}
+                />
+              </div>
+              <div className="fb-form-field">
+                <label className="fb-checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={newDoc.required}
+                    onChange={e => setNewDoc(p => ({ ...p, required: e.target.checked }))}
+                  />
+                  Required
+                </label>
+              </div>
+            </div>
+            <div className="fb-form-actions">
+              <button className="fb-btn-cancel" onClick={() => { setShowAddDoc(false); setNewDoc(EMPTY_NEW_DOC); setDocError('') }}>
+                Cancel
+              </button>
+              <button className="fb-btn-add" onClick={handleAddDoc} disabled={savingDoc}>
+                {savingDoc ? 'Adding...' : 'Add Document'}
               </button>
             </div>
           </div>

@@ -132,18 +132,13 @@ function validateCustomFields(customFields, section, extraFieldsData) {
 }
 
 // ── VALIDATE STEP 3 ──
-function validateStep3(data, consent) {
+function validateStep3(data, consent, requirements) {
   const errors = {}
-  const required = [
-    { key: 'enrollmentForm', label: 'Enrollment Form' },
-    { key: 'barangayEndorsement', label: 'Barangay Endorsement' },
-    { key: 'schoolId', label: 'School ID' },
-    { key: 'grade12', label: 'Grade 12 Grades' },
-    { key: 'proofOfIncome', label: 'Proof of Income' },
-  ]
-  required.forEach(({ key, label }) => {
-    if (!data[key]) errors[key] = `${label} is required`
-  })
+  requirements
+    .filter(r => r.enabled && r.required)
+    .forEach(r => {
+      if (!data[r.label]) errors[r.label] = `${r.label} is required`
+    })
   if (!consent) errors.privacyConsent = 'You must agree to the Data Privacy Act to submit'
   return errors
 }
@@ -604,46 +599,39 @@ function Step2({ data, onChange, errors, customFields, extraFieldsData, onExtraF
 }
 
 // ── STEP 3 ──
-function Step3({ data, onChange, errors, consent, onConsentChange }) {
-  const requirements = [
-    { key: 'enrollmentForm', label: 'Copy of Enrollment Form', required: true },
-    { key: 'barangayEndorsement', label: 'Copy of Barangay Endorsement', required: true },
-    { key: 'schoolId', label: 'School ID', required: true },
-    { key: 'grade12', label: 'Copy of Grade 12 Grades', required: true },
-    { key: 'fourPsCert', label: 'If 4Ps member, 1 copy of 4Ps Certificate', required: false },
-    { key: 'proofOfIncome', label: 'Proof of Income (Certificate of Indig ency)', required: true },
-  ]
+function Step3({ data, onChange, errors, consent, onConsentChange, requirements }) {
+  const visibleRequirements = requirements.filter(r => r.enabled)
 
   return (
     <div className="step-content">
       <h2>Requirements</h2>
       <p className="req-note">Fields marked with <span className="req-star">*</span> are required.</p>
       <div className="form-section">
-        {requirements.map(req => (
-          <div key={req.key} className="upload-group">
+        {visibleRequirements.map(req => (
+          <div key={req.id} className="upload-group">
             <label>
               {req.label}
               {req.required && <span className="req-star"> *</span>}
             </label>
             <div
-              className={`upload-box ${errors[req.key] ? 'upload-error' : ''}`}
-              onClick={() => document.getElementById(req.key).click()}>
-              {data[req.key] ? (
-                <span className="upload-filename">{data[req.key].name}</span>
+              className={`upload-box ${errors[req.label] ? 'upload-error' : ''}`}
+              onClick={() => document.getElementById(`doc-${req.id}`).click()}>
+              {data[req.label] ? (
+                <span className="upload-filename">{data[req.label].name}</span>
               ) : (
                 <span className="upload-placeholder">Click to upload (PDF, JPG, PNG)</span>
               )}
               <input
                 type="file"
-                id={req.key}
+                id={`doc-${req.id}`}
                 style={{ display: 'none' }}
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={e => onChange(req.key, e.target.files[0], req.label)}
+                onChange={e => onChange(req.label, e.target.files[0], req.label)}
               />
             </div>
-            
-            {errors[req.key] && (
-              <span className="error-msg">{errors[req.key]}</span>
+
+            {errors[req.label] && (
+              <span className="error-msg">{errors[req.label]}</span>
             )}
           </div>
         ))}
@@ -715,11 +703,10 @@ function ApplicationForm() {
     yearLevel: '', gpa: '', academicYear: '', semester: ''
   })
 
-  const [step3Data, setStep3Data] = useState({
-    enrollmentForm: null, barangayEndorsement: null,
-    schoolId: null, grade12: null,
-    fourPsCert: null, proofOfIncome: null
-  })
+  // Keyed by document label (e.g. "Enrollment Form") rather than a fixed set of
+  // camelCase keys, since the document checklist itself is LGU-configurable.
+  const [step3Data, setStep3Data] = useState({})
+  const [docRequirements, setDocRequirements] = useState([])
 
   // LGU-configurable form: extra fields this LGU has added, and any of the
   // optional built-in fields (religion, citizenship) this LGU has hidden.
@@ -737,6 +724,17 @@ function ApplicationForm() {
         setHiddenBuiltins(data.hidden_builtin_fields || [])
       } catch {
         // form customization is a convenience layer - the base form still works without it
+      }
+    })()
+
+    ;(async () => {
+      try {
+        const res = await apiFetch('/api/document-requirements')
+        if (!res.ok) return
+        const data = await res.json()
+        setDocRequirements(data.requirements || [])
+      } catch {
+        // document customization is a convenience layer - falls back to an empty checklist
       }
     })()
   }, [])
@@ -877,7 +875,7 @@ function ApplicationForm() {
   }
 
   const handleSubmit = async () => {
-    const currentErrors = validateStep3(step3Data, privacyConsent)
+    const currentErrors = validateStep3(step3Data, privacyConsent, docRequirements)
     if (Object.keys(currentErrors).length > 0) {
       setErrors(currentErrors)
       return
@@ -916,22 +914,13 @@ function ApplicationForm() {
 
       const applicantId = data.applicant_id
 
-      // ── Upload documents ──
-      const docKeys = [
-        { key: 'enrollmentForm', label: 'Enrollment Form' },
-        { key: 'barangayEndorsement', label: 'Barangay Endorsement' },
-        { key: 'schoolId', label: 'School ID' },
-        { key: 'grade12', label: 'Grade 12 Grades' },
-        { key: 'fourPsCert', label: '4Ps Certificate' },
-        { key: 'proofOfIncome', label: 'Proof of Income' },
-      ]
-
-      for (const doc of docKeys) {
-        if (step3Data[doc.key]) {
+      // ── Upload documents (step3Data is keyed by document label) ──
+      for (const [label, file] of Object.entries(step3Data)) {
+        if (file) {
           const formData = new FormData()
-          formData.append('file', step3Data[doc.key])
+          formData.append('file', file)
           formData.append('applicant_id', applicantId)
-          formData.append('document_name', doc.label)
+          formData.append('document_name', label)
 
           await apiFetch('/api/upload', {
             method: 'POST',
@@ -1082,6 +1071,7 @@ function ApplicationForm() {
           data={step3Data}
           onChange={handleStep3Change}
           errors={errors}
+          requirements={docRequirements}
           consent={privacyConsent}
           onConsentChange={(val) => {
             setPrivacyConsent(val)
