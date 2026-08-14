@@ -39,6 +39,9 @@ function AdminLayout() {
           <NavLink to="/admin/reports" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <span>Reports</span>
           </NavLink>
+          <NavLink to="/admin/form-builder" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+            <span>Form Builder</span>
+          </NavLink>
           <NavLink to="/admin/settings" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <span>Settings</span>
           </NavLink>

@@ -411,6 +411,7 @@ def serialize_applicant(doc):
         "application_type": application.get('application_type'),
         "rejection_reason": application.get('rejection_reason'),
         "city": derive_city(doc.get('address')),
+        "extra_fields": doc.get('extra_fields', {}),
     }
 
 def serialize_document(d):
@@ -735,7 +736,9 @@ def submit_application():
                 "existing_application": existing_app
             }), 409
 
-        # Validate required fields
+        # Validate required fields - religion/citizenship drop out if this LGU
+        # has hidden them (see HIDEABLE_BUILTIN_FIELDS / hidden_builtin_fields).
+        hidden_builtin = get_hidden_builtin_fields(db)
         required_fields = [
             'fullName', 'email', 'contactNumber', 'address',
             'gender', 'dob', 'religion', 'citizenship',
@@ -746,9 +749,21 @@ def submit_application():
             'school', 'schoolAddress', 'course',
             'yearLevel', 'gpa', 'academicYear', 'semester'
         ]
+        required_fields = [f for f in required_fields if f not in hidden_builtin]
         for field in required_fields:
             if data.get(field) in (None, ''):
                 return jsonify({"error": f"Missing required field: {field}"}), 400
+
+        # Validate custom (LGU-defined) extra fields the same way - required ones
+        # must be present. These never feed build_feature_row/the ML model.
+        submitted_extra = data.get('extraFields') or {}
+        custom_fields = list(db.form_fields.find({"enabled": True}))
+        extra_fields_to_store = {}
+        for cf in custom_fields:
+            value = submitted_extra.get(cf['key'], '')
+            if cf.get('required') and value in (None, '', []):
+                return jsonify({"error": f"Missing required field: {cf['label']}"}), 400
+            extra_fields_to_store[cf['key']] = value
 
         if data['gender'] not in ('Male', 'Female'):
             return jsonify({"error": "Gender must be Male or Female"}), 400
@@ -771,8 +786,8 @@ def submit_application():
             "address": data['address'],
             "gender": data['gender'],
             "date_of_birth": data['dob'],
-            "religion": data['religion'],
-            "citizenship": data['citizenship'],
+            "religion": data.get('religion', ''),
+            "citizenship": data.get('citizenship', ''),
             "father_name": data['fatherName'],
             "father_occupation": data['fatherOccupation'],
             "father_education": data['fatherEducation'],
@@ -810,6 +825,7 @@ def submit_application():
             },
             "documents": [],
             "audit_trail": [],
+            "extra_fields": extra_fields_to_store,
         }
 
         result = db.applicants.insert_one(applicant_doc)
@@ -1374,27 +1390,184 @@ def get_settings():
     db = get_db()
     limit = get_applicant_limit(db)
     approved_count = db.applicants.count_documents({"application.status": "Approved"})
-    return jsonify({"max_accepted": limit, "approved_count": approved_count})
+    return jsonify({
+        "max_accepted": limit,
+        "approved_count": approved_count,
+        "hidden_builtin_fields": get_hidden_builtin_fields(db),
+    })
 
 @app.route('/api/settings', methods=['PUT'])
 @require_role('admin')
 def update_settings():
     data = request.get_json() or {}
-    max_accepted = data.get('max_accepted')
-    if not isinstance(max_accepted, int) or isinstance(max_accepted, bool) or max_accepted < 1:
-        return jsonify({"error": "max_accepted must be a positive integer"}), 400
+    set_fields = {}
+
+    if 'max_accepted' in data:
+        max_accepted = data.get('max_accepted')
+        if not isinstance(max_accepted, int) or isinstance(max_accepted, bool) or max_accepted < 1:
+            return jsonify({"error": "max_accepted must be a positive integer"}), 400
+        set_fields['max_accepted'] = max_accepted
+
+    if 'hidden_builtin_fields' in data:
+        hidden = data.get('hidden_builtin_fields')
+        if not isinstance(hidden, list) or any(f not in HIDEABLE_BUILTIN_FIELDS for f in hidden):
+            return jsonify({"error": f"hidden_builtin_fields must be a list from {list(HIDEABLE_BUILTIN_FIELDS)}"}), 400
+        set_fields['hidden_builtin_fields'] = hidden
+
+    if not set_fields:
+        return jsonify({"error": "No valid settings provided"}), 400
 
     try:
         db = get_db()
-        db.settings.update_one({"_id": "global"}, {"$set": {"max_accepted": max_accepted}}, upsert=True)
-        recompute_approvals(db, max_accepted, reviewed_by=g.current_user.get('email', 'Admin'))
+        db.settings.update_one({"_id": "global"}, {"$set": set_fields}, upsert=True)
+        if 'max_accepted' in set_fields:
+            recompute_approvals(db, set_fields['max_accepted'], reviewed_by=g.current_user.get('email', 'Admin'))
         approved_count = db.applicants.count_documents({"application.status": "Approved"})
-        return jsonify({"message": "Settings updated", "max_accepted": max_accepted, "approved_count": approved_count})
+        return jsonify({
+            "message": "Settings updated",
+            "max_accepted": get_applicant_limit(db),
+            "approved_count": approved_count,
+            "hidden_builtin_fields": get_hidden_builtin_fields(db),
+        })
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── CUSTOM APPLICATION FORM FIELDS ──
+# LGUs collect different extra information beyond the core fields the eligibility
+# model needs (see build_feature_row) - these are admin-defined, purely informational
+# fields. They are stored under applicant.extra_fields and are NEVER read by
+# build_feature_row, so no custom field - however an LGU labels it - can ever influence
+# the ML score. That's enforced by build_feature_row simply not looking at them, not by
+# a runtime check, so there's no toggle that could accidentally wire one in.
+FIELD_TYPES = {'text', 'textarea', 'number', 'date', 'select', 'checkbox'}
+FORM_SECTIONS = {'personal', 'school'}
+
+# A small, deliberately short list of existing built-in fields that are genuinely
+# optional (never read by build_feature_row) and safe to let an LGU hide entirely.
+HIDEABLE_BUILTIN_FIELDS = {
+    'religion': 'Religion',
+    'citizenship': 'Citizenship',
+}
+
+def get_hidden_builtin_fields(db):
+    doc = db.settings.find_one({"_id": "global"})
+    return (doc or {}).get("hidden_builtin_fields", [])
+
+def serialize_form_field(f):
+    return {
+        "id": str(f["_id"]),
+        "key": f.get("key"),
+        "label": f.get("label"),
+        "type": f.get("type"),
+        "options": f.get("options", []),
+        "required": f.get("required", False),
+        "enabled": f.get("enabled", True),
+        "section": f.get("section"),
+        "order": f.get("order", 0),
+    }
+
+@app.route('/api/form-fields', methods=['GET'])
+@require_auth
+def list_form_fields():
+    db = get_db()
+    query = {} if g.current_user.get('role') == 'admin' else {"enabled": True}
+    fields = list(db.form_fields.find(query).sort([("section", 1), ("order", 1)]))
+    return jsonify({
+        "fields": [serialize_form_field(f) for f in fields],
+        "hidden_builtin_fields": get_hidden_builtin_fields(db),
+        "hideable_builtin_fields": HIDEABLE_BUILTIN_FIELDS,
+    })
+
+@app.route('/api/form-fields', methods=['POST'])
+@require_role('admin')
+def create_form_field():
+    data = request.get_json() or {}
+    key = (data.get('key') or '').strip()
+    label = (data.get('label') or '').strip()
+    field_type = data.get('type')
+    section = data.get('section')
+
+    if not key or not re.match(r'^[a-z][a-z0-9_]*$', key):
+        return jsonify({"error": "Key is required and must be lowercase letters, numbers, and underscores only"}), 400
+    if not label:
+        return jsonify({"error": "Label is required"}), 400
+    if field_type not in FIELD_TYPES:
+        return jsonify({"error": f"Type must be one of {sorted(FIELD_TYPES)}"}), 400
+    if section not in FORM_SECTIONS:
+        return jsonify({"error": f"Section must be one of {sorted(FORM_SECTIONS)}"}), 400
+    if key in HIDEABLE_BUILTIN_FIELDS or key in PROFILE_FIELDS:
+        return jsonify({"error": "This key is already used by a built-in field"}), 400
+
+    options = data.get('options') or []
+    if field_type == 'select' and (not isinstance(options, list) or not options):
+        return jsonify({"error": "Select fields need at least one option"}), 400
+
+    db = get_db()
+    if db.form_fields.find_one({"key": key}):
+        return jsonify({"error": "A custom field with this key already exists"}), 409
+
+    doc = {
+        "key": key,
+        "label": label,
+        "type": field_type,
+        "options": options if field_type == 'select' else [],
+        "required": bool(data.get('required', False)),
+        "enabled": True,
+        "section": section,
+        "order": db.form_fields.count_documents({"section": section}),
+        "created_at": datetime.utcnow(),
+    }
+    result = db.form_fields.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return jsonify({"field": serialize_form_field(doc)}), 201
+
+@app.route('/api/form-fields/<field_id>', methods=['PUT'])
+@require_role('admin')
+def update_form_field(field_id):
+    field_oid = oid(field_id)
+    if not field_oid:
+        return jsonify({"error": "Invalid field id"}), 400
+
+    data = request.get_json() or {}
+    set_fields = {}
+    if 'label' in data:
+        label = (data.get('label') or '').strip()
+        if not label:
+            return jsonify({"error": "Label cannot be empty"}), 400
+        set_fields['label'] = label
+    if 'required' in data:
+        set_fields['required'] = bool(data['required'])
+    if 'enabled' in data:
+        set_fields['enabled'] = bool(data['enabled'])
+    if 'options' in data:
+        set_fields['options'] = data['options'] or []
+
+    if not set_fields:
+        return jsonify({"error": "No valid fields provided"}), 400
+
+    db = get_db()
+    result = db.form_fields.update_one({"_id": field_oid}, {"$set": set_fields})
+    if result.matched_count == 0:
+        return jsonify({"error": "Field not found"}), 404
+
+    updated = db.form_fields.find_one({"_id": field_oid})
+    return jsonify({"field": serialize_form_field(updated)})
+
+@app.route('/api/form-fields/<field_id>', methods=['DELETE'])
+@require_role('admin')
+def delete_form_field(field_id):
+    field_oid = oid(field_id)
+    if not field_oid:
+        return jsonify({"error": "Invalid field id"}), 400
+
+    db = get_db()
+    result = db.form_fields.delete_one({"_id": field_oid})
+    if result.deleted_count == 0:
+        return jsonify({"error": "Field not found"}), 404
+    return jsonify({"message": "Field deleted"})
 
 # ── GET DASHBOARD STATS ──
 @app.route('/api/stats', methods=['GET'])

@@ -23,6 +23,7 @@ import Applicants from './pages/admin/applicants'
 import Applications from './pages/admin/applications'
 import Reports from './pages/admin/reports'
 import Settings from './pages/admin/settings'
+import FormBuilder from './pages/admin/FormBuilder'
 
 function App() {
   return (
@@ -53,6 +54,7 @@ function App() {
           <Route path="applicants" element={<Applicants />} />
           <Route path="applications" element={<Applications />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="form-builder" element={<FormBuilder />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

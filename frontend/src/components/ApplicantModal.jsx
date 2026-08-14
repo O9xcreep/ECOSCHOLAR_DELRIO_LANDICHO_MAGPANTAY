@@ -53,6 +53,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const [mlData, setMlData] = useState(null)
   const [documents, setDocuments] = useState([])
   const [viewingDoc, setViewingDoc] = useState('')
+  const [customFieldDefs, setCustomFieldDefs] = useState([])
 
   // ALL HOOKS BEFORE EARLY RETURN
  useEffect(() => {
@@ -83,6 +84,12 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     .then(res => res.json())
     .then(data => setDocuments(data.documents || []))
     .catch(() => setDocuments([]))
+
+  // Field labels for this LGU's custom fields, to display applicant.extra_fields nicely
+  apiFetch('/api/form-fields')
+    .then(res => res.json())
+    .then(data => setCustomFieldDefs(data.fields || []))
+    .catch(() => setCustomFieldDefs([]))
 }, [applicant])
 
   // EARLY RETURN AFTER ALL HOOKS
@@ -367,6 +374,27 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </div>
             </div>
           </div>
+
+          {/* LGU-defined custom fields, if this LGU has any configured */}
+          {profile.extra_fields && Object.keys(profile.extra_fields).some(k => profile.extra_fields[k]) && (
+            <div className="modal-section">
+              <h3 className="section-title">Additional Information</h3>
+              <div className="info-grid">
+                {Object.entries(profile.extra_fields)
+                  .filter(([, value]) => value)
+                  .map(([key, value]) => {
+                    const def = customFieldDefs.find(f => f.key === key)
+                    const label = def ? def.label : key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                    return (
+                      <div key={key} className="info-field">
+                        <label>{label}</label>
+                        <p>{String(value)}</p>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
 
           {/* Academic Info */}
           <div className="modal-section">

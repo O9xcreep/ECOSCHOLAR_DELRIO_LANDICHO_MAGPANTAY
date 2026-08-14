@@ -62,16 +62,16 @@ const YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year']
 const SEMESTERS = ['1st Semester', '2nd Semester', 'Summer']
 
 // ── VALIDATE STEP 1 ──
-function validateStep1(data) {
+function validateStep1(data, hiddenBuiltins = []) {
   const errors = {}
   if (!data.fullName.trim()) errors.fullName = 'Full name is required'
   if (!data.email.trim()) errors.email = 'Email is required'
   else if (!/\S+@\S+\.\S+/.test(data.email)) errors.email = 'Enter a valid email address'
   if (!data.address.trim()) errors.address = 'Address is required'
-  if (!data.religion) errors.religion = 'Religion is required'
+  if (!hiddenBuiltins.includes('religion') && !data.religion) errors.religion = 'Religion is required'
   if (!data.gender) errors.gender = 'Gender is required'
   if (!data.dob) errors.dob = 'Date of birth is required'
-  if (!data.citizenship.trim()) errors.citizenship = 'Citizenship is required'
+  if (!hiddenBuiltins.includes('citizenship') && !data.citizenship.trim()) errors.citizenship = 'Citizenship is required'
   if (!data.contactNumber.trim()) errors.contactNumber = 'Contact number is required'
   else if (!/^09\d{9}$/.test(data.contactNumber.replace(/\s/g, '')))
     errors.contactNumber = 'Enter a valid PH number (e.g. 09123456789)'
@@ -114,6 +114,20 @@ function validateStep2(data) {
   else if (!/^\d{4}-\d{4}$/.test(data.academicYear))
     errors.academicYear = 'Format must be e.g. 2025-2026'
   if (!data.semester) errors.semester = 'Semester is required'
+  return errors
+}
+
+// ── VALIDATE LGU-DEFINED CUSTOM FIELDS FOR A GIVEN SECTION ──
+function validateCustomFields(customFields, section, extraFieldsData) {
+  const errors = {}
+  customFields
+    .filter(f => f.section === section && f.enabled && f.required)
+    .forEach(f => {
+      const value = extraFieldsData[f.key]
+      if (value === undefined || value === null || value === '') {
+        errors[f.key] = `${f.label} is required`
+      }
+    })
   return errors
 }
 
@@ -169,8 +183,62 @@ function Field({ label, error, children }) {
   )
 }
 
+// ── LGU-DEFINED CUSTOM FIELDS ──
+// Purely informational fields an admin added via Form Builder for this LGU - never
+// read by the eligibility model (see build_feature_row on the backend), so nothing
+// entered here can ever affect a scoring decision.
+function CustomFieldsSection({ customFields, section, values, onChange, errors }) {
+  const fields = customFields.filter(f => f.section === section && f.enabled)
+  if (fields.length === 0) return null
+
+  return (
+    <div className="form-section">
+      <h3 className="section-title">Additional Information</h3>
+      <div className="form-grid-2">
+        {fields.map(f => (
+          <Field key={f.key} label={f.label + (f.required ? ' *' : '')} error={errors[f.key]}>
+            {f.type === 'select' ? (
+              <select
+                className={errors[f.key] ? 'input-error' : ''}
+                value={values[f.key] || ''}
+                onChange={e => onChange(f.key, e.target.value)}>
+                <option value="">Select {f.label.toLowerCase()}</option>
+                {f.options.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            ) : f.type === 'checkbox' ? (
+              <div className="radio-group">
+                <label className="radio-option">
+                  <input
+                    type="checkbox"
+                    checked={values[f.key] === 'Yes'}
+                    onChange={e => onChange(f.key, e.target.checked ? 'Yes' : 'No')}
+                  />
+                  <span>Yes</span>
+                </label>
+              </div>
+            ) : f.type === 'textarea' ? (
+              <textarea
+                className={errors[f.key] ? 'input-error' : ''}
+                value={values[f.key] || ''}
+                onChange={e => onChange(f.key, e.target.value)}
+              />
+            ) : (
+              <input
+                className={errors[f.key] ? 'input-error' : ''}
+                type={f.type}
+                value={values[f.key] || ''}
+                onChange={e => onChange(f.key, e.target.value)}
+              />
+            )}
+          </Field>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── STEP 1 ──
-function Step1({ data, onChange, errors }) {
+function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFieldsData, onExtraFieldChange }) {
   return (
     <div className="step-content">
       <h2>Step 1: Personal Information</h2>
@@ -214,15 +282,17 @@ function Step1({ data, onChange, errors }) {
               onChange={e => onChange('address', e.target.value)} />
           </Field>
 
-          <Field label="Religion" error={errors.religion}>
-            <select
-              className={errors.religion ? 'input-error' : ''}
-              value={data.religion}
-              onChange={e => onChange('religion', e.target.value)}>
-              <option value="">Select religion</option>
-              {RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </Field>
+          {!hiddenBuiltins.includes('religion') && (
+            <Field label="Religion" error={errors.religion}>
+              <select
+                className={errors.religion ? 'input-error' : ''}
+                value={data.religion}
+                onChange={e => onChange('religion', e.target.value)}>
+                <option value="">Select religion</option>
+                {RELIGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </Field>
+          )}
 
           <Field label="Gender" error={errors.gender}>
             <select
@@ -250,13 +320,15 @@ function Step1({ data, onChange, errors }) {
         <h3 className="section-title">Background Details</h3>
         <div className="form-grid-2">
 
-          <Field label="Citizenship" error={errors.citizenship}>
-            <input
-              className={errors.citizenship ? 'input-error' : ''}
-              type="text" placeholder="Filipino"
-              value={data.citizenship}
-              onChange={e => onChange('citizenship', e.target.value)} />
-          </Field>
+          {!hiddenBuiltins.includes('citizenship') && (
+            <Field label="Citizenship" error={errors.citizenship}>
+              <input
+                className={errors.citizenship ? 'input-error' : ''}
+                type="text" placeholder="Filipino"
+                value={data.citizenship}
+                onChange={e => onChange('citizenship', e.target.value)} />
+            </Field>
+          )}
 
           <Field label="Contact Number" error={errors.contactNumber}>
             <input
@@ -430,12 +502,20 @@ function Step1({ data, onChange, errors }) {
 
         </div>
       </div>
+
+      <CustomFieldsSection
+        customFields={customFields}
+        section="personal"
+        values={extraFieldsData}
+        onChange={onExtraFieldChange}
+        errors={errors}
+      />
     </div>
   )
 }
 
 // ── STEP 2 ──
-function Step2({ data, onChange, errors }) {
+function Step2({ data, onChange, errors, customFields, extraFieldsData, onExtraFieldChange }) {
   return (
     <div className="step-content">
       <h2>Step 2: Academic Information</h2>
@@ -511,6 +591,14 @@ function Step2({ data, onChange, errors }) {
 
         </div>
       </div>
+
+      <CustomFieldsSection
+        customFields={customFields}
+        section="school"
+        values={extraFieldsData}
+        onChange={onExtraFieldChange}
+        errors={errors}
+      />
     </div>
   )
 }
@@ -633,6 +721,31 @@ function ApplicationForm() {
     fourPsCert: null, proofOfIncome: null
   })
 
+  // LGU-configurable form: extra fields this LGU has added, and any of the
+  // optional built-in fields (religion, citizenship) this LGU has hidden.
+  const [customFields, setCustomFields] = useState([])
+  const [hiddenBuiltins, setHiddenBuiltins] = useState([])
+  const [extraFieldsData, setExtraFieldsData] = useState({})
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/api/form-fields')
+        if (!res.ok) return
+        const data = await res.json()
+        setCustomFields(data.fields || [])
+        setHiddenBuiltins(data.hidden_builtin_fields || [])
+      } catch {
+        // form customization is a convenience layer - the base form still works without it
+      }
+    })()
+  }, [])
+
+  const handleExtraFieldChange = (key, value) => {
+    setExtraFieldsData(prev => ({ ...prev, [key]: value }))
+    if (errors[key]) setErrors(prev => ({ ...prev, [key]: '' }))
+  }
+
   // Personal info collected at registration pre-fills Step 1 so it isn't retyped here.
   // Only blank fields are filled in, so anything the user has already started editing wins.
   useEffect(() => {
@@ -733,8 +846,18 @@ function ApplicationForm() {
 
   const handleNext = () => {
     let currentErrors = {}
-    if (currentStep === 1) currentErrors = validateStep1(step1Data)
-    if (currentStep === 2) currentErrors = validateStep2(step2Data)
+    if (currentStep === 1) {
+      currentErrors = {
+        ...validateStep1(step1Data, hiddenBuiltins),
+        ...validateCustomFields(customFields, 'personal', extraFieldsData),
+      }
+    }
+    if (currentStep === 2) {
+      currentErrors = {
+        ...validateStep2(step2Data),
+        ...validateCustomFields(customFields, 'school', extraFieldsData),
+      }
+    }
 
     if (Object.keys(currentErrors).length > 0) {
       setErrors(currentErrors)
@@ -770,7 +893,8 @@ function ApplicationForm() {
           ...step1Data,
           email: lockedEmail,
           ...step2Data,
-          applicationType: 'General Application'
+          applicationType: 'General Application',
+          extraFields: extraFieldsData,
         })
       })
 
@@ -942,9 +1066,17 @@ function ApplicationForm() {
         </div>
       )}
       {currentStep === 1 &&
-        <Step1 data={step1Data} onChange={handleStep1Change} errors={errors} />}
+        <Step1
+          data={step1Data} onChange={handleStep1Change} errors={errors}
+          customFields={customFields} hiddenBuiltins={hiddenBuiltins}
+          extraFieldsData={extraFieldsData} onExtraFieldChange={handleExtraFieldChange}
+        />}
       {currentStep === 2 &&
-        <Step2 data={step2Data} onChange={handleStep2Change} errors={errors} />}
+        <Step2
+          data={step2Data} onChange={handleStep2Change} errors={errors}
+          customFields={customFields}
+          extraFieldsData={extraFieldsData} onExtraFieldChange={handleExtraFieldChange}
+        />}
       {currentStep === 3 &&
         <Step3
           data={step3Data}
