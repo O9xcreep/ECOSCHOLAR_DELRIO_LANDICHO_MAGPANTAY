@@ -1,7 +1,5 @@
-import pickle
 import re
 import hashlib
-import numpy as np
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, g, send_file
@@ -33,33 +31,53 @@ if not SECRET_KEY:
 TOKEN_MAX_AGE = 60 * 60 * 12  # 12 hours
 _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
 
-# Fallback copies of the model's category lists, used for form-input validation
-# even if the model bundle itself fails to load - so a broken model file disables
-# scoring only, not application submission. Keep in sync with schema/ml_model.md.
+# Fixed dropdown options the application form offers - independent of whichever ML
+# model is deployed behind it, since these define what an applicant can select, not
+# how a particular model encodes them internally. Keep in sync with schema/ml_model.md.
 DEFAULT_EDUCATION_MAP = {'None': 0, 'Elementary': 1, 'High School': 2, 'Vocational': 3, 'College': 4, 'Postgraduate': 5}
 DEFAULT_OCCUPATION_CATEGORIES = ['Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade', 'Office/Clerical', 'Professional', 'Deceased/Not Applicable']
 DEFAULT_HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
+ml_education_map = DEFAULT_EDUCATION_MAP
+ml_occupation_categories = DEFAULT_OCCUPATION_CATEGORIES
+ml_housing_situations = DEFAULT_HOUSING_SITUATIONS
 
-# ── LOAD ML MODEL (classifier + regressor combined bundle) ──
+# The form's "Postgraduate" (no space) doesn't match the trained model's own
+# survey-derived label "Post Graduate" (with a space) - translated here rather than
+# changing the form's wording, which is a UI decision independent of the training data.
+EDUCATION_LABEL_FIX = {'Postgraduate': 'Post Graduate'}
+
+def income_to_bracket(income):
+    """Buckets a raw monthly income number into the label the model's
+    income_bracket_map expects. The model was trained on bracketed survey data,
+    but our form collects an exact number, so this converts one to the other.
+    Boundaries/labels must match ecoscholar_encoding_maps.json's income_bracket_map
+    exactly."""
+    if income is None:
+        return None
+    income = float(income)
+    if income < 5000:
+        return "Below ₱ 5,000"
+    if income <= 10000:
+        return "₱ 5,001 - ₱ 10,000"
+    if income <= 15000:
+        return "₱ 10,000 - ₱ 15,000"
+    if income <= 20000:
+        return "₱ 15,000 - ₱ 20,000"
+    return "₱ 20,000 Above"
+
+# ── LOAD ML MODEL (EcoScholar classifier + regressor, trained per Chapter III) ──
+# ecoscholar_predict.py loads its .joblib/.json files at import time, so a missing or
+# corrupt model file raises here - caught the same way the old bundle load was, so
+# scoring degrades gracefully without disabling application submission.
 try:
-    with open('model_combined.pkl', 'rb') as f:
-        ml_bundle = pickle.load(f)
-    ml_classifier = ml_bundle['classifier']
-    ml_regressor = ml_bundle['regressor']
-    ml_scaler = ml_bundle['scaler']
-    ml_features = ml_bundle['features']
-    ml_education_map = ml_bundle['education_map']
-    ml_occupation_categories = ml_bundle['occupation_categories']
-    ml_housing_situations = ml_bundle['housing_situations']
-    ml_regressor_cutoff = ml_bundle['regressor_score_cutoff']
-    print(f"ML model loaded successfully! (classifier={ml_bundle.get('classifier_name')}, "
-          f"regressor={ml_bundle.get('best_overall_name')})")
+    from ecoscholar_predict import score_applicant as _ml_predict, ELIGIBILITY_CUTOFF as ml_regressor_cutoff
+    ml_classifier = True   # sentinel only - the real model objects live inside ecoscholar_predict
+    ml_regressor = True
+    print("ML model loaded successfully! (EcoScholar classifier + regressor)")
 except Exception as e:
+    _ml_predict = None
     ml_classifier = None
     ml_regressor = None
-    ml_education_map = DEFAULT_EDUCATION_MAP
-    ml_occupation_categories = DEFAULT_OCCUPATION_CATEGORIES
-    ml_housing_situations = DEFAULT_HOUSING_SITUATIONS
     ml_regressor_cutoff = None
     print(f"ML model not loaded: {e}")
 
@@ -99,56 +117,54 @@ STATUS_MESSAGES = {
 STATUS_NOTIF_TYPE = {'Approved': 'approved', 'Rejected': 'rejected'}
 
 def build_feature_row(applicant):
-    """Build the {feature_name: value} dict the combined model expects, in the
-    encoding it was trained on. Returns (row, True) or (None, False) if this
-    applicant predates the fields this model needs."""
+    """Build the flat {field: value} dict ecoscholar_predict.score_applicant()
+    expects, mapped from our MongoDB applicant schema. Returns (row, True) or
+    (None, False) if this applicant predates the fields the model needs."""
     if any(applicant.get(f) is None for f in ML_REQUIRED_FIELDS):
         return None, False
 
     academic = applicant.get('academic') or {}
+    father_edu = applicant.get('father_education')
+    mother_edu = applicant.get('mother_education')
     row = {
-        'gpa': float(academic.get('gpa') or 0),
-        'sex_encoded': 1 if applicant.get('gender') == 'Male' else 0,
-        'family_size': int(applicant.get('family_size') or 0),
-        'num_siblings': int(applicant.get('num_siblings') or 0),
-        'num_siblings_studying': int(applicant.get('num_siblings_studying') or 0),
-        'father_education_level': ml_education_map.get(applicant.get('father_education'), 0),
-        'mother_education_level': ml_education_map.get(applicant.get('mother_education'), 0),
-        'monthly_income': float(applicant.get('monthly_income') or 0),
-        'has_other_scholarship': int(bool(applicant.get('has_other_scholarship'))),
+        'sex': applicant.get('gender'),
+        'household_size': applicant.get('family_size'),
+        'siblings': applicant.get('num_siblings'),
+        'siblings_studying': applicant.get('num_siblings_studying'),
+        'father_education': EDUCATION_LABEL_FIX.get(father_edu, father_edu),
+        'mother_education': EDUCATION_LABEL_FIX.get(mother_edu, mother_edu),
+        'father_occupation': applicant.get('father_occupation'),
+        'mother_occupation': applicant.get('mother_occupation'),
+        'monthly_income_bracket': income_to_bracket(applicant.get('monthly_income')),
+        'housing_situation': applicant.get('housing_situation'),
+        'gwa': academic.get('gpa'),
+        'holds_other_scholarship': bool(applicant.get('has_other_scholarship')),
     }
-    father_occ = applicant.get('father_occupation')
-    mother_occ = applicant.get('mother_occupation')
-    housing = applicant.get('housing_situation')
-    for cat in ml_occupation_categories:
-        row[f'father_occ_{cat}'] = 1 if father_occ == cat else 0
-        row[f'mother_occ_{cat}'] = 1 if mother_occ == cat else 0
-    for cat in ml_housing_situations:
-        row[f'housing_{cat}'] = 1 if housing == cat else 0
-
     return row, True
 
 def score_with_model(row):
-    """Run the classifier (eligibility) and regressor (ranking score) on a
-    feature row built by build_feature_row(). Returns (ml_score, ml_status)."""
-    feature_values = np.array([[row[f] for f in ml_features]])
+    """Run the trained EcoScholar classifier (eligibility) and regressor (ranking
+    score) on a feature row built by build_feature_row(). Returns (ml_score, ml_status)."""
+    result = _ml_predict(row)
+    ml_status = 'Eligible' if result['eligible'] else 'Not Eligible'
+    return result['priority_score'], ml_status
 
-    features_scaled = ml_scaler.transform(feature_values)
-    classifier_pred = ml_classifier.predict(features_scaled)[0]
-    ml_status = 'Eligible' if int(classifier_pred) == 1 else 'Not Eligible'
+def build_score_breakdown(applicant):
+    """Simple heuristic breakdown for the admin UI progress bars, read straight from
+    the applicant's stored raw fields - a rough visual aid, not the model's actual
+    internal feature attribution, and intentionally independent of whichever model
+    is deployed."""
+    academic = applicant.get('academic') or {}
+    gpa = float(academic.get('gpa') or 0)
+    income = float(applicant.get('monthly_income') or 0)
+    family_size = int(applicant.get('family_size') or 0)
+    father_edu_level = ml_education_map.get(applicant.get('father_education'), 0)
+    mother_edu_level = ml_education_map.get(applicant.get('mother_education'), 0)
 
-    total_score = float(ml_regressor.predict(feature_values)[0])
-    ml_score = round(total_score, 1)
-
-    return ml_score, ml_status
-
-def build_score_breakdown(row, applicant):
-    """Simple heuristic breakdown for the admin UI progress bars - a rough
-    visual aid, not the model's actual internal feature attribution."""
-    gpa_s = round(max(0, min(100, row['gpa'])), 1)
-    inc_s = round(max(0, min(100, (1 - min(row['monthly_income'], 100000) / 100000) * 100)), 1)
-    fam_s = round(min(100, max(0, (row['family_size'] - 2) / 8 * 100)), 1)
-    edu_avg = (row['father_education_level'] + row['mother_education_level']) / 2
+    gpa_s = round(max(0, min(100, gpa)), 1)
+    inc_s = round(max(0, min(100, (1 - min(income, 100000) / 100000) * 100)), 1)
+    fam_s = round(min(100, max(0, (family_size - 2) / 8 * 100)), 1)
+    edu_avg = (father_edu_level + mother_edu_level) / 2
     edu_s = round(max(0, min(100, (5 - edu_avg) / 5 * 100)), 1)
     housing_need = {'Owned': 20, 'Rented': 60, 'Living with relatives': 80, 'Informal settler': 100}
     house_s = housing_need.get(applicant.get('housing_situation'), 50)
@@ -943,7 +959,7 @@ def verify_and_decide(applicant_id):
         ml_score, ml_status = score_with_model(row)
         old_status = (applicant.get('application') or {}).get('status', '')
         now = datetime.utcnow()
-        breakdown = build_score_breakdown(row, applicant)
+        breakdown = build_score_breakdown(applicant)
 
         if ml_status == 'Not Eligible':
             # Ineligible on the classifier's own terms - rejected outright, the
@@ -1817,7 +1833,7 @@ def score_applicant(applicant_id):
             "ml_score": ml_score,
             "ml_status": ml_status,
             "regressor_cutoff": ml_regressor_cutoff,
-            "breakdown": build_score_breakdown(row, applicant)
+            "breakdown": build_score_breakdown(applicant)
         })
 
     except Exception as e:
@@ -1854,11 +1870,11 @@ def rank_applicants():
                     'full_name': applicant['full_name'],
                     'city': derive_city(applicant.get('address')),
                     'course': academic.get('course'),
-                    'gpa': row['gpa'],
+                    'gpa': academic.get('gpa'),
                     'monthly_income': applicant.get('monthly_income'),
-                    'family_size': row['family_size'],
+                    'family_size': applicant.get('family_size'),
                     'housing_situation': applicant.get('housing_situation'),
-                    'has_other_scholarship': row['has_other_scholarship'],
+                    'has_other_scholarship': bool(applicant.get('has_other_scholarship')),
                     'application_status': (applicant.get('application') or {}).get('status'),
                     'ml_score': ml_score,
                     'ml_status': ml_status

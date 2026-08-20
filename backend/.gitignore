@@ -10,8 +10,11 @@ __pycache__/
 # MongoDB GridFS now, nothing permanent is ever written here.
 uploads/
 
-# Old, retired model - superseded by model_combined.pkl
+# Old, retired models - superseded by the ecoscholar_* model files
 model.pkl
+model_combined.pkl
 
-# model_combined.pkl is intentionally NOT ignored - the deployed backend
-# needs it in the repo to load the eligibility model (see schema/ml_model.md).
+# The ecoscholar_classifier.joblib / ecoscholar_regressor.joblib / ecoscholar_scaler.joblib
+# / ecoscholar_feature_contract.json / ecoscholar_encoding_maps.json / ecoscholar_predict.py
+# files are intentionally NOT ignored - the deployed backend needs them in the repo to
+# load the eligibility model (see schema/ml_model.md).

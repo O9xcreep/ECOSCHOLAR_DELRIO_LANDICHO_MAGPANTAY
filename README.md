@@ -46,8 +46,9 @@ Runs at `http://localhost:5173`. Talks to the backend via `VITE_API_URL`
 - `backend/app.py` — the whole API (auth, applications, documents, ML scoring,
   notifications)
 - `backend/ocr.py` — text extraction (Tesseract) and document verification/autofill
-- `backend/model_combined.pkl` — the trained eligibility model bundle (see
-  `backend/schema/ml_model.md` for its exact feature schema and encoding)
+- `backend/ecoscholar_*.joblib`, `ecoscholar_*.json`, `ecoscholar_predict.py` —
+  the trained eligibility model bundle (see `backend/schema/ml_model.md` for
+  its exact feature schema and encoding)
 - `backend/schema/` — DB schema docs and the ML model contract
 - `backend/scripts/` — one-off migration/seed scripts
 - `frontend/src/pages/admin/` and `frontend/src/pages/student/` — the two portals

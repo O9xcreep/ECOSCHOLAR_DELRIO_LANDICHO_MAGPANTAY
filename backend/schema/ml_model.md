@@ -1,51 +1,76 @@
-# Eligibility model (`model_combined.pkl`)
+# Eligibility model (EcoScholar classifier + regressor, per Chapter III methodology)
 
-Trained in Colab, bundled as a dict with these keys:
+Trained model bundle, shipped as separate files (not one pickle):
 
-- **`classifier`** (XGBoost, uncalibrated) — answers "eligible or not?"
-- **`regressor`** (RandomForestRegressor, `best_overall_name`) — predicts a
-  continuous `total_score` used for ranking applicants against each other
-- **`scaler`** (StandardScaler) — applied before the **classifier only**; the
-  regressor uses raw unscaled features
-- **`regressor_score_cutoff`** (58.985) — informational reference only.
-  Eligibility is decided by the classifier, not this cutoff (per project
-  decision — the two can disagree on a given applicant, and that's fine;
-  the UI just shows both numbers)
-- **`features`** — the exact ordered list of 27 column names the models
-  expect (see below)
-- **`education_map`** — `{'None': 0, 'Elementary': 1, 'High School': 2, 'Vocational': 3, 'College': 4, 'Postgraduate': 5}`
-- **`occupation_categories`** — `['Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade', 'Office/Clerical', 'Professional', 'Deceased/Not Applicable']`
-- **`housing_situations`** — `['Owned', 'Rented', 'Living with relatives', 'Informal settler']`
+- **`ecoscholar_classifier.joblib`** (XGBoost) — answers "eligible or not?",
+  plus a probability (`eligibility_probability`)
+- **`ecoscholar_regressor.joblib`** (RandomForestRegressor) — predicts
+  `priority_score`, a continuous ranking score used to break ties when there
+  are more eligible applicants than accepted-applicant slots
+- **`ecoscholar_scaler.joblib`** (StandardScaler) — applied before the
+  **classifier only**; the regressor uses raw unscaled features
+- **`ecoscholar_feature_contract.json`** — the exact ordered list of feature
+  columns both models expect, plus the occupation/housing category lists
+  used to build the one-hot columns
+- **`ecoscholar_encoding_maps.json`** — `sex_map`, `education_map`,
+  `income_bracket_map`, `housing_precarity_map`, the frozen normalization
+  bounds used by `estimate_total_score()`, and `eligibility_cutoff`
+  (~48.575) — informational reference only; eligibility is decided by the
+  classifier, not this cutoff, same design as before
+- **`ecoscholar_predict.py`** — loads the four files above and exposes
+  `score_applicant(applicant: dict) -> dict`. Not modified by this app;
+  treated as the trusted, self-contained scoring engine
+- **`ecoscholar_integration.py`** — reference/example glue code the model
+  was delivered with. **Not used** - it assumes a different Mongo schema
+  (top-level `status`, boolean `mlEligible`, camelCase `auditTrail`) than
+  ours (nested `application.status`, string `ml_status`, snake_case
+  `audit_trail`). `app.py`'s own `build_feature_row()` / `score_with_model()`
+  do the real integration against our actual schema instead.
 
-## Feature order (must match exactly - `app.py`'s `build_feature_row()` builds
-this dynamically from `features`, so retraining with reordered columns is safe)
+## Two real schema gaps between our form and this model's training data
 
-```
-0  gpa                                  9  father_occ_Informal/Vendor      18 mother_occ_Laborer/Driver
-1  sex_encoded                          10 father_occ_Laborer/Driver       19 mother_occ_Office/Clerical
-2  family_size                          11 father_occ_Office/Clerical      20 mother_occ_Professional
-3  num_siblings                         12 father_occ_Professional         21 mother_occ_Skilled Trade
-4  num_siblings_studying                13 father_occ_Skilled Trade        22 mother_occ_Unemployed
-5  father_education_level               14 father_occ_Unemployed           23 housing_Informal settler
-6  mother_education_level               15 mother_occ_Deceased/Not Applic. 24 housing_Living with relatives
-7  monthly_income                       16 mother_occ_Informal/Vendor      25 housing_Owned
-8  has_other_scholarship                17 mother_occ_Laborer/Driver       26 housing_Rented
-```
+The model expects richer inputs than our form's dropdowns naturally
+produce. Both are handled in `app.py`, not by changing the form:
 
-Occupation/housing one-hot columns are full (no dropped reference category)
-and alphabetically ordered - matches pandas `get_dummies` default behavior.
+1. **Income**: the model was trained on bracketed income
+   (`"₱ 5,001 - ₱ 10,000"` → 7500), our form collects an exact number.
+   `income_to_bracket()` in `app.py` buckets our raw number into the
+   matching label. Boundaries must stay in sync with
+   `ecoscholar_encoding_maps.json`'s `income_bracket_map`.
+2. **Occupation**: the model groups free-text occupation into 11 categories
+   (`_group_occupation()` in `ecoscholar_predict.py`, keyword/typo-based).
+   Our form uses a constrained 7-option dropdown instead of free text - by
+   product decision, several dropdown options (Skilled Trade,
+   Office/Clerical, Professional, Unemployed) don't match any keyword and
+   collapse into the model's generic `"Other"` category. This is an
+   accepted precision tradeoff, not a bug - revisit only if the form ever
+   switches occupation to free text.
 
-## Encodings not in the bundle (confirmed with the model author)
+Also: our form's `"Postgraduate"` (no space) is translated to the model's
+`"Post Graduate"` (with a space) via `EDUCATION_LABEL_FIX` in `app.py`.
 
-- **`sex_encoded`**: `1` if `sex == 'Male'`, `0` otherwise (including
-  `'Female'`). Not saved in the bundle - if the model is ever retrained,
-  reconfirm this convention hasn't changed.
-- **GPA scale**: 75-99 (percentage), *not* the Philippine 1.00-5.00 GWA
-  scale used by applicants who applied before this model existed.
+## `app.py` integration points
+
+- **`build_feature_row(applicant)`** — maps one MongoDB applicant document
+  into the flat dict `score_applicant()` expects (`sex`, `household_size`,
+  `siblings`, `siblings_studying`, `father_education`, `mother_education`,
+  `father_occupation`, `mother_occupation`, `monthly_income_bracket`,
+  `housing_situation`, `gwa`, `holds_other_scholarship`). Returns
+  `(row, False)` if the applicant predates the fields this model needs -
+  same legacy-applicant gate as before, see below.
+- **`score_with_model(row)`** — calls `score_applicant(row)` and returns
+  `(priority_score, 'Eligible' | 'Not Eligible')`, the same two-value shape
+  every call site already expects.
+- **`build_score_breakdown(applicant)`** — a separate heuristic used only
+  for the admin UI's progress bars and the plain-English rejection reason.
+  Reads the applicant's raw stored fields directly (not `build_feature_row`'s
+  output), so it's intentionally decoupled from whichever model is
+  deployed - it is **not** the model's actual internal feature attribution
+  either way.
 
 ## Known limitation: legacy applicants
 
-Applicants who applied before this model was wired in don't have
+Applicants who applied before an eligibility model existed don't have
 `monthly_income`, `housing_situation`, `num_siblings`, `num_siblings_studying`,
 `father_education`, or `mother_education` on their record, and their `gpa` is
 on the old 1.00-5.00 scale instead of 75-99. `build_feature_row()` detects
@@ -60,3 +85,10 @@ legacy 1.00-5.00 values via the same band mapping as `ocr.py`'s `find_gpa`.
 This approximation is fine for a chart but must never feed the eligibility
 model - only `build_feature_row()`'s hard 409/exclusion behavior above governs
 actual scoring.
+
+## Discrimination safeguard still applies
+
+LGU-custom fields (see Form Builder) are stored under `applicant.extra_fields`
+and are never read by `build_feature_row()` - swapping the model doesn't
+change this. No custom field can reach the classifier or regressor,
+regardless of which model is deployed behind them.

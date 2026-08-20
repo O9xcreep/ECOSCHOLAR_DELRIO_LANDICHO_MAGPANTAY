@@ -1,0 +1,40 @@
+{
+  "sex_map": {
+    "Male": 1,
+    "Female": 0
+  },
+  "education_map": {
+    "None": 0,
+    "Elementary": 1,
+    "High School": 2,
+    "Vocational": 3,
+    "College": 4,
+    "Post Graduate": 5
+  },
+  "income_bracket_map": {
+    "Below \u20b1 5,000": 2500,
+    "\u20b1 5,001 - \u20b1 10,000": 7500,
+    "\u20b1 10,000 - \u20b1 15,000": 12500,
+    "\u20b1 15,000 - \u20b1 20,000": 17500,
+    "\u20b1 20,000 Above": 25000
+  },
+  "housing_precarity_map": {
+    "Owned": 0,
+    "Rented": 40,
+    "Living with relatives": 60,
+    "Informal settler": 100
+  },
+  "normalization_bounds": {
+    "gwa_min": 82.0,
+    "gwa_max": 97.0,
+    "income_min": 2500.0,
+    "income_max": 25000.0,
+    "household_min": 3.5,
+    "household_max": 7.5,
+    "siblings_studying_min": 1.5,
+    "siblings_studying_max": 7.0,
+    "avg_edu_min": 1.0,
+    "avg_edu_max": 5.0
+  },
+  "eligibility_cutoff": 48.574999999999996
+}
