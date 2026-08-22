@@ -76,6 +76,44 @@ def _address_keywords(address):
     words = [w for w in _significant_words(address, min_len=3) if w not in STOPWORDS]
     return words
 
+def _find_gpa_value(text):
+    """Extract a GWA/GPA as a percentage (75-99 scale). Shared by parse_document_fields
+    (autofill) and verify_document (fraud cross-check) so both read the same value."""
+    patterns = [
+        r'gwa[:\s]+(\d+\.?\d*)',
+        r'gpa[:\s]+(\d+\.?\d*)',
+        r'average[:\s]+(\d+\.?\d*)',
+        r'general\s+weighted\s+average[:\s]+(\d+\.?\d*)',
+        r'(\d+\.?\d*)\s*/\s*100',
+        r'grade[:\s]+(\d+\.?\d*)',
+    ]
+    OLD_SCALE_TO_PERCENT = {
+        1.00: 98, 1.25: 95, 1.50: 92, 1.75: 89, 2.00: 86,
+        2.25: 83, 2.50: 80, 2.75: 77, 3.00: 75,
+    }
+    text_lower = text.lower()
+    for pattern in patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            val = float(match.group(1))
+            if val <= 5.0:
+                closest = min(OLD_SCALE_TO_PERCENT, key=lambda k: abs(k - val))
+                return float(OLD_SCALE_TO_PERCENT[closest])
+            return round(val, 1)
+    return None
+
+def _find_income_value(text):
+    """Extract the monthly household income as a raw PHP number. Shared by
+    parse_document_fields (autofill) and verify_document (fraud cross-check)."""
+    pattern = r'(?:income|sahod|kita)[:\s]+(?:php|₱|p)?\s*([\d,]+)'
+    match = re.search(pattern, text.lower())
+    if match:
+        try:
+            return int(match.group(1).replace(',', ''))
+        except ValueError:
+            pass
+    return None
+
 def verify_document(doc_type, extracted_text, applicant_data):
     """
     Verify a document actually belongs to this applicant and is the claimed
@@ -91,6 +129,7 @@ def verify_document(doc_type, extracted_text, applicant_data):
         'doc_type': doc_type,
         'extracted_text': extracted_text[:500],
         'checks': [],
+        'flags': [],
         'confidence': 0,
         'status': 'Unverified'
     }
@@ -177,6 +216,28 @@ def verify_document(doc_type, extracted_text, applicant_data):
             'passed': bool(re.search(r'₱|php|peso|\d{4,}', text_lower))
         })
 
+        # ── Fraud cross-check: does the figure on the document roughly match what
+        # was declared on the application? A large mismatch is a much stronger
+        # signal than any keyword check above - flagged separately so it can't
+        # get lost in the ordinary confidence score. Tolerance is deliberately
+        # generous (40%) since OCR misreads digits and this should prompt a
+        # manual look, not an automatic accusation.
+        doc_income = _find_income_value(extracted_text)
+        submitted_income = applicant_data.get('monthly_income')
+        if doc_income is not None and submitted_income:
+            diff_ratio = abs(doc_income - submitted_income) / max(doc_income, submitted_income)
+            income_matches = diff_ratio <= 0.4
+            results['checks'].append({
+                'check': 'Income matches submitted application',
+                'passed': income_matches
+            })
+            if not income_matches:
+                results['flags'].append(
+                    f"Declared monthly income (₱{submitted_income:,.0f}) doesn't closely "
+                    f"match the amount stated on this document (₱{doc_income:,.0f}) - "
+                    f"worth a manual check."
+                )
+
     elif doc_type == 'Grade 12 Grades':
         school = applicant_data.get('school', '') or ''
         results['checks'].append({
@@ -190,6 +251,21 @@ def verify_document(doc_type, extracted_text, applicant_data):
                 text_lower
             ) >= 2
         })
+
+        # ── Fraud cross-check: same reasoning as income above. ──
+        doc_gpa = _find_gpa_value(extracted_text)
+        submitted_gpa = applicant_data.get('gpa')
+        if doc_gpa is not None and submitted_gpa:
+            gpa_matches = abs(doc_gpa - float(submitted_gpa)) <= 5
+            results['checks'].append({
+                'check': 'GWA matches submitted application',
+                'passed': gpa_matches
+            })
+            if not gpa_matches:
+                results['flags'].append(
+                    f"Declared GWA ({submitted_gpa}) doesn't closely match the grade stated "
+                    f"on this document ({doc_gpa}) - worth a manual check."
+                )
 
     elif doc_type == '4Ps Certificate':
         results['checks'].append({
@@ -214,6 +290,12 @@ def verify_document(doc_type, extracted_text, applicant_data):
         results['status'] = 'Partially Verified'
     else:
         results['status'] = 'Failed Verification'
+
+    # A value mismatch (income/GWA vs what was declared) is a stronger signal than
+    # an ordinary missing keyword, so it can't be masked by an otherwise-high
+    # confidence score - cap the overall status even if the math alone says "Verified".
+    if results['flags'] and results['status'] == 'Verified':
+        results['status'] = 'Partially Verified'
 
     return results
 
@@ -258,30 +340,8 @@ def parse_document_fields(text, doc_type):
     def find_gpa(text):
         """Extract Grade 12 / latest GWA as a percentage (75-99 scale, what
         the application form and eligibility model now expect)."""
-        patterns = [
-            r'gwa[:\s]+(\d+\.?\d*)',
-            r'gpa[:\s]+(\d+\.?\d*)',
-            r'average[:\s]+(\d+\.?\d*)',
-            r'general\s+weighted\s+average[:\s]+(\d+\.?\d*)',
-            r'(\d+\.?\d*)\s*/\s*100',
-            r'grade[:\s]+(\d+\.?\d*)',
-        ]
-        # Old Philippine 1.00 (highest) - 5.00 (lowest) GWA scale, in case an
-        # older-style report card shows that instead of a percentage.
-        OLD_SCALE_TO_PERCENT = {
-            1.00: 98, 1.25: 95, 1.50: 92, 1.75: 89, 2.00: 86,
-            2.25: 83, 2.50: 80, 2.75: 77, 3.00: 75,
-        }
-        for pattern in patterns:
-            match = re.search(pattern, text.lower())
-            if match:
-                val = float(match.group(1))
-                if val <= 5.0:
-                    # Old 1.00-5.00 scale - convert to the nearest percentage band
-                    closest = min(OLD_SCALE_TO_PERCENT, key=lambda k: abs(k - val))
-                    return str(OLD_SCALE_TO_PERCENT[closest])
-                return str(round(val, 1))
-        return None
+        val = _find_gpa_value(text)
+        return str(val) if val is not None else None
 
     def find_school(text_lines):
         """Extract school name"""
@@ -388,14 +448,7 @@ def parse_document_fields(text, doc_type):
 
     def find_income(text):
         """Extract the monthly household income as a raw number (PHP)"""
-        pattern = r'(?:income|sahod|kita)[:\s]+(?:php|₱|p)?\s*([\d,]+)'
-        match = re.search(pattern, text_lower)
-        if match:
-            try:
-                return int(match.group(1).replace(',', ''))
-            except ValueError:
-                pass
-        return None
+        return _find_income_value(text)
 
     if doc_type == 'Enrollment Form':
         name = find_name(lines)

@@ -1208,8 +1208,11 @@ def upload_document():
             if applicant and applicant.get('documents'):
                 old_gridfs_id = applicant['documents'][0].get('gridfs_id')
 
+            file_bytes = file.read()
+            file_hash = hashlib.sha256(file_bytes).hexdigest()
+
             new_gridfs_id = _fs.put(
-                file.read(), filename=unique_filename,
+                file_bytes, filename=unique_filename,
                 content_type=safe_mime_for(unique_filename)
             )
 
@@ -1219,6 +1222,7 @@ def upload_document():
                     "documents.$.gridfs_id": new_gridfs_id,
                     "documents.$.status": "Uploaded",
                     "documents.$.uploaded_at": now,
+                    "documents.$.file_hash": file_hash,
                 }}
             )
 
@@ -1230,6 +1234,7 @@ def upload_document():
                         "gridfs_id": new_gridfs_id,
                         "status": "Uploaded",
                         "uploaded_at": now,
+                        "file_hash": file_hash,
                     }}}
                 )
 
@@ -1237,6 +1242,28 @@ def upload_document():
             if old_gridfs_id:
                 try:
                     _fs.delete(old_gridfs_id)
+                except Exception:
+                    pass
+
+            # ── Fraud signal: has this exact file already been uploaded by a
+            # DIFFERENT applicant? A byte-for-byte match is a strong indicator of
+            # document reuse (shared/borrowed paperwork, or the same fake document
+            # submitted under multiple identities). Reuses the existing
+            # duplicate_flags mechanism the Dashboard already surfaces.
+            reused = db.applicants.find_one(
+                {"_id": {"$ne": applicant_oid}, "documents.file_hash": file_hash},
+                {"full_name": 1}
+            )
+            if reused:
+                try:
+                    db.duplicate_flags.insert_one({
+                        "applicant_id": applicant_oid,
+                        "duplicate_of_id": reused["_id"],
+                        "reason": "duplicate_document",
+                        "document_name": document_name,
+                        "flagged_at": now,
+                        "resolved": False,
+                    })
                 except Exception:
                     pass
 
@@ -1294,6 +1321,8 @@ def verify_document_route():
                 "school": academic.get('school', ''),
                 "course": academic.get('course', ''),
                 "address": applicant.get('address') or '',
+                "monthly_income": applicant.get('monthly_income'),
+                "gpa": academic.get('gpa'),
             }
 
             extracted_text = extract_text(temp_path)
@@ -1430,6 +1459,7 @@ def get_duplicate_flags():
                 "applicant_name": a1.get('full_name'),
                 "applicant_email": a1.get('email'),
                 "applicant_dob": a1.get('date_of_birth'),
+                "document_name": f.get('document_name'),
                 "duplicate_of_name": a2.get('full_name'),
                 "duplicate_of_email": a2.get('email'),
             })

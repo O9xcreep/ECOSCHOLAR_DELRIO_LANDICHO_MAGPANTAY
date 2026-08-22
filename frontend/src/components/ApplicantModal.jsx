@@ -483,6 +483,13 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                     {ocrResult.status}
                   </span>
                 </div>
+                {(ocrResult.flags || []).length > 0 && (
+                  <div className="ocr-fraud-flags">
+                    {ocrResult.flags.map((flag, i) => (
+                      <p key={i} className="ocr-fraud-flag">⚠ {flag}</p>
+                    ))}
+                  </div>
+                )}
                 <div className="ocr-checks">
                   {(ocrResult.checks || []).map((check, i) => (
                     <div key={i} className="ocr-check-item">

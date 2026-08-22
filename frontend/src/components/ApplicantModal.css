@@ -468,6 +468,24 @@
   font-weight: 600;
 }
 
+.ocr-fraud-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.ocr-fraud-flag {
+  font-size: 12.5px;
+  color: #991b1b;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
 .ocr-checks {
   display: flex;
   flex-direction: column;

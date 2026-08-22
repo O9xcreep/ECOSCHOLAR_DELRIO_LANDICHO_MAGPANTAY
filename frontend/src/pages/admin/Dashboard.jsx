@@ -141,6 +141,8 @@ useEffect(() => {
                     <p className="duplicate-detail">
                       {flag.reason === 'email'
                         ? `Duplicate email: ${flag.applicant_email}`
+                        : flag.reason === 'duplicate_document'
+                        ? `"${flag.document_name}" is the exact same file already uploaded by ${flag.duplicate_of_name || 'another applicant'}`
                         : `Same name + birthdate as existing applicant`}
                     </p>
                     <p className="duplicate-date">
