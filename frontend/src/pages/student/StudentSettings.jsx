@@ -1,20 +1,71 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { apiFetch, getUser, setSession } from '../../api'
 import './StudentSettings.css'
 
-const TABS = ['Profile', 'Security', 'Notifications']
+const TABS = ['Profile', 'Security']
 
-// ── PROF tab ──
+// ── PROFILE TAB ──
 function ProfileTab() {
+  const user = getUser() || {}
   const [editing, setEditing] = useState(null)
   const [formData, setFormData] = useState({
-    fullName: 'Juan Dela Cruz',
-    email: 'juan.dc@gmail.com',
-    contactNumber: '09123456789',
-    address: 'Block 5 Lot 12, Brgy. San Jose, Tanza, Cavite',
+    fullName: user.full_name || '', email: user.email || '',
+    contactNumber: '', address: '',
   })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [applicationStatus, setApplicationStatus] = useState(null)
+
+  useEffect(() => {
+    apiFetch('/api/profile')
+      .then(res => res.json())
+      .then(data => {
+        const p = data.profile || {}
+        setFormData(prev => ({
+          ...prev,
+          fullName: p.fullName || prev.fullName,
+          contactNumber: p.contactNumber || '',
+          address: p.address || '',
+        }))
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+
+    if (user.email) {
+      apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
+        .then(res => res.json())
+        .then(data => setApplicationStatus(data.application ? data.application.application_status : 'Not Started'))
+        .catch(() => {})
+    }
+  }, [])
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const fieldToApiKey = { fullName: 'full_name', contactNumber: 'contactNumber', address: 'address' }
+
+  const handleSave = async (key) => {
+    setError('')
+    const value = formData[key].trim()
+    if (!value) { setError('This field cannot be empty'); return }
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [fieldToApiKey[key]]: value })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to save'); return }
+      if (key === 'fullName') setSession({ ...user, full_name: data.fullName }, localStorage.getItem('token'))
+      setEditing(null)
+    } catch {
+      setError('Cannot connect to server. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -24,19 +75,20 @@ function ProfileTab() {
       <div className="settings-card">
         <h4 className="card-label">Account Information</h4>
         <div className="profile-top">
-          <div className="profile-avatar">JD</div>
-          <div className="profile-info">
-            <h3 className="profile-name">{formData.fullName}</h3>
-            <p className="profile-role">Applicant</p>
-            <p className="profile-id">Application ID: <span>#SP-2026-0042</span></p>
+          <div className="profile-avatar">
+            {formData.fullName ? formData.fullName.charAt(0).toUpperCase() : 'S'}
           </div>
-          <button className="btn-change-photo">Change Photo</button>
+          <div className="profile-info">
+            <h3 className="profile-name">{formData.fullName || 'Student'}</h3>
+            <p className="profile-role">Applicant</p>
+          </div>
         </div>
+
+        {error && <div className="security-error">{error}</div>}
 
         <div className="info-grid">
           {[
             { key: 'fullName', label: 'Full Name', type: 'text' },
-            { key: 'email', label: 'Email Address', type: 'email' },
             { key: 'contactNumber', label: 'Contact Number', type: 'text' },
             { key: 'address', label: 'Address', type: 'text', full: true },
           ].map(field => (
@@ -51,26 +103,28 @@ function ProfileTab() {
                     className="edit-input"
                     autoFocus
                   />
-                  <button className="btn-save"
-                    onClick={() => setEditing(null)}>
-                    Save
+                  <button className="btn-save" onClick={() => handleSave(field.key)} disabled={saving}>
+                    {saving ? 'Saving...' : 'Save'}
                   </button>
-                  <button className="btn-cancel-edit"
-                    onClick={() => setEditing(null)}>
+                  <button className="btn-cancel-edit" onClick={() => { setEditing(null); setError('') }}>
                     Cancel
                   </button>
                 </div>
               ) : (
                 <div className="field-row">
-                  <p className="field-value">{formData[field.key]}</p>
-                  <button className="btn-edit"
-                    onClick={() => setEditing(field.key)}>
-                    Edit
-                  </button>
+                  <p className="field-value">{loading ? '...' : (formData[field.key] || '—')}</p>
+                  <button className="btn-edit" onClick={() => setEditing(field.key)}>Edit</button>
                 </div>
               )}
             </div>
           ))}
+
+          <div className="info-field">
+            <label>Email Address</label>
+            <div className="field-row">
+              <p className="field-value">{formData.email}</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -84,15 +138,7 @@ function ProfileTab() {
           </div>
           <div className="status-item">
             <span className="status-label">Application Status</span>
-            <span className="badge badge-yellow">Incomplete</span>
-          </div>
-          <div className="status-item">
-            <span className="status-label">Member Since</span>
-            <span className="status-value">May 1, 2026</span>
-          </div>
-          <div className="status-item">
-            <span className="status-label">Last Updated</span>
-            <span className="status-value">May 16, 2026</span>
+            <span className="badge badge-yellow">{applicationStatus || 'Loading...'}</span>
           </div>
         </div>
       </div>
@@ -103,14 +149,10 @@ function ProfileTab() {
 
 // ── SECURITY TAB ──
 function SecurityTab() {
-  const [showCurrent, setShowCurrent] = useState(false)
-  const [showNew, setShowNew] = useState(false)
-  const [showConfirm, setShowConfirm] = useState(false)
-  const [passwords, setPasswords] = useState({
-    current: '', newPass: '', confirm: ''
-  })
+  const [passwords, setPasswords] = useState({ current: '', newPass: '', confirm: '' })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [saving, setSaving] = useState(false)
 
   const handleChange = (field, value) => {
     setPasswords(prev => ({ ...prev, [field]: value }))
@@ -118,13 +160,30 @@ function SecurityTab() {
     setSuccess(false)
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    setError('')
+    setSuccess(false)
     if (!passwords.current) { setError('Current password is required'); return }
     if (!passwords.newPass) { setError('New password is required'); return }
     if (passwords.newPass.length < 8) { setError('Password must be at least 8 characters'); return }
     if (passwords.newPass !== passwords.confirm) { setError('Passwords do not match'); return }
-    setSuccess(true)
-    setPasswords({ current: '', newPass: '', confirm: '' })
+
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/change-password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_password: passwords.current, new_password: passwords.newPass })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to change password'); return }
+      setSuccess(true)
+      setPasswords({ current: '', newPass: '', confirm: '' })
+    } catch {
+      setError('Cannot connect to server. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -137,22 +196,19 @@ function SecurityTab() {
 
         <div className="password-fields">
           {[
-            { key: 'current', label: 'Current Password', show: showCurrent, toggle: () => setShowCurrent(!showCurrent) },
-            { key: 'newPass', label: 'New Password', show: showNew, toggle: () => setShowNew(!showNew) },
-            { key: 'confirm', label: 'Confirm New Password', show: showConfirm, toggle: () => setShowConfirm(!showConfirm) },
+            { key: 'current', label: 'Current Password' },
+            { key: 'newPass', label: 'New Password' },
+            { key: 'confirm', label: 'Confirm New Password' },
           ].map(field => (
             <div key={field.key} className="password-field">
               <label>{field.label}</label>
               <div className="password-wrapper">
                 <input
-                  type={field.show ? 'text' : 'password'}
+                  type="password"
                   placeholder="••••••••"
                   value={passwords[field.key]}
                   onChange={e => handleChange(field.key, e.target.value)}
                 />
-                <button className="toggle-pw" onClick={field.toggle}>
-                  {field.show ? 'Hide' : 'Show'}
-                </button>
               </div>
             </div>
           ))}
@@ -162,89 +218,12 @@ function SecurityTab() {
           <p className="req-title">Password requirements:</p>
           <ul>
             <li className={passwords.newPass.length >= 8 ? 'met' : ''}>At least 8 characters</li>
-            <li className={/[A-Z]/.test(passwords.newPass) ? 'met' : ''}>One uppercase letter</li>
-            <li className={/[0-9]/.test(passwords.newPass) ? 'met' : ''}>One number</li>
           </ul>
         </div>
 
-        <button className="btn-primary" onClick={handleSubmit}>
-          Update Password
+        <button className="btn-primary" onClick={handleSubmit} disabled={saving}>
+          {saving ? 'Updating...' : 'Update Password'}
         </button>
-      </div>
-
-      <div className="settings-card">
-        <h4 className="card-label">Login History</h4>
-        <div className="login-list">
-          {[
-            { device: 'Chrome - Windows', location: 'Tanza, Cavite, PH', date: 'May 16, 2026, 7:00 PM', current: true },
-            { device: 'Chrome - Mobile', location: 'Tanza, Cavite, PH', date: 'May 15, 2026, 10:30 AM', current: false },
-            { device: 'Firefox - Windows', location: 'Tanza, Cavite, PH', date: 'May 13, 2026, 3:00 PM', current: false },
-          ].map((log, i) => (
-            <div key={i} className="login-row">
-              <div>
-                <p className="login-device">{log.device}</p>
-                <p className="login-detail">{log.location} — {log.date}</p>
-              </div>
-              <span className={`badge ${log.current ? 'badge-green' : 'badge-gray'}`}>
-                {log.current ? 'Current' : 'Past'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── NOTIFICATIONS TAB ──
-function NotificationsTab() {
-  const [toggles, setToggles] = useState({
-    statusUpdate: true,
-    deadlineReminder: true,
-    documentAlert: true,
-    emailNotif: true,
-    smsNotif: false,
-  })
-
-  const toggle = (key) => {
-    setToggles(prev => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  const notifications = [
-    { key: 'statusUpdate', label: 'Application status updates', sub: 'Get notified when your application status changes' },
-    { key: 'deadlineReminder', label: 'Deadline reminders', sub: '3 days before the application deadline' },
-    { key: 'documentAlert', label: 'Missing document alerts', sub: 'Reminders to upload required documents' },
-    { key: 'emailNotif', label: 'Email notifications', sub: 'Receive notifications via email' },
-    { key: 'smsNotif', label: 'SMS notifications', sub: 'Receive notifications via text message' },
-  ]
-
-  return (
-    <div className="tab-content">
-      <div className="settings-card">
-        <h4 className="card-label">Notification Preferences</h4>
-        <div className="notif-list">
-          {notifications.map(item => (
-            <div key={item.key} className="notif-item">
-              <div className="notif-info">
-                <p className="notif-label">{item.label}</p>
-                <p className="notif-sub">{item.sub}</p>
-              </div>
-              <div className="notif-toggle-row">
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={toggles[item.key]}
-                    onChange={() => toggle(item.key)}
-                  />
-                  <span className="slider" />
-                </label>
-                <span className="toggle-text">
-                  {toggles[item.key] ? 'On' : 'Off'}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   )
@@ -274,7 +253,6 @@ function StudentSettings() {
 
       {activeTab === 'Profile' && <ProfileTab />}
       {activeTab === 'Security' && <SecurityTab />}
-      {activeTab === 'Notifications' && <NotificationsTab />}
     </div>
   )
 }

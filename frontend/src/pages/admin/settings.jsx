@@ -1,47 +1,93 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiFetch, getUser, setSession, logout } from '../../api'
 import './settings.css'
 
-const TABS = ['Profile', 'Security', 'Notifications', 'System', 'Roles & Access']
+const TABS = ['Profile', 'Security', 'System']
 
 // ── PROFILE TAB ──
 function ProfileTab() {
   const navigate = useNavigate()
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
+  const user = getUser() || {}
+  const [fullName, setFullName] = useState(user.full_name || '')
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
 
-  const handleLogout = () => {
-    localStorage.removeItem('user')   
-    navigate('/login')                
+  const handleSave = async () => {
+    setError('')
+    if (!fullName.trim()) { setError('Full name cannot be empty'); return }
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_name: fullName.trim() })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to update profile'); return }
+      setSession({ ...user, full_name: data.fullName }, localStorage.getItem('token'))
+      setEditing(false)
+    } catch {
+      setError('Cannot connect to server. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login')
   }
 
   return (
     <div className="tab-content">
       <div className="settings-card">
-        <h4 className="card-label">Account information</h4>
+        <h4 className="card-label">Account Information</h4>
         <div className="settings-row">
           <div className="admin-avatar-lg">
-            {user.full_name ? user.full_name.charAt(0).toUpperCase() : 'S'}
+            {user.full_name ? user.full_name.charAt(0).toUpperCase() : 'A'}
           </div>
-          <button className="btn-change">Change photo</button>
+
           <div className="info-item">
             <span className="info-label">Full name</span>
-            {/* Real name from localStorage */}
-            <span className="info-value">{user.full_name || 'Student'}</span>
-            <button className="btn-edit">Edit</button>
+            {editing ? (
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  className="settings-select"
+                  style={{ background: '#fff' }}
+                  value={fullName}
+                  onChange={e => setFullName(e.target.value)}
+                  autoFocus
+                />
+                <button className="btn-primary" onClick={handleSave} disabled={saving}>
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button className="btn-change" onClick={() => { setEditing(false); setFullName(user.full_name || ''); setError('') }}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <>
+                <span className="info-value">{user.full_name || 'Admin'}</span>
+                <button className="btn-edit" onClick={() => setEditing(true)}>Edit</button>
+              </>
+            )}
+            {error && <span className="info-sub" style={{ color: '#ef4444' }}>{error}</span>}
           </div>
+
           <div className="info-item">
             <span className="info-label">Email address</span>
-            {/*  Real email from localStorage */}
             <span className="info-value">{user.email || '—'}</span>
-            <button className="btn-edit">Edit</button>
+            <span className="info-sub">Linked to your account, cannot be changed here</span>
           </div>
+
           <div className="info-item">
             <span className="info-label">Role</span>
-            <span className="badge badge-purple">
-              {user.role === 'admin' ? 'Administrator' : 'Student'}
-            </span>
+            <span className="badge badge-purple">Administrator</span>
           </div>
+
           <div className="info-item">
             <span className="info-label">Account status</span>
             <span className="badge badge-green">Active</span>
@@ -50,39 +96,13 @@ function ProfileTab() {
       </div>
 
       <div className="settings-card">
-        <h4 className="card-label">Preferences</h4>
-        <div className="settings-row">
-          <div className="info-item">
-            <span className="info-label">Language</span>
-            <select className="settings-select">
-              <option>English (PH)</option>
-              <option>Filipino</option>
-            </select>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Date format</span>
-            <select className="settings-select">
-              <option>MM/DD/YYYY</option>
-              <option>DD/MM/YYYY</option>
-              <option>YYYY-MM-DD</option>
-            </select>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Academic year</span>
-            <span className="badge badge-yellow">2025-2026</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Logout Section */}
-      <div className="settings-card">
         <h4 className="card-label">Session</h4>
         <div className="settings-row">
           <div className="info-item">
             <span className="info-label">Sign out</span>
             <span className="info-sub">
               You are logged in as <strong>{user.email || 'unknown'}</strong>.
-              Logging out will clear your session.
+              Logging out will end this session everywhere it's used.
             </span>
             {!showConfirm ? (
               <button
@@ -100,152 +120,75 @@ function ProfileTab() {
           </div>
         </div>
       </div>
-
-      <div className="settings-card danger-card">
-        <h4 className="card-label danger-label">Danger zone</h4>
-        <div className="settings-row">
-          <div className="info-item">
-            <span className="info-label">Deactivate account</span>
-            <span className="info-sub">Temporarily disable this account</span>
-            <button className="btn-danger-outline">Deactivate</button>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Delete account</span>
-            <span className="info-sub">Permanently remove all data</span>
-            <button className="btn-danger">Delete</button>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
 
 // ── SECURITY TAB ──
 function SecurityTab() {
-  return (
-    <div className="tab-content">
-      <div className="settings-card">
-        <h4 className="card-label">Password</h4>
-        <div className="settings-row">
-          <div className="info-item">
-            <span className="info-label">Current password</span>
-            <span className="info-sub">Last changed 3 months ago</span>
-          </div>
-          <button className="btn-primary">Change password</button>
-          <div className="info-item">
-            <span className="info-label">Two-factor authentication</span>
-            <span className="info-sub">Add an extra layer of security</span>
-          </div>
-          <div className="toggle-row">
-            <span>Off</span>
-            <label className="toggle">
-              <input type="checkbox" />
-              <span className="slider" />
-            </label>
-          </div>
-        </div>
-      </div>
+  const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-      <div className="settings-card">
-        <h4 className="card-label">Login history</h4>
-        <div className="login-list">
-          {[
-            { device: 'Chrome - Windows', location: 'Quezon City, PH', date: 'May 16, 2026, 9:04 AM', current: true },
-            { device: 'Chrome - Windows', location: 'Quezon City, PH', date: 'May 15, 2026, 3:22 PM', current: false },
-            { device: 'Mobile - Android', location: 'Quezon City, PH', date: 'May 13, 2026, 11:00 AM', current: false },
-          ].map((log, i) => (
-            <div key={i} className="login-row">
-              <div>
-                <p className="login-device">{log.device}</p>
-                <p className="login-detail">{log.location} — {log.date}</p>
-              </div>
-              <span className={`badge ${log.current ? 'badge-green' : 'badge-gray'}`}>
-                {log.current ? 'Current' : 'Past'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
+  const handleChange = (field, value) => {
+    setPasswords(prev => ({ ...prev, [field]: value }))
+    setError('')
+    setSuccess(false)
+  }
 
-// ── NOTIFICATIONS TAB ──
-function NotificationsTab() {
-  const [emailToggles, setEmailToggles] = useState({
-    newApplicant: true,
-    statusChanged: true,
-    deadlineReminder: true,
-    slotFilled: false,
-  })
+  const handleSubmit = async () => {
+    setError('')
+    setSuccess(false)
+    if (!passwords.current) { setError('Current password is required'); return }
+    if (!passwords.next) { setError('New password is required'); return }
+    if (passwords.next.length < 8) { setError('New password must be at least 8 characters'); return }
+    if (passwords.next !== passwords.confirm) { setError('New passwords do not match'); return }
 
-  const [appToggles, setAppToggles] = useState({
-    notifBadge: true,
-    reportsReady: false,
-  })
-
-  const toggle = (setter, key) => {
-    setter(prev => ({ ...prev, [key]: !prev[key] }))
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/change-password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ current_password: passwords.current, new_password: passwords.next })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to change password'); return }
+      setSuccess(true)
+      setPasswords({ current: '', next: '', confirm: '' })
+    } catch {
+      setError('Cannot connect to server. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <div className="tab-content">
       <div className="settings-card">
-        <h4 className="card-label">Email notifications</h4>
-        <div className="notif-grid">
-          {[
-            { key: 'newApplicant', label: 'New applicant submitted', sub: 'Get notified when someone applies' },
-            { key: 'statusChanged', label: 'Application status changed', sub: 'Approved, rejected, or under review' },
-            { key: 'deadlineReminder', label: 'Scholarship deadline reminder', sub: '3 days before closing date' },
-            { key: 'slotFilled', label: 'Slot filled alert', sub: 'When a scholarship reaches full capacity' },
-          ].map(item => (
-            <div key={item.key} className="notif-item">
-              <div>
-                <p className="notif-label">{item.label}</p>
-                <p className="notif-sub">{item.sub}</p>
-              </div>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={emailToggles[item.key]}
-                  onChange={() => toggle(setEmailToggles, item.key)}
-                />
-                <span className="slider" />
-              </label>
-              <span className="toggle-text">
-                {emailToggles[item.key] ? 'On' : 'Off'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+        <h4 className="card-label">Change Password</h4>
 
-      <div className="settings-card">
-        <h4 className="card-label">In-app notifications</h4>
-        <div className="notif-grid">
-          {[
-            { key: 'notifBadge', label: 'Show notification badge', sub: 'Bell icon counter on the top bar' },
-            { key: 'reportsReady', label: 'Reports ready alert', sub: 'When a new report is generated' },
-          ].map(item => (
-            <div key={item.key} className="notif-item">
-              <div>
-                <p className="notif-label">{item.label}</p>
-                <p className="notif-sub">{item.sub}</p>
-              </div>
-              <label className="toggle">
-                <input
-                  type="checkbox"
-                  checked={appToggles[item.key]}
-                  onChange={() => toggle(setAppToggles, item.key)}
-                />
-                <span className="slider" />
-              </label>
-              <span className="toggle-text">
-                {appToggles[item.key] ? 'On' : 'Off'}
-              </span>
-            </div>
-          ))}
+        {error && <div className="security-error">{error}</div>}
+        {success && <div className="security-success">Password changed successfully.</div>}
+
+        <div className="password-fields">
+          <div className="password-field">
+            <label>Current Password</label>
+            <input type="password" value={passwords.current} onChange={e => handleChange('current', e.target.value)} />
+          </div>
+          <div className="password-field">
+            <label>New Password</label>
+            <input type="password" value={passwords.next} onChange={e => handleChange('next', e.target.value)} />
+          </div>
+          <div className="password-field">
+            <label>Confirm New Password</label>
+            <input type="password" value={passwords.confirm} onChange={e => handleChange('confirm', e.target.value)} />
+          </div>
         </div>
+
+        <button className="btn-primary" onClick={handleSubmit} disabled={saving} style={{ marginTop: '14px' }}>
+          {saving ? 'Updating...' : 'Update Password'}
+        </button>
       </div>
     </div>
   )
@@ -253,109 +196,106 @@ function NotificationsTab() {
 
 // ── SYSTEM TAB ──
 function SystemTab() {
+  const [slots, setSlots] = useState(20)
+  const [savedLimit, setSavedLimit] = useState(20)
+  const [approvedCount, setApprovedCount] = useState(0)
+  const [savingLimit, setSavingLimit] = useState(false)
+  const [limitError, setLimitError] = useState('')
+  const [exporting, setExporting] = useState(false)
+
+  useEffect(() => {
+    apiFetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (typeof data.max_accepted === 'number') { setSlots(data.max_accepted); setSavedLimit(data.max_accepted) }
+        if (typeof data.approved_count === 'number') setApprovedCount(data.approved_count)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSaveLimit = async () => {
+    setLimitError('')
+    setSavingLimit(true)
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_accepted: slots })
+      })
+      const data = await res.json()
+      if (!res.ok) { setLimitError(data.error || 'Failed to update the applicant limit'); return }
+      setSavedLimit(data.max_accepted)
+      setApprovedCount(data.approved_count)
+    } catch {
+      setLimitError('Cannot connect to server. Please try again.')
+    } finally {
+      setSavingLimit(false)
+    }
+  }
+
+  const handleExportCsv = async () => {
+    setExporting(true)
+    try {
+      const res = await apiFetch('/api/applicants')
+      const data = await res.json()
+      const applicants = data.applicants || []
+      const columns = [
+        'full_name', 'email', 'city', 'course', 'gpa', 'ml_score', 'ml_status',
+        'application_status', 'submitted_at',
+      ]
+      const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`
+      const rows = [columns.join(',')]
+      applicants.forEach(a => rows.push(columns.map(c => escape(a[c])).join(',')))
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `ecoscholar-applicants-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Failed to export applicants')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="tab-content">
       <div className="settings-card">
-        <h4 className="card-label">Scholarship settings</h4>
+        <h4 className="card-label">Accepted Applicant Limit</h4>
+        <p className="info-sub" style={{ marginBottom: '14px' }}>
+          Approved status is always the top-{savedLimit} eligible applicants by ML score.
+          Currently {approvedCount} of {savedLimit} slots accepted. Also editable from the
+          Ranking page.
+        </p>
         <div className="settings-row">
-          <div className="info-item">
-            <span className="info-label">Default minimum GWA</span>
-            <span className="info-sub">Applicants below this are auto-flagged</span>
-            <select className="settings-select">
-              <option>1.75</option>
-              <option>2.00</option>
-              <option>2.25</option>
-              <option>2.50</option>
-            </select>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Active academic year</span>
-            <select className="settings-select">
-              <option>2025-2026</option>
-              <option>2026-2027</option>
-            </select>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Allow late applications</span>
-            <span className="info-sub">Accept submissions past the deadline</span>
-            <label className="toggle">
-              <input type="checkbox" />
-              <span className="slider" />
-            </label>
-          </div>
+          <input
+            type="number"
+            min={1}
+            className="settings-select"
+            style={{ width: '90px', background: '#fff' }}
+            value={slots}
+            onChange={e => setSlots(Number(e.target.value))}
+          />
+          <button className="btn-primary" onClick={handleSaveLimit} disabled={savingLimit || slots === savedLimit}>
+            {savingLimit ? 'Saving...' : 'Save'}
+          </button>
         </div>
+        {limitError && <div className="security-error" style={{ marginTop: '10px' }}>{limitError}</div>}
       </div>
 
       <div className="settings-card">
-        <h4 className="card-label">Data & export</h4>
+        <h4 className="card-label">Data Export</h4>
         <div className="settings-row">
           <div className="info-item">
             <span className="info-label">Export all applicants</span>
-            <span className="info-sub">Download complete applicant list as CSV</span>
-            <button className="btn-primary">Export CSV</button>
+            <span className="info-sub">Download the full applicant list as CSV</span>
           </div>
-          <div className="info-item">
-            <span className="info-label">Export reports</span>
-            <span className="info-sub">Download analytics summary as PDF</span>
-            <button className="btn-primary">Export PDF</button>
-          </div>
-          <div className="info-item">
-            <span className="info-label">Backup data</span>
-            <span className="info-sub">Last backup: May 10, 2026</span>
-            <button className="btn-primary">Backup now</button>
-          </div>
+          <button className="btn-primary" onClick={handleExportCsv} disabled={exporting}>
+            {exporting ? 'Exporting...' : 'Export CSV'}
+          </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ── ROLES TAB ──
-function RolesTab() {
-  return (
-    <div className="tab-content">
-      <div className="settings-card">
-        <h4 className="card-label">User roles</h4>
-        <div className="roles-grid">
-          <div className="role-item">
-            <p className="role-name">Administrator</p>
-            <p className="role-desc">Full access — manage all data, settings, and users</p>
-            <span className="badge badge-green">You</span>
-          </div>
-          <div className="role-item">
-            <p className="role-name">Reviewer</p>
-            <p className="role-desc">Can view and update applicant status only</p>
-            <button className="btn-primary">Manage</button>
-          </div>
-          <div className="role-item">
-            <p className="role-name">Viewer</p>
-            <p className="role-desc">Read-only access to applicants and reports</p>
-            <button className="btn-primary">Manage</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="settings-card">
-        <h4 className="card-label">Staff accounts</h4>
-        <div className="staff-list">
-          {[
-            { name: 'Maria Santos', email: 'maria@ecoscolar.edu.ph', role: 'Reviewer', roleClass: 'badge-yellow' },
-            { name: 'Carlo Reyes', email: 'carlo@ecoscolar.edu.ph', role: 'Viewer', roleClass: 'badge-blue' },
-          ].map((staff, i) => (
-            <div key={i} className="staff-row">
-              <div className="staff-avatar">
-                {staff.name.split(' ').map(n => n[0]).join('')}
-              </div>
-              <div>
-                <p className="staff-name">{staff.name}</p>
-                <p className="staff-email">{staff.email}</p>
-              </div>
-              <span className={`badge ${staff.roleClass}`}>{staff.role}</span>
-              <button className="btn-edit">Edit</button>
-            </div>
-          ))}
-        </div>
-        <button className="btn-invite">Invite staff</button>
       </div>
     </div>
   )
@@ -370,11 +310,10 @@ function Settings() {
       <div className="settings-header">
         <div>
           <h2 className="page-title">Settings</h2>
-          <p className="page-sub">Manage your account, system preferences, and access controls.</p>
+          <p className="page-sub">Manage your account and system preferences.</p>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="settings-tabs">
         {TABS.map(tab => (
           <button
@@ -386,12 +325,9 @@ function Settings() {
         ))}
       </div>
 
-      {/* Tab Content */}
       {activeTab === 'Profile' && <ProfileTab />}
       {activeTab === 'Security' && <SecurityTab />}
-      {activeTab === 'Notifications' && <NotificationsTab />}
       {activeTab === 'System' && <SystemTab />}
-      {activeTab === 'Roles & Access' && <RolesTab />}
     </div>
   )
 }

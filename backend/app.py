@@ -653,6 +653,65 @@ def get_profile():
             profile[field] = value or ''
     return jsonify({"profile": profile})
 
+# Editable from the Settings page. Email is intentionally excluded - it's the login
+# credential and is used to match applicant records, so changing it has wider ripple
+# effects than a simple profile edit; out of scope here.
+PROFILE_EDITABLE_FIELDS = {'full_name', 'contactNumber', 'address'}
+
+@app.route('/api/profile', methods=['PUT'])
+@require_auth
+def update_profile():
+    data = request.get_json() or {}
+    set_fields = {}
+    for field in PROFILE_EDITABLE_FIELDS:
+        if field in data:
+            value = (data.get(field) or '').strip()
+            if not value:
+                return jsonify({"error": f"{field} cannot be empty"}), 400
+            set_fields[field] = value
+
+    if not set_fields:
+        return jsonify({"error": "No valid fields provided"}), 400
+
+    db = get_db()
+    user_oid = oid(g.current_user['id'])
+    db.users.update_one({"_id": user_oid}, {"$set": set_fields})
+    user = db.users.find_one({"_id": user_oid})
+    return jsonify({
+        "message": "Profile updated",
+        "fullName": user.get('full_name', ''),
+        "contactNumber": user.get('contactNumber', ''),
+        "address": user.get('address', ''),
+    })
+
+@app.route('/api/change-password', methods=['PUT'])
+@require_auth
+@limiter.limit("8 per minute")
+def change_password():
+    data = request.get_json() or {}
+    current_password = data.get('current_password') or ''
+    new_password = data.get('new_password') or ''
+
+    if not current_password or not new_password:
+        return jsonify({"error": "Current and new password are required"}), 400
+    if len(new_password) < 8:
+        return jsonify({"error": "New password must be at least 8 characters"}), 400
+
+    db = get_db()
+    user_oid = oid(g.current_user['id'])
+    user = db.users.find_one({"_id": user_oid})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    stored = user['password']
+    is_hashed = stored.startswith(('pbkdf2:', 'scrypt:'))
+    valid = check_password_hash(stored, current_password) if is_hashed else stored == current_password
+    if not valid:
+        return jsonify({"error": "Current password is incorrect"}), 401
+
+    db.users.update_one({"_id": user_oid}, {"$set": {"password": generate_password_hash(new_password)}})
+    return jsonify({"message": "Password changed successfully"})
+
 # ── GET ALL APPLICANTS ──
 @app.route('/api/applicants', methods=['GET'])
 @require_role('admin')
