@@ -47,6 +47,13 @@ _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
 RESET_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-reset')
 
+# Proves the applicant actually controls the email address before they ever see the
+# admin-request form - otherwise anyone could submit a request impersonating someone
+# else's inbox. Longer-lived than the reset token since filling out office/municipality
+# details takes more than the few minutes a password reset does.
+ADMIN_APPLY_TOKEN_MAX_AGE = 60 * 60 * 24  # 24 hours
+_admin_apply_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-admin-apply')
+
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
 SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT') or 587)
@@ -2338,24 +2345,74 @@ def serialize_admin_request(r):
     }
 
 # ── ADMIN ACCOUNT REQUESTS (LGU officials applying for admin access) ──
-# A public submission never creates the account directly - it only queues a
+# Two-step so nobody can submit a request impersonating someone else's inbox:
+# 1) POST /start with just an email - emails a time-limited link, never confirms
+#    whether that email already has an account or a pending request either way.
+# 2) The emailed link carries a token proving that email was actually reachable;
+#    only then does the full form (office, municipality, etc.) become fillable,
+#    and the request is stored under the token's email, not a client-supplied one.
+# A submission still never creates the account directly - it only queues a
 # request that an existing admin must approve, since admin accounts can see
 # every applicant's PII and control disbursement decisions.
+@app.route('/api/admin-requests/start', methods=['POST'])
+@limiter.limit("5 per minute")
+def start_admin_request():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+
+    generic = {"message": "If that address can apply for admin access, a link has been sent to it."}
+    if not email or not re.match(r'^\S+@\S+\.\S+$', email):
+        return jsonify({"error": "Enter a valid email address"}), 400
+
+    try:
+        token = _admin_apply_serializer.dumps({"email": email})
+        apply_link = f"{FRONTEND_URL}/apply-admin?token={token}"
+        html = f"""
+            <p>Hi,</p>
+            <p>Someone requested to apply for EcoScholar admin access using this email address.
+            Click below to continue - this link expires in 24 hours.</p>
+            <p><a href="{apply_link}">Continue your admin application</a></p>
+            <p>If you didn't request this, you can safely ignore this email.</p>
+        """
+        send_email_async(email, 'Continue your EcoScholar admin application', html)
+    except Exception:
+        if DEBUG:
+            raise
+    return jsonify(generic)
+
+@app.route('/api/admin-requests/verify-token', methods=['GET'])
+@limiter.limit("20 per minute")
+def verify_admin_apply_token():
+    token = request.args.get('token') or ''
+    try:
+        payload = _admin_apply_serializer.loads(token, max_age=ADMIN_APPLY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "This link has expired. Please request a new one."}), 400
+    except BadSignature:
+        return jsonify({"error": "This link is invalid."}), 400
+    return jsonify({"email": payload.get('email', '')})
+
 @app.route('/api/admin-requests', methods=['POST'])
 @limiter.limit("5 per minute")
 def submit_admin_request():
     data = request.get_json() or {}
+    token = data.get('token') or ''
     full_name = (data.get('full_name') or '').strip()
-    email = (data.get('email') or '').strip().lower()
     office = (data.get('office') or '').strip()
     municipality = (data.get('municipality') or '').strip()
     contact_number = (data.get('contact_number') or '').strip()
     message = (data.get('message') or '').strip()
 
+    try:
+        payload = _admin_apply_serializer.loads(token, max_age=ADMIN_APPLY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "This link has expired. Please request a new one."}), 400
+    except BadSignature:
+        return jsonify({"error": "This link is invalid."}), 400
+    email = (payload.get('email') or '').strip().lower()
+
     if not full_name or not email or not office or not municipality or not contact_number:
-        return jsonify({"error": "Full name, email, office, municipality, and contact number are required"}), 400
-    if not re.match(r'^\S+@\S+\.\S+$', email):
-        return jsonify({"error": "Enter a valid email address"}), 400
+        return jsonify({"error": "Full name, office, municipality, and contact number are required"}), 400
 
     db = get_db()
     if db.users.find_one({"email": email}):

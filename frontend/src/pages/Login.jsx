@@ -556,10 +556,6 @@ const ADDRESS_CITIES = [
   { city: 'Tiaong', province: 'Quezon' },
 ]
 
-const EMPTY_ADMIN_REQUEST = {
-  fullName: '', email: '', office: '', municipality: '', contactNumber: '', message: '',
-}
-
 const EMPTY_REG_DATA = {
   lastName: '', firstName: '', middleName: '', email: '', password: '', confirm_password: '',
   dob: '', gender: '', religion: '', citizenship: 'Filipino', contactNumber: '',
@@ -649,11 +645,14 @@ function Login() {
   const [forgotSent, setForgotSent] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
 
-  // ── APPLY AS ADMIN ──
-  const [adminReqData, setAdminReqData] = useState(EMPTY_ADMIN_REQUEST)
-  const [adminReqError, setAdminReqError] = useState('')
-  const [adminReqSuccess, setAdminReqSuccess] = useState(false)
-  const [adminReqLoading, setAdminReqLoading] = useState(false)
+  // ── APPLY FOR ADMIN (start step - just verifies the email, the full
+  // application form lives on the separate /apply-admin page reached via
+  // the emailed link) ──
+  const [showApplyAdmin, setShowApplyAdmin] = useState(false)
+  const [applyAdminEmail, setApplyAdminEmail] = useState('')
+  const [applyAdminError, setApplyAdminError] = useState('')
+  const [applyAdminSent, setApplyAdminSent] = useState(false)
+  const [applyAdminLoading, setApplyAdminLoading] = useState(false)
 
  const switchTab = (t) => {
   setTab(t)
@@ -662,7 +661,6 @@ function Login() {
   setPrivacyConsent(false)
   setRegStep(1)
   setRegFieldErrors({})
-  setAdminReqError('')
 }
 
   // ── LOGIN HANDLER ──
@@ -799,53 +797,31 @@ function Login() {
     setForgotLoading(false)
   }, [forgotEmail])
 
-  // ── APPLY AS ADMIN HANDLER ──
-  const handleAdminRequest = useCallback(async () => {
-    setAdminReqError('')
-    const { fullName, email, office, municipality, contactNumber } = adminReqData
+  // ── APPLY FOR ADMIN HANDLER (start step) ──
+  const handleApplyAdminStart = useCallback(async () => {
+    setApplyAdminError('')
+    if (!applyAdminEmail.trim())                  { setApplyAdminError('Email is required'); return }
+    if (!/\S+@\S+\.\S+/.test(applyAdminEmail))   { setApplyAdminError('Enter a valid email address'); return }
 
-    if (!fullName.trim())      { setAdminReqError('Full name is required'); return }
-    if (!email.trim())         { setAdminReqError('Email is required'); return }
-    if (!/\S+@\S+\.\S+/.test(email)) { setAdminReqError('Enter a valid email address'); return }
-    if (!office.trim())        { setAdminReqError('Office / position is required'); return }
-    if (!municipality)         { setAdminReqError('Municipality is required'); return }
-    if (!contactNumber.trim()) { setAdminReqError('Contact number is required'); return }
-    else if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, '')))
-      { setAdminReqError('Enter a valid PH number (e.g. 09123456789)'); return }
-
-    setAdminReqLoading(true)
+    setApplyAdminLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admin-requests`, {
+      await fetch(`${API_BASE_URL}/api/admin-requests/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_name: fullName.trim(),
-          email: email.trim().toLowerCase(),
-          office: office.trim(),
-          municipality,
-          contact_number: contactNumber.trim(),
-          message: adminReqData.message.trim(),
-        })
+        body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase() })
       })
-      const data = await res.json()
-
-      if (!res.ok) {
-        setAdminReqError(data.error || 'Failed to submit request. Please try again.')
-        return
-      }
-
-      setAdminReqSuccess(true)
+      // Same anti-enumeration shape as forgot-password - always show the sent
+      // state regardless of whether this email already has an account/request.
+      setApplyAdminSent(true)
     } catch {
-      setAdminReqError('Cannot connect to server. Please try again.')
-    } finally {
-      setAdminReqLoading(false)
+      setApplyAdminError('Cannot connect to server. Please try again.')
     }
-  }, [adminReqData])
+    setApplyAdminLoading(false)
+  }, [applyAdminEmail])
 
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter') return
     if (tab === 'login') handleLogin()
-    else if (tab === 'admin-request') handleAdminRequest()
     else if (regStep === 1) handleRegNext()
     else handleRegister()
   }
@@ -887,9 +863,6 @@ function Login() {
               </button>
               <button className={`lp-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => switchTab('register')}>
                 Create Account
-              </button>
-              <button className={`lp-tab ${tab === 'admin-request' ? 'active' : ''}`} onClick={() => switchTab('admin-request')}>
-                Apply as Admin
               </button>
             </div>
 
@@ -1096,6 +1069,10 @@ function Login() {
                     <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
                       Already have an account?{' '}
                       <button className="lp-link" type="button" onClick={() => switchTab('login')}>Sign in here</button>
+                    </p>
+                    <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                      LGU official?{' '}
+                      <button className="lp-link" type="button" onClick={() => setShowApplyAdmin(true)}>Apply for admin access</button>
                     </p>
                   </>
                 ) : (
@@ -1369,117 +1346,6 @@ function Login() {
               </>
             )}
 
-            {/* APPLY AS ADMIN FORM */}
-            {tab === 'admin-request' && (
-              adminReqSuccess ? (
-                <div className="lp-success-box">
-                  <h2>Request Submitted</h2>
-                  <p>
-                    Thanks — an existing EcoScholar admin will verify your details.
-                    If approved, you'll receive an email at <strong>{adminReqData.email}</strong> with
-                    a link to set your password.
-                  </p>
-                  <button className="lp-btn" onClick={() => {
-                    setTab('login')
-                    setAdminReqSuccess(false)
-                    setAdminReqData(EMPTY_ADMIN_REQUEST)
-                  }}>
-                    Back to Sign In
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <h2 className="lp-title">Apply as Admin</h2>
-                  <p className="lp-sub">For LGU officials requesting scholarship-program admin access</p>
-
-                  {adminReqError && <div className="lp-alert error">{adminReqError}</div>}
-
-                  <div className="lp-field">
-                    <label>Full Name</label>
-                    <input
-                      className="lp-input"
-                      type="text"
-                      placeholder="Full name"
-                      value={adminReqData.fullName}
-                      autoComplete="name"
-                      onChange={e => { setAdminReqData(p => ({ ...p, fullName: e.target.value })); setAdminReqError('') }}
-                      onKeyDown={handleKeyDown}
-                    />
-                  </div>
-
-                  <div className="lp-field">
-                    <label>Official Email Address</label>
-                    <input
-                      className="lp-input"
-                      type="email"
-                      placeholder="you@lgu.gov.ph"
-                      value={adminReqData.email}
-                      autoComplete="email"
-                      onChange={e => { setAdminReqData(p => ({ ...p, email: e.target.value })); setAdminReqError('') }}
-                      onKeyDown={handleKeyDown}
-                    />
-                  </div>
-
-                  <div className="lp-field">
-                    <label>Office / Position</label>
-                    <input
-                      className="lp-input"
-                      type="text"
-                      placeholder="e.g. Municipal Social Welfare and Development Office"
-                      value={adminReqData.office}
-                      onChange={e => { setAdminReqData(p => ({ ...p, office: e.target.value })); setAdminReqError('') }}
-                      onKeyDown={handleKeyDown}
-                    />
-                  </div>
-
-                  <div className="lp-field">
-                    <label>Municipality</label>
-                    <select
-                      className="lp-input"
-                      value={adminReqData.municipality}
-                      onChange={e => { setAdminReqData(p => ({ ...p, municipality: e.target.value })); setAdminReqError('') }}>
-                      <option value="">Select city / municipality</option>
-                      {ADDRESS_CITIES.map(c => (
-                        <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="lp-field">
-                    <label>Contact Number</label>
-                    <input
-                      className="lp-input"
-                      type="text"
-                      placeholder="09123456789"
-                      value={adminReqData.contactNumber}
-                      onChange={e => { setAdminReqData(p => ({ ...p, contactNumber: e.target.value })); setAdminReqError('') }}
-                      onKeyDown={handleKeyDown}
-                    />
-                  </div>
-
-                  <div className="lp-field">
-                    <label>Reason for Request <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
-                    <textarea
-                      className="lp-input"
-                      rows={3}
-                      placeholder="Briefly describe your role in the scholarship program"
-                      value={adminReqData.message}
-                      onChange={e => { setAdminReqData(p => ({ ...p, message: e.target.value })); setAdminReqError('') }}
-                    />
-                  </div>
-
-                  <button className="lp-btn" onClick={handleAdminRequest} disabled={adminReqLoading}>
-                    {adminReqLoading ? <><span className="spinner" /> Submitting…</> : 'Submit Request'}
-                  </button>
-
-                  <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-                    Already have an account?{' '}
-                    <button className="lp-link" type="button" onClick={() => switchTab('login')}>Sign in here</button>
-                  </p>
-                </>
-              )
-            )}
-
           </div>
         </div>
 
@@ -1521,6 +1387,52 @@ function Login() {
                   <h3 style={{ marginBottom: '8px' }}>Email Sent</h3>
                   <p>Check your inbox at <strong>{forgotEmail}</strong> for the password reset link.</p>
                   <button className="lp-btn" style={{ marginTop: '8px' }} onClick={() => { setShowForgot(false); setForgotSent(false); setForgotEmail('') }}>
+                    Done
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* APPLY FOR ADMIN MODAL (start step) */}
+        {showApplyAdmin && (
+          <div className="lp-overlay" onClick={() => { setShowApplyAdmin(false); setApplyAdminSent(false); setApplyAdminEmail(''); setApplyAdminError('') }}>
+            <div className="lp-modal" onClick={e => e.stopPropagation()}>
+              {!applyAdminSent ? (
+                <>
+                  <h3>Apply for Admin Access</h3>
+                  <p>Enter your official email. We'll send you a link to continue your application - this confirms it's really you before you fill anything in.</p>
+
+                  {applyAdminError && <div className="lp-alert error" style={{ marginBottom: '14px' }}>{applyAdminError}</div>}
+
+                  <div className="lp-field">
+                    <label>Official Email Address</label>
+                    <input
+                      className="lp-input"
+                      type="email"
+                      placeholder="you@lgu.gov.ph"
+                      value={applyAdminEmail}
+                      onChange={e => { setApplyAdminEmail(e.target.value); setApplyAdminError('') }}
+                      onKeyDown={e => e.key === 'Enter' && handleApplyAdminStart()}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="lp-modal-btns">
+                    <button className="lp-btn-cancel" onClick={() => { setShowApplyAdmin(false); setApplyAdminEmail(''); setApplyAdminError('') }}>
+                      Cancel
+                    </button>
+                    <button className="lp-btn-send" onClick={handleApplyAdminStart} disabled={applyAdminLoading}>
+                      {applyAdminLoading ? 'Sending…' : 'Send Link'}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center' }}>
+                  <h3 style={{ marginBottom: '8px' }}>Check Your Email</h3>
+                  <p>If <strong>{applyAdminEmail}</strong> can apply for admin access, a link to continue is on its way.</p>
+                  <button className="lp-btn" style={{ marginTop: '8px' }} onClick={() => { setShowApplyAdmin(false); setApplyAdminSent(false); setApplyAdminEmail('') }}>
                     Done
                   </button>
                 </div>
