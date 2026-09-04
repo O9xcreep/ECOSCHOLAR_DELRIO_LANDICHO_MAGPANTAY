@@ -6,44 +6,51 @@ function Documents() {
   const [docs, setDocs] = useState([])
   const [applicantId, setApplicantId] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [dragOver, setDragOver] = useState(null)
 
   const user = getUser() || {}
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const reqRes = await apiFetch('/api/document-requirements')
-        const reqData = await reqRes.json()
-        const requirements = (reqData.requirements || []).filter(r => r.enabled)
+  const loadDocuments = async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const reqRes = await apiFetch('/api/document-requirements')
+      if (!reqRes.ok) throw new Error(`Request failed with status ${reqRes.status}`)
+      const reqData = await reqRes.json()
+      const requirements = (reqData.requirements || []).filter(r => r.enabled)
 
-        let defaultDocs = requirements.map(r => ({
-          id: r.id,
-          document_name: r.label,
-          required: r.required,
-          status: r.required ? 'Missing' : 'Not Required',
-          file: null,
-        }))
+      let defaultDocs = requirements.map(r => ({
+        id: r.id,
+        document_name: r.label,
+        required: r.required,
+        status: r.required ? 'Missing' : 'Not Required',
+        file: null,
+      }))
 
-        if (user.email) {
-          const appRes = await apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
-          const appData = await appRes.json()
-          if (appData.application) {
-            setApplicantId(appData.application.id)
-            if (appData.documents && appData.documents.length > 0) {
-              defaultDocs = defaultDocs.map(d => {
-                const found = appData.documents.find(u => u.document_name === d.document_name)
-                return found ? { ...d, status: found.status } : d
-              })
-            }
+      if (user.email) {
+        const appRes = await apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
+        const appData = await appRes.json()
+        if (appData.application) {
+          setApplicantId(appData.application.id)
+          if (appData.documents && appData.documents.length > 0) {
+            defaultDocs = defaultDocs.map(d => {
+              const found = appData.documents.find(u => u.document_name === d.document_name)
+              return found ? { ...d, status: found.status } : d
+            })
           }
         }
-        setDocs(defaultDocs)
-      } catch (err) {
-        console.error('Error:', err)
       }
-      setLoading(false)
-    })()
+      setDocs(defaultDocs)
+    } catch (err) {
+      console.error('Error:', err)
+      setLoadError(true)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    loadDocuments()
   }, [])
 
   const uploaded = docs.filter(d => d.status === 'Uploaded').length
@@ -158,6 +165,11 @@ function Documents() {
         {loading ? (
           <div style={{ textAlign: 'center', padding: '40px', color: '#888' }}>
             Loading your documents...
+          </div>
+        ) : loadError ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#991b1b' }}>
+            <p style={{ marginBottom: '14px' }}>Couldn't load your documents. Check your connection and try again.</p>
+            <button className="btn-retry" onClick={loadDocuments}>Retry</button>
           </div>
         ) : (
           <div className="doc-list">

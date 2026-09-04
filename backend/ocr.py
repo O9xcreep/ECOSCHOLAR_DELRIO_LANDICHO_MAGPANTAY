@@ -99,7 +99,12 @@ def _find_gpa_value(text):
             if val <= 5.0:
                 closest = min(OLD_SCALE_TO_PERCENT, key=lambda k: abs(k - val))
                 return float(OLD_SCALE_TO_PERCENT[closest])
-            return round(val, 1)
+            if 60 <= val <= 100:
+                return round(val, 1)
+            # Implausible for either scale (e.g. the generic "grade[:\s]+(\d+)"
+            # pattern matching the "12" in a "GRADE 12 REPORT CARD" title, not an
+            # actual GWA figure) - keep trying other patterns instead of
+            # returning a bogus value that would feed a false fraud flag.
     return None
 
 def _find_income_value(text):
@@ -284,9 +289,9 @@ def verify_document(doc_type, extracted_text, applicant_data):
 
     # Set status - stricter bands than before, since the name gate already
     # removed the easiest source of false positives.
-    if confidence >= 75:
+    if confidence >= 70:
         results['status'] = 'Verified'
-    elif confidence >= 50:
+    elif confidence >= 40:
         results['status'] = 'Partially Verified'
     else:
         results['status'] = 'Failed Verification'

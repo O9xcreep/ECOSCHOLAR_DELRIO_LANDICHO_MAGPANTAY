@@ -3,6 +3,8 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
 } from 'recharts'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { apiFetch } from '../../api'
 import './reports.css'
 
@@ -132,6 +134,48 @@ function Reports() {
 
   const total = stats[0].value
 
+  const handleExportPdf = () => {
+    const doc = new jsPDF()
+    const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+
+    doc.setFontSize(16)
+    doc.text('EcoScholar - Applications Report', 14, 18)
+    doc.setFontSize(10)
+    doc.setTextColor(120)
+    doc.text(`Generated ${generatedAt}`, 14, 25)
+
+    autoTable(doc, {
+      startY: 32,
+      head: [['Metric', 'Value']],
+      body: stats.map(s => [s.label, String(s.value)]),
+      theme: 'grid',
+      headStyles: { fillColor: [124, 58, 237] },
+    })
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [['Status', 'Count', 'Share']],
+      body: statusBreakdown.map(item => [
+        item.name, String(item.value), total ? `${Math.round((item.value / total) * 100)}%` : '0%'
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [124, 58, 237] },
+    })
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [['Application Type', 'Applicants', 'Approved', 'Rejected', 'Under Review', 'Approval Rate']],
+      body: byType.map(row => {
+        const rate = row.applicants ? Math.round((row.approved / row.applicants) * 100) : 0
+        return [row.name, row.applicants, row.approved, row.rejected, row.review, `${rate}%`]
+      }),
+      theme: 'grid',
+      headStyles: { fillColor: [124, 58, 237] },
+    })
+
+    doc.save(`ecoscholar-report-${new Date().toISOString().slice(0, 10)}.pdf`)
+  }
+
   if (loading) return <div className="reports-page"><p className="page-sub">Loading reports…</p></div>
   if (error) return <div className="reports-page"><p className="page-sub">{error}</p></div>
 
@@ -144,7 +188,7 @@ function Reports() {
           <h2 className="page-title">Reports</h2>
           <p className="page-sub">Analytics overview for scholarship applications</p>
         </div>
-        <button className="btn-export">Export PDF</button>
+        <button className="btn-export" onClick={handleExportPdf}>Export PDF</button>
       </div>
 
       {/* Stat Cards */}

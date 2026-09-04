@@ -6,6 +6,7 @@ import StudentLayout from './layouts/StudentLayout'
 
 // Auth
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 import ProtectedRoute from './components/ProtectedRoute'
 
 // Student
@@ -34,6 +35,7 @@ function App() {
 
         {/* Auth */}
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Student */}
         <Route path="/student" element={<ProtectedRoute role="student"><StudentLayout /></ProtectedRoute>}>

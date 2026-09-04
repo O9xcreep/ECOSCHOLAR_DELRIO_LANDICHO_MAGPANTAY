@@ -11,6 +11,7 @@ const STATUS_COLORS = {
   'Pending Verification': 'badge-yellow',
   'Not Yet Reviewed': 'badge-purple',
   'Incomplete': 'badge-red',
+  'Withdrawn': 'badge-gray',
 }
 
 const STATUS_MESSAGES = {
@@ -21,6 +22,7 @@ const STATUS_MESSAGES = {
   'Pending Verification': 'Your documents are being verified by our team.',
   'Not Yet Reviewed': 'Your application is in the queue and will be reviewed soon.',
   'Incomplete': 'Your application is incomplete. Please upload all required documents.',
+  'Withdrawn': 'You have withdrawn this application. If you change your mind, you can submit a new application.',
 }
 
 function ApplicationView() {
@@ -28,10 +30,12 @@ function ApplicationView() {
   const [application, setApplication] = useState(null)
   const [documents, setDocuments] = useState([])
   const [loading, setLoading] = useState(true)
+  const [withdrawing, setWithdrawing] = useState(false)
+  const [withdrawError, setWithdrawError] = useState('')
 
   const user = getUser() || {}
 
-  useEffect(() => {
+  const loadApplication = () => {
     if (!user.email) { setLoading(false); return }
 
     apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
@@ -44,7 +48,32 @@ function ApplicationView() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { loadApplication() }, [])
+
+  const handleWithdraw = async () => {
+    if (!window.confirm(
+      'Withdraw this application? Your submitted information stays on file, but it will no ' +
+      'longer be considered for the scholarship. You can submit a new application later if you change your mind.'
+    )) return
+
+    setWithdrawing(true)
+    setWithdrawError('')
+    try {
+      const res = await apiFetch('/api/student/application/withdraw', { method: 'PUT' })
+      const data = await res.json()
+      if (!res.ok) {
+        setWithdrawError(data.error || 'Could not withdraw your application.')
+        return
+      }
+      loadApplication()
+    } catch {
+      setWithdrawError('Cannot connect to server. Please try again.')
+    } finally {
+      setWithdrawing(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -94,7 +123,8 @@ function ApplicationView() {
       <div className={`av-status-banner ${
         displayed === 'Approved' ? 'banner-green' :
         displayed === 'Waitlisted' ? 'banner-yellow' :
-        displayed === 'Rejected' ? 'banner-red' : 'banner-blue'
+        displayed === 'Rejected' ? 'banner-red' :
+        displayed === 'Withdrawn' ? 'banner-gray' : 'banner-blue'
       }`}>
         <p>{STATUS_MESSAGES[displayed] || 'Your application is being processed.'}</p>
 
@@ -256,6 +286,7 @@ function ApplicationView() {
       </div>
 
       {/* Footer */}
+      {withdrawError && <p className="av-withdraw-error">{withdrawError}</p>}
       <div className="av-footer">
         <button className="av-btn-secondary"
           onClick={() => navigate('/student/dashboard')}>
@@ -265,6 +296,11 @@ function ApplicationView() {
           <button className="av-btn-primary"
             onClick={() => navigate('/student/documents')}>
             Upload Missing Documents
+          </button>
+        )}
+        {status !== 'Withdrawn' && (
+          <button className="av-btn-danger" onClick={handleWithdraw} disabled={withdrawing}>
+            {withdrawing ? 'Withdrawing…' : 'Withdraw Application'}
           </button>
         )}
       </div>

@@ -43,6 +43,7 @@
 .banner-red   { background: #fee2e2; color: #991b1b; border-left: 4px solid #ef4444; }
 .banner-blue  { background: #dbeafe; color: #1d4ed8; border-left: 4px solid #2563eb; }
 .banner-yellow { background: #fef3c7; color: #92400e; border-left: 4px solid #f59e0b; }
+.banner-gray  { background: #f3f4f6; color: #4b5563; border-left: 4px solid #9ca3af; }
 
 .av-submitted {
   font-size: 12px;
@@ -173,6 +174,32 @@
 .av-btn-secondary:hover {
   border-color: #7c3aed;
   color: #7c3aed;
+}
+
+.av-btn-danger {
+  padding: 11px 20px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.av-btn-danger:hover:not(:disabled) {
+  background: #fecaca;
+}
+
+.av-btn-danger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.av-withdraw-error {
+  color: #991b1b;
+  font-size: 13px;
+  margin-top: -6px;
 }
 
 /* ── LOADING / EMPTY ── */

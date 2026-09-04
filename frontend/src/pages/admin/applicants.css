@@ -25,6 +25,16 @@
   gap: 12px;
 }
 
+.sort-select {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+}
+
 /* ── SEARCH ── */
 .search-box {
   display: flex;
@@ -205,6 +215,7 @@
   font-weight: 600;
 }
 
+.badge-gray   { background: #f3f4f6; color: #6b7280; }
 .badge-green  { background: #d1fae5; color: #065f46; }
 .badge-yellow { background: #fef3c7; color: #92400e; }
 .badge-red    { background: #fee2e2; color: #991b1b; }
@@ -217,6 +228,62 @@
   font-size: 15px;
   background: white;
   border-radius: 14px;
+}
+
+.empty-state.error-state {
+  color: #991b1b;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.btn-retry {
+  padding: 8px 18px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-retry:hover {
+  background: #fecaca;
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.btn-page {
+  padding: 8px 16px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  cursor: pointer;
+}
+
+.btn-page:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.btn-page:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.page-info {
+  font-size: 13px;
+  color: #888;
 }
 
 /* ── RESPONSIVE ── */

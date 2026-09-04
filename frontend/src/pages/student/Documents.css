@@ -116,6 +116,21 @@
   color: #1e293b;
 }
 
+.btn-retry {
+  padding: 8px 18px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-retry:hover {
+  background: #fecaca;
+}
+
 .doc-list-sub {
   font-size: 12px;
   color: #aaa;

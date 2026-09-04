@@ -12,6 +12,7 @@ const statusClass = {
   'Pending Verification': 'badge-yellow',
   'Not Yet Reviewed': 'badge-purple',
   'Incomplete': 'badge-red',
+  'Withdrawn': 'badge-gray',
 }
 
 function Dashboard() {
@@ -23,19 +24,42 @@ function Dashboard() {
   })
   const [recentApps, setRecentApps] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
   const user = JSON.parse(localStorage.getItem('user') || '{}')
 
   const [duplicateFlags, setDuplicateFlags] = useState([])
   const [scholarsPerYear, setScholarsPerYear] = useState([])
   const [historyLog, setHistoryLog] = useState([])
+  const [openingDoc, setOpeningDoc] = useState('')
+
+  const handleViewFlagDoc = async (applicantId, documentName, key) => {
+    if (!applicantId || !documentName) return
+    setOpeningDoc(key)
+    try {
+      const response = await apiFetch(
+        `/api/documents/${applicantId}/view?document_name=${encodeURIComponent(documentName)}`
+      )
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        alert(data.error || 'Could not load this document')
+        return
+      }
+      const blob = await response.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch {
+      alert('Cannot connect to server')
+    }
+    setOpeningDoc('')
+  }
 
 useEffect(() => {
   // Fetch stats
   apiFetch('/api/stats')
     .then(res => res.json())
     .then(data => setStats(data))
-    .catch(err => console.error('Stats error:', err))
+    .catch(err => { console.error('Stats error:', err); setLoadError(true) })
 
   // Fetch recent applicants
   apiFetch('/api/applicants')
@@ -47,25 +71,26 @@ useEffect(() => {
     .catch(err => {
       console.error('Applicants error:', err)
       setLoading(false)
+      setLoadError(true)
     })
 
   // Fetch duplicate flags
   apiFetch('/api/duplicate-flags')
     .then(res => res.json())
     .then(data => setDuplicateFlags(data.flags || []))
-    .catch(err => console.error('Flags error:', err))
+    .catch(err => { console.error('Flags error:', err); setLoadError(true) })
 
   // Fetch scholars approved per academic year
   apiFetch('/api/stats/scholars-per-year')
     .then(res => res.json())
     .then(data => setScholarsPerYear(data.scholars_per_year || []))
-    .catch(err => console.error('Scholars per year error:', err))
+    .catch(err => { console.error('Scholars per year error:', err); setLoadError(true) })
 
   // Fetch recent decision history log
   apiFetch('/api/history-log?limit=10')
     .then(res => res.json())
     .then(data => setHistoryLog(data.history || []))
-    .catch(err => console.error('History log error:', err))
+    .catch(err => { console.error('History log error:', err); setLoadError(true) })
 }, [])
 
   const statCards = [
@@ -87,6 +112,12 @@ useEffect(() => {
           </p>
         </div>
       </div>
+
+      {loadError && (
+        <div className="dash-error-banner">
+          Some dashboard data couldn't be loaded. Try refreshing the page.
+        </div>
+      )}
 
       {/* Stats */}
       {loading ? (
@@ -133,7 +164,9 @@ useEffect(() => {
             </span>
           </div>
           <div className="duplicate-list">
-            {duplicateFlags.map((flag, i) => (
+            {duplicateFlags.map((flag, i) => {
+              const isDocFlag = flag.reason === 'duplicate_document' || flag.reason === 'near_duplicate_document'
+              return (
               <div key={i} className="duplicate-row">
                 <div className="duplicate-info">
                   <div>
@@ -143,6 +176,8 @@ useEffect(() => {
                         ? `Duplicate email: ${flag.applicant_email}`
                         : flag.reason === 'duplicate_document'
                         ? `"${flag.document_name}" is the exact same file already uploaded by ${flag.duplicate_of_name || 'another applicant'}`
+                        : flag.reason === 'near_duplicate_document'
+                        ? `"${flag.document_name}" looks like a near-identical copy of "${flag.duplicate_of_document_name || flag.document_name}" uploaded by ${flag.duplicate_of_name || 'another applicant'} (similarity distance: ${flag.similarity_distance} - lower means more alike)`
                         : `Same name + birthdate as existing applicant`}
                     </p>
                     <p className="duplicate-date">
@@ -151,6 +186,22 @@ useEffect(() => {
                           month: 'short', day: 'numeric', year: 'numeric'
                         })}
                     </p>
+                    {isDocFlag && (
+                      <div className="duplicate-view-actions">
+                        <button
+                          className="btn-view-flag-doc"
+                          disabled={openingDoc === `a-${flag.id}`}
+                          onClick={() => handleViewFlagDoc(flag.applicant_id, flag.document_name, `a-${flag.id}`)}>
+                          {openingDoc === `a-${flag.id}` ? 'Opening...' : `View ${flag.applicant_name}'s document`}
+                        </button>
+                        <button
+                          className="btn-view-flag-doc"
+                          disabled={openingDoc === `b-${flag.id}`}
+                          onClick={() => handleViewFlagDoc(flag.duplicate_of_id, flag.duplicate_of_document_name || flag.document_name, `b-${flag.id}`)}>
+                          {openingDoc === `b-${flag.id}` ? 'Opening...' : `View ${flag.duplicate_of_name || 'other applicant'}'s document`}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <button
@@ -165,7 +216,8 @@ useEffect(() => {
                   Resolve
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, setSession, logout } from '../../api'
 import './settings.css'
 
-const TABS = ['Profile', 'Security', 'System']
+const TABS = ['Profile', 'Security', 'System', 'Team']
 
 // ── PROFILE TAB ──
 function ProfileTab() {
@@ -301,6 +301,281 @@ function SystemTab() {
   )
 }
 
+// ── PENDING ADMIN REQUESTS ──
+function AdminRequestsSection({ onApproved }) {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [actioningId, setActioningId] = useState(null)
+  const [actionError, setActionError] = useState('')
+
+  const loadRequests = async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const res = await apiFetch('/api/admin-requests?status=pending')
+      if (!res.ok) throw new Error(`Request failed with status ${res.status}`)
+      const data = await res.json()
+      setRequests(data.requests || [])
+    } catch {
+      setLoadError(true)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { loadRequests() }, [])
+
+  const handleApprove = async (req) => {
+    if (!window.confirm(`Grant admin access to ${req.full_name} (${req.email})? They'll receive an email to set their password.`)) return
+    setActionError('')
+    setActioningId(req.id)
+    try {
+      const res = await apiFetch(`/api/admin-requests/${req.id}/approve`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
+      setRequests(prev => prev.filter(r => r.id !== req.id))
+      onApproved?.(data.admin)
+    } catch {
+      setActionError('Cannot connect to server. Please try again.')
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  const handleReject = async (req) => {
+    if (!window.confirm(`Reject the admin request from ${req.full_name} (${req.email})?`)) return
+    setActionError('')
+    setActioningId(req.id)
+    try {
+      const res = await apiFetch(`/api/admin-requests/${req.id}/reject`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setActionError(data.error || 'Failed to reject request'); return }
+      setRequests(prev => prev.filter(r => r.id !== req.id))
+    } catch {
+      setActionError('Cannot connect to server. Please try again.')
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  if (loading) return <p className="info-sub">Loading pending requests...</p>
+  if (loadError) {
+    return (
+      <div>
+        <div className="security-error" style={{ marginBottom: '10px' }}>Couldn't load admin requests.</div>
+        <button className="btn-change" onClick={loadRequests}>Retry</button>
+      </div>
+    )
+  }
+  if (requests.length === 0) return null
+
+  return (
+    <div className="settings-card" style={{ marginBottom: '20px' }}>
+      <h4 className="card-label" style={{ marginBottom: '4px' }}>Pending Admin Requests</h4>
+      <p className="info-sub" style={{ marginBottom: '14px' }}>
+        Submitted via "Apply as Admin" on the login page. Verify the requester is a real LGU official before approving.
+      </p>
+      {actionError && <div className="security-error" style={{ marginBottom: '10px' }}>{actionError}</div>}
+      <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
+        {requests.map(req => (
+          <div key={req.id} className="info-item" style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', display: 'flex', padding: '12px 0', borderBottom: '1px solid #F0F0F0' }}>
+            <div>
+              <span className="info-value">{req.full_name}</span>
+              <span className="info-sub">{req.email} · {req.office}</span>
+              <span className="info-sub">{req.municipality} · {req.contact_number}</span>
+              {req.message && <span className="info-sub">"{req.message}"</span>}
+              <span className="info-sub">Submitted {req.created_at}</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+              <button className="btn-primary" onClick={() => handleApprove(req)} disabled={actioningId === req.id}>
+                {actioningId === req.id ? 'Working...' : 'Approve'}
+              </button>
+              <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
+                Reject
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── TEAM TAB ──
+function TeamTab() {
+  const currentUser = getUser() || {}
+  const [admins, setAdmins] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [showForm, setShowForm] = useState(false)
+  const [form, setForm] = useState({ full_name: '', email: '' })
+  const [formError, setFormError] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [removingId, setRemovingId] = useState(null)
+  const [resendingId, setResendingId] = useState(null)
+  const [resendMessage, setResendMessage] = useState('')
+
+  const loadAdmins = async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const res = await apiFetch('/api/admins')
+      if (!res.ok) throw new Error(`Request failed with status ${res.status}`)
+      const data = await res.json()
+      setAdmins(data.admins || [])
+    } catch {
+      setLoadError(true)
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { loadAdmins() }, [])
+
+  const handleCreate = async () => {
+    setFormError('')
+    if (!form.full_name.trim() || !form.email.trim()) {
+      setFormError('Full name and email are required'); return
+    }
+
+    setCreating(true)
+    try {
+      const res = await apiFetch('/api/admins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      })
+      const data = await res.json()
+      if (!res.ok) { setFormError(data.error || 'Failed to create admin account'); return }
+      setAdmins(prev => [...prev, data.admin])
+      setForm({ full_name: '', email: '' })
+      setShowForm(false)
+    } catch {
+      setFormError('Cannot connect to server. Please try again.')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleResendInvite = async (admin) => {
+    setResendMessage('')
+    setResendingId(admin.id)
+    try {
+      const res = await apiFetch(`/api/admins/${admin.id}/resend-invite`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { alert(data.error || 'Failed to resend invite'); return }
+      setResendMessage(`Invite resent to ${admin.email}`)
+    } catch {
+      alert('Cannot connect to server. Please try again.')
+    } finally {
+      setResendingId(null)
+    }
+  }
+
+  const handleRemove = async (admin) => {
+    if (!window.confirm(`Remove admin access for ${admin.full_name} (${admin.email})?`)) return
+    setRemovingId(admin.id)
+    try {
+      const res = await apiFetch(`/api/admins/${admin.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) { alert(data.error || 'Failed to remove admin account'); return }
+      setAdmins(prev => prev.filter(a => a.id !== admin.id))
+    } catch {
+      alert('Cannot connect to server. Please try again.')
+    } finally {
+      setRemovingId(null)
+    }
+  }
+
+  return (
+    <div className="tab-content">
+      <AdminRequestsSection onApproved={(admin) => admin && setAdmins(prev => [...prev, admin])} />
+      <div className="settings-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+          <h4 className="card-label" style={{ marginBottom: 0 }}>Admin Accounts</h4>
+          {!showForm && (
+            <button className="btn-primary" onClick={() => setShowForm(true)}>+ Add Admin</button>
+          )}
+        </div>
+        <p className="info-sub" style={{ marginBottom: '14px' }}>
+          Anyone with an admin account has full access to applicants, documents, and system settings.
+        </p>
+        {resendMessage && <p className="info-sub" style={{ color: '#16a34a', marginBottom: '14px' }}>{resendMessage}</p>}
+
+        {showForm && (
+          <div className="settings-row" style={{ marginBottom: '18px', flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+            {formError && <div className="security-error">{formError}</div>}
+            <div className="password-fields">
+              <div className="password-field">
+                <label>Full name</label>
+                <input value={form.full_name} onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))} />
+              </div>
+              <div className="password-field">
+                <label>Email</label>
+                <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+              </div>
+            </div>
+            <p className="info-sub" style={{ marginBottom: 0 }}>
+              They'll receive an email with a link to set their own password.
+            </p>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn-primary" onClick={handleCreate} disabled={creating}>
+                {creating ? 'Creating...' : 'Create admin'}
+              </button>
+              <button className="btn-change" onClick={() => { setShowForm(false); setForm({ full_name: '', email: '' }); setFormError('') }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <p className="info-sub">Loading admin accounts...</p>
+        ) : loadError ? (
+          <div>
+            <div className="security-error" style={{ marginBottom: '10px' }}>Couldn't load admin accounts.</div>
+            <button className="btn-change" onClick={loadAdmins}>Retry</button>
+          </div>
+        ) : (
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
+            {admins.map(admin => (
+              <div key={admin.id} className="info-item" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', display: 'flex', padding: '12px 0', borderBottom: '1px solid #F0F0F0' }}>
+                <div>
+                  <span className="info-value">
+                    {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
+                    {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
+                  </span>
+                  <span className="info-sub">{admin.email}</span>
+                  {(admin.office || admin.municipality) && (
+                    <span className="info-sub">{[admin.office, admin.municipality].filter(Boolean).join(' · ')}</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  {!admin.password_set && (
+                    <button
+                      className="btn-change"
+                      onClick={() => handleResendInvite(admin)}
+                      disabled={resendingId === admin.id}>
+                      {resendingId === admin.id ? 'Sending...' : 'Resend Invite'}
+                    </button>
+                  )}
+                  {admin.id !== currentUser.id && admins.length > 1 && (
+                    <button
+                      className="btn-danger-outline"
+                      onClick={() => handleRemove(admin)}
+                      disabled={removingId === admin.id}>
+                      {removingId === admin.id ? 'Removing...' : 'Remove'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── MAIN SETTINGS ──
 function Settings() {
   const [activeTab, setActiveTab] = useState('Profile')
@@ -328,6 +603,7 @@ function Settings() {
       {activeTab === 'Profile' && <ProfileTab />}
       {activeTab === 'Security' && <SecurityTab />}
       {activeTab === 'System' && <SystemTab />}
+      {activeTab === 'Team' && <TeamTab />}
     </div>
   )
 }

@@ -36,10 +36,23 @@ npm run dev
 Runs at `http://localhost:5173`. Talks to the backend via `VITE_API_URL`
 (see `frontend/.env.example`); defaults to `http://127.0.0.1:5000` for local dev.
 
-## Demo accounts
+### Tests
+```powershell
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+Runs against an in-memory MongoDB mock (`mongomock`), never the real Atlas
+cluster - no `.env` or network access needed. Also runs automatically on
+push/PR via GitHub Actions (`.github/workflows/backend-tests.yml`).
 
-- Admin: `admin@ecoscolar.edu.ph` / `admin123`
-- Student: `student@gmail.com` / `student123`
+## Admin accounts
+
+There are no seeded/demo credentials. Create an admin account with:
+```
+python backend/scripts/create_admin.py
+```
+Student accounts are created through the normal registration flow.
 
 ## Repo layout
 

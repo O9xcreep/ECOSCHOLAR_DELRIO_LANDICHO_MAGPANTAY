@@ -398,57 +398,6 @@ const css = `
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ── DEMO CREDENTIALS ── */
-  .lp-demo {
-    margin-top: 24px;
-    border-top: 1px solid var(--border);
-    padding-top: 20px;
-  }
-
-  .lp-demo-title {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: .1em;
-    color: var(--text-secondary);
-    margin-bottom: 12px;
-  }
-
-  .lp-demo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-  .lp-demo-item {
-    border: 1.5px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-    cursor: pointer;
-    transition: all var(--transition);
-    background: var(--bg-input);
-  }
-
-  .lp-demo-item:hover {
-    border-color: var(--brand);
-    background: #F3F0FF;
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .lp-demo-role {
-    display: block;
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--brand);
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-  }
-
-  .lp-demo-info {
-    display: block;
-    font-size: 11.5px;
-    color: var(--text-secondary);
-    line-height: 1.7;
-  }
-
   /* ── SUCCESS STATE ── */
   .lp-success-box {
     text-align: center;
@@ -607,6 +556,10 @@ const ADDRESS_CITIES = [
   { city: 'Tiaong', province: 'Quezon' },
 ]
 
+const EMPTY_ADMIN_REQUEST = {
+  fullName: '', email: '', office: '', municipality: '', contactNumber: '', message: '',
+}
+
 const EMPTY_REG_DATA = {
   lastName: '', firstName: '', middleName: '', email: '', password: '', confirm_password: '',
   dob: '', gender: '', religion: '', citizenship: 'Filipino', contactNumber: '',
@@ -696,6 +649,12 @@ function Login() {
   const [forgotSent, setForgotSent] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
 
+  // ── APPLY AS ADMIN ──
+  const [adminReqData, setAdminReqData] = useState(EMPTY_ADMIN_REQUEST)
+  const [adminReqError, setAdminReqError] = useState('')
+  const [adminReqSuccess, setAdminReqSuccess] = useState(false)
+  const [adminReqLoading, setAdminReqLoading] = useState(false)
+
  const switchTab = (t) => {
   setTab(t)
   setLoginError('')
@@ -703,6 +662,7 @@ function Login() {
   setPrivacyConsent(false)
   setRegStep(1)
   setRegFieldErrors({})
+  setAdminReqError('')
 }
 
   // ── LOGIN HANDLER ──
@@ -824,15 +784,68 @@ function Login() {
     if (!/\S+@\S+\.\S+/.test(forgotEmail))   { setForgotError('Enter a valid email address'); return }
 
     setForgotLoading(true)
-    // Simulate API call — replace with real endpoint when available
-    await new Promise(r => setTimeout(r, 1200))
+    try {
+      await fetch(`${API_BASE_URL}/api/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim().toLowerCase() })
+      })
+      // The API always responds the same way regardless of whether the email
+      // exists, so there's nothing to branch on here - just show the sent state.
+      setForgotSent(true)
+    } catch {
+      setForgotError('Cannot connect to server. Please try again.')
+    }
     setForgotLoading(false)
-    setForgotSent(true)
   }, [forgotEmail])
+
+  // ── APPLY AS ADMIN HANDLER ──
+  const handleAdminRequest = useCallback(async () => {
+    setAdminReqError('')
+    const { fullName, email, office, municipality, contactNumber } = adminReqData
+
+    if (!fullName.trim())      { setAdminReqError('Full name is required'); return }
+    if (!email.trim())         { setAdminReqError('Email is required'); return }
+    if (!/\S+@\S+\.\S+/.test(email)) { setAdminReqError('Enter a valid email address'); return }
+    if (!office.trim())        { setAdminReqError('Office / position is required'); return }
+    if (!municipality)         { setAdminReqError('Municipality is required'); return }
+    if (!contactNumber.trim()) { setAdminReqError('Contact number is required'); return }
+    else if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, '')))
+      { setAdminReqError('Enter a valid PH number (e.g. 09123456789)'); return }
+
+    setAdminReqLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: fullName.trim(),
+          email: email.trim().toLowerCase(),
+          office: office.trim(),
+          municipality,
+          contact_number: contactNumber.trim(),
+          message: adminReqData.message.trim(),
+        })
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setAdminReqError(data.error || 'Failed to submit request. Please try again.')
+        return
+      }
+
+      setAdminReqSuccess(true)
+    } catch {
+      setAdminReqError('Cannot connect to server. Please try again.')
+    } finally {
+      setAdminReqLoading(false)
+    }
+  }, [adminReqData])
 
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter') return
     if (tab === 'login') handleLogin()
+    else if (tab === 'admin-request') handleAdminRequest()
     else if (regStep === 1) handleRegNext()
     else handleRegister()
   }
@@ -874,6 +887,9 @@ function Login() {
               </button>
               <button className={`lp-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => switchTab('register')}>
                 Create Account
+              </button>
+              <button className={`lp-tab ${tab === 'admin-request' ? 'active' : ''}`} onClick={() => switchTab('admin-request')}>
+                Apply as Admin
               </button>
             </div>
 
@@ -927,22 +943,6 @@ function Login() {
                 <button className="lp-btn" onClick={handleLogin} disabled={loginLoading}>
                   {loginLoading ? <><span className="spinner" /> Signing in…</> : 'Sign In'}
                 </button>
-
-                <div className="lp-demo">
-                  <p className="lp-demo-title">Demo credentials</p>
-                  <div className="lp-demo-grid">
-                    <div className="lp-demo-item" onClick={() => setLoginData({ email: 'admin@ecoscolar.edu.ph', password: 'admin123' })}>
-                      <span className="lp-demo-role">Admin</span>
-                      <span className="lp-demo-info">admin@ecoscolar.edu.ph</span>
-                      <span className="lp-demo-info">admin123</span>
-                    </div>
-                    <div className="lp-demo-item" onClick={() => setLoginData({ email: 'student@gmail.com', password: 'student123' })}>
-                      <span className="lp-demo-role">Student</span>
-                      <span className="lp-demo-info">student@gmail.com</span>
-                      <span className="lp-demo-info">student123</span>
-                    </div>
-                  </div>
-                </div>
               </>
             )}
 
@@ -1367,6 +1367,117 @@ function Login() {
                   </>
                 )}
               </>
+            )}
+
+            {/* APPLY AS ADMIN FORM */}
+            {tab === 'admin-request' && (
+              adminReqSuccess ? (
+                <div className="lp-success-box">
+                  <h2>Request Submitted</h2>
+                  <p>
+                    Thanks — an existing EcoScholar admin will verify your details.
+                    If approved, you'll receive an email at <strong>{adminReqData.email}</strong> with
+                    a link to set your password.
+                  </p>
+                  <button className="lp-btn" onClick={() => {
+                    setTab('login')
+                    setAdminReqSuccess(false)
+                    setAdminReqData(EMPTY_ADMIN_REQUEST)
+                  }}>
+                    Back to Sign In
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h2 className="lp-title">Apply as Admin</h2>
+                  <p className="lp-sub">For LGU officials requesting scholarship-program admin access</p>
+
+                  {adminReqError && <div className="lp-alert error">{adminReqError}</div>}
+
+                  <div className="lp-field">
+                    <label>Full Name</label>
+                    <input
+                      className="lp-input"
+                      type="text"
+                      placeholder="Full name"
+                      value={adminReqData.fullName}
+                      autoComplete="name"
+                      onChange={e => { setAdminReqData(p => ({ ...p, fullName: e.target.value })); setAdminReqError('') }}
+                      onKeyDown={handleKeyDown}
+                    />
+                  </div>
+
+                  <div className="lp-field">
+                    <label>Official Email Address</label>
+                    <input
+                      className="lp-input"
+                      type="email"
+                      placeholder="you@lgu.gov.ph"
+                      value={adminReqData.email}
+                      autoComplete="email"
+                      onChange={e => { setAdminReqData(p => ({ ...p, email: e.target.value })); setAdminReqError('') }}
+                      onKeyDown={handleKeyDown}
+                    />
+                  </div>
+
+                  <div className="lp-field">
+                    <label>Office / Position</label>
+                    <input
+                      className="lp-input"
+                      type="text"
+                      placeholder="e.g. Municipal Social Welfare and Development Office"
+                      value={adminReqData.office}
+                      onChange={e => { setAdminReqData(p => ({ ...p, office: e.target.value })); setAdminReqError('') }}
+                      onKeyDown={handleKeyDown}
+                    />
+                  </div>
+
+                  <div className="lp-field">
+                    <label>Municipality</label>
+                    <select
+                      className="lp-input"
+                      value={adminReqData.municipality}
+                      onChange={e => { setAdminReqData(p => ({ ...p, municipality: e.target.value })); setAdminReqError('') }}>
+                      <option value="">Select city / municipality</option>
+                      {ADDRESS_CITIES.map(c => (
+                        <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="lp-field">
+                    <label>Contact Number</label>
+                    <input
+                      className="lp-input"
+                      type="text"
+                      placeholder="09123456789"
+                      value={adminReqData.contactNumber}
+                      onChange={e => { setAdminReqData(p => ({ ...p, contactNumber: e.target.value })); setAdminReqError('') }}
+                      onKeyDown={handleKeyDown}
+                    />
+                  </div>
+
+                  <div className="lp-field">
+                    <label>Reason for Request <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
+                    <textarea
+                      className="lp-input"
+                      rows={3}
+                      placeholder="Briefly describe your role in the scholarship program"
+                      value={adminReqData.message}
+                      onChange={e => { setAdminReqData(p => ({ ...p, message: e.target.value })); setAdminReqError('') }}
+                    />
+                  </div>
+
+                  <button className="lp-btn" onClick={handleAdminRequest} disabled={adminReqLoading}>
+                    {adminReqLoading ? <><span className="spinner" /> Submitting…</> : 'Submit Request'}
+                  </button>
+
+                  <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                    Already have an account?{' '}
+                    <button className="lp-link" type="button" onClick={() => switchTab('login')}>Sign in here</button>
+                  </p>
+                </>
+              )
             )}
 
           </div>

@@ -160,14 +160,14 @@ def main():
                 "$set": {
                     "application.status": final_status,
                     "application.reviewed_at": now,
-                    "application.reviewed_by_name": "admin@ecoscolar.edu.ph",
+                    "application.reviewed_by_name": "Admin",
                     "ml_score": ml_score,
                     "ml_status": ml_status,
                 },
                 "$push": {
                     "audit_trail": {
                         "action": f"Documents verified by admin - model decided: {final_status}",
-                        "performed_by": "admin@ecoscolar.edu.ph",
+                        "performed_by": "Admin",
                         "performed_by_role": "admin",
                         "old_status": "Newly Submitted",
                         "new_status": final_status,

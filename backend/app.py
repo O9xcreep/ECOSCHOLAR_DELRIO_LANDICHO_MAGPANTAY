@@ -1,5 +1,14 @@
 import re
+import io
+import secrets
 import hashlib
+import threading
+import imagehash
+import pdf2image
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from PIL import Image
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify, g, send_file
@@ -18,7 +27,11 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from ocr import extract_text, verify_document, parse_document_fields
 
 
-load_dotenv()
+# Load .env relative to this file, not the process's working directory - otherwise
+# whoever launches the server from a different cwd silently gets no .env at all,
+# SECRET_KEY falls back to the dev default, and every previously issued session
+# token stops verifying (looks like random, unexplained logouts).
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env'))
 
 DEBUG = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
 SECRET_KEY = os.getenv('SECRET_KEY')
@@ -30,6 +43,50 @@ if not SECRET_KEY:
 
 TOKEN_MAX_AGE = 60 * 60 * 12  # 12 hours
 _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
+
+RESET_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
+_reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-reset')
+
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT') or 587)
+SMTP_USER = os.getenv('SMTP_USER', '')
+SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'EcoScholar')
+# Separate from SMTP_USER because some transactional providers (e.g. Resend's SMTP
+# relay) authenticate with a fixed login like "resend" that isn't a real mailbox -
+# the actual visible sender is whatever address you've verified with the provider.
+# Defaults to SMTP_USER so a plain Gmail setup (where they're the same) needs no change.
+SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL') or SMTP_USER
+
+def send_email(to_email, subject, html_body):
+    """Best-effort synchronous email send via SMTP. Returns True/False and never
+    raises - callers must not let a failed send change what's shown to the
+    requester, since that would leak whether an email address exists in the system."""
+    if not SMTP_USER or not SMTP_PASSWORD:
+        app.logger.warning('Email not sent (SMTP not configured): %s', subject)
+        return False
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>'
+        msg['To'] = to_email
+        msg.attach(MIMEText(html_body, 'html'))
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASSWORD)
+            server.sendmail(SMTP_FROM_EMAIL, [to_email], msg.as_string())
+        return True
+    except Exception as e:
+        app.logger.error('Email send failed: %s', str(e))
+        return False
+
+def send_email_async(to_email, subject, html_body):
+    """Fires the SMTP send on a background thread so the request that triggered it
+    (approve, add-admin, forgot-password...) never waits on a mail server round-trip.
+    Fire-and-forget: nothing here can report success/failure back to the caller,
+    which matches how every existing caller already treats send_email's result."""
+    threading.Thread(target=send_email, args=(to_email, subject, html_body), daemon=True).start()
 
 # Fixed dropdown options the application form offers - independent of whichever ML
 # model is deployed behind it, since these define what an applicant can select, not
@@ -210,7 +267,10 @@ def recompute_approvals(db, limit, reviewed_by='System'):
     applicant can displace a previously-Approved weaker one, and raising the
     limit can promote applicants who were waiting just below the old cutoff."""
     eligible = list(db.applicants.find(
-        {"ml_status": "Eligible"},
+        # A withdrawn applicant can still carry ml_status: "Eligible" from a
+        # prior verification - excluded here so recompute never overwrites
+        # "Withdrawn" back to Approved/Rejected.
+        {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"}},
         {"ml_score": 1, "application": 1, "full_name": 1, "email": 1, "user_id": 1}
     ))
     eligible.sort(key=lambda a: a.get('ml_score', 0), reverse=True)
@@ -261,7 +321,7 @@ def recompute_approvals(db, limit, reviewed_by='System'):
 
         notify_user_id = resolve_notify_user_id(db, applicant)
         create_notification(
-            db, notify_user_id, applicant["_id"],
+            db, notify_user_id, applicant,
             notif_message, STATUS_NOTIF_TYPE[should_be]
         )
 
@@ -284,6 +344,32 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def compute_perceptual_hash(file_bytes, filename):
+    """Visual fingerprint of a document's first page, used to catch near-identical
+    files (re-saved, re-compressed, screenshotted, lightly cropped) that a byte-for-byte
+    SHA-256 comparison would miss entirely since re-encoding changes every byte. Returns
+    None on any failure (corrupt file, unsupported content) - this is a best-effort
+    fraud signal layered on top of the upload, never a reason to reject the upload."""
+    try:
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+        if ext == 'pdf':
+            pages = pdf2image.convert_from_bytes(file_bytes, dpi=150, first_page=1, last_page=1)
+            if not pages:
+                return None
+            image = pages[0]
+        else:
+            image = Image.open(io.BytesIO(file_bytes))
+        return str(imagehash.phash(image))
+    except Exception:
+        return None
+
+# Hamming distance threshold (out of 64 bits) below which two documents are considered
+# a near-duplicate. Chosen conservatively - real re-uploads of the same scanned/photographed
+# page (recompressed, lightly cropped, mild lighting shift) typically land under 6-8;
+# two different documents of the same type (e.g. two different students' report cards)
+# routinely score 20+.
+NEAR_DUPLICATE_THRESHOLD = 8
 
 def safe_mime_for(filename):
     ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
@@ -471,17 +557,30 @@ def resolve_notify_user_id(db, applicant_doc):
             return match['_id']
     return None
 
-def create_notification(db, user_id, applicant_id, message, notif_type='status_update'):
+def create_notification(db, user_id, applicant, message, notif_type='status_update'):
+    """Records the in-app notification and, best-effort, emails the applicant
+    the same message - since an applicant who doesn't log back in would
+    otherwise never learn their status changed. `applicant` is the applicant
+    document (or a projection of it including at least _id/full_name/email)."""
     if not user_id:
         return
     db.notifications.insert_one({
         "user_id": user_id,
-        "applicant_id": applicant_id,
+        "applicant_id": applicant["_id"],
         "message": message,
         "type": notif_type,
         "is_read": False,
         "created_at": datetime.utcnow(),
     })
+
+    email = applicant.get('email')
+    if email:
+        html = f"""
+            <p>Hi {applicant.get('full_name', '')},</p>
+            <p>{message}</p>
+            <p>Log in to EcoScholar to see the full details of your application.</p>
+        """
+        send_email_async(email, 'EcoScholar application update', html)
 
 # ── TEST ROUTE ──
 @app.route('/api/test')
@@ -712,14 +811,141 @@ def change_password():
     db.users.update_one({"_id": user_oid}, {"$set": {"password": generate_password_hash(new_password)}})
     return jsonify({"message": "Password changed successfully"})
 
+# ── AUTH: FORGOT PASSWORD ──
+@app.route('/api/forgot-password', methods=['POST'])
+@limiter.limit("5 per minute")
+def forgot_password():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # Always return the same message regardless of whether the email exists,
+    # so this endpoint can't be used to enumerate registered accounts.
+    generic = {"message": "If an account exists for that email, a password reset link has been sent."}
+
+    try:
+        db = get_db()
+        user = db.users.find_one({"email": email})
+        if user:
+            token = _reset_serializer.dumps({"id": str(user['_id'])})
+            reset_link = f"{FRONTEND_URL}/reset-password?token={token}"
+            html = f"""
+                <p>Hi {user.get('full_name', '')},</p>
+                <p>Someone requested a password reset for your EcoScholar account.
+                Click below to set a new password - this link expires in 30 minutes.</p>
+                <p><a href="{reset_link}">Reset your password</a></p>
+                <p>If you didn't request this, you can safely ignore this email.</p>
+            """
+            send_email_async(user['email'], 'Reset your EcoScholar password', html)
+        return jsonify(generic)
+    except Exception:
+        if DEBUG:
+            raise
+        return jsonify(generic)
+
+# ── AUTH: RESET PASSWORD ──
+@app.route('/api/reset-password', methods=['POST'])
+@limiter.limit("8 per minute")
+def reset_password():
+    data = request.get_json() or {}
+    token = data.get('token') or ''
+    new_password = data.get('new_password') or ''
+
+    if not token or not new_password:
+        return jsonify({"error": "Token and new password are required"}), 400
+    if len(new_password) < 8:
+        return jsonify({"error": "New password must be at least 8 characters"}), 400
+
+    try:
+        payload = _reset_serializer.loads(token, max_age=RESET_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "This reset link has expired. Please request a new one."}), 400
+    except BadSignature:
+        return jsonify({"error": "This reset link is invalid."}), 400
+
+    db = get_db()
+    user_oid = oid(payload.get('id'))
+    if not user_oid:
+        return jsonify({"error": "This reset link is invalid."}), 400
+
+    result = db.users.update_one(
+        {"_id": user_oid},
+        {"$set": {"password": generate_password_hash(new_password), "password_set": True}}
+    )
+    if result.matched_count == 0:
+        return jsonify({"error": "This reset link is invalid."}), 400
+
+    return jsonify({"message": "Password reset successfully. You can now log in with your new password."})
+
 # ── GET ALL APPLICANTS ──
+# `page` is opt-in: omitting it returns every applicant, unchanged from before,
+# since the Dashboard/Reports/Ranking pages all need the full set for their own
+# aggregation. Passing `page` switches to server-side search/filter/pagination
+# for the Applicants/Applications list pages, which only ever need one page at
+# a time and don't want to keep fetching the entire collection as it grows.
 @app.route('/api/applicants', methods=['GET'])
 @require_role('admin')
 def get_applicants():
     try:
         db = get_db()
-        applicants = [serialize_applicant(a) for a in db.applicants.find({})]
-        return jsonify({"applicants": applicants})
+        page_param = request.args.get('page')
+
+        if page_param is None:
+            applicants = [serialize_applicant(a) for a in db.applicants.find({})]
+            return jsonify({"applicants": applicants})
+
+        try:
+            page = max(1, int(page_param))
+        except ValueError:
+            return jsonify({"error": "page must be a number"}), 400
+        try:
+            limit = min(100, max(1, int(request.args.get('limit', 20))))
+        except ValueError:
+            return jsonify({"error": "limit must be a number"}), 400
+
+        query = {}
+        status_param = request.args.get('status')
+        if status_param and status_param != 'All':
+            # Comma-separated so a page's "All" tab can mean "any of these
+            # statuses" (e.g. Approved or Rejected) without matching every
+            # status in the system.
+            statuses = [s.strip() for s in status_param.split(',') if s.strip()]
+            query['application.status'] = statuses[0] if len(statuses) == 1 else {'$in': statuses}
+
+        q = (request.args.get('q') or '').strip()
+        if q:
+            pattern = {"$regex": re.escape(q), "$options": "i"}
+            query['$or'] = [{"full_name": pattern}, {"academic.course": pattern}]
+
+        # Whitelisted so `sort` can't be used to inject an arbitrary field path.
+        # A leading "-" means descending (e.g. "-submitted_at" = newest first).
+        SORT_FIELD_MAP = {
+            'submitted_at': 'application.submitted_at',
+            'gpa': 'academic.gpa',
+            'ml_score': 'ml_score',
+            'full_name': 'full_name',
+        }
+        sort_param = (request.args.get('sort') or '').strip()
+        sort_field, sort_dir = 'created_at', -1
+        if sort_param:
+            direction = -1 if sort_param.startswith('-') else 1
+            key = sort_param.lstrip('-')
+            if key not in SORT_FIELD_MAP:
+                return jsonify({"error": f"sort must be one of {sorted(SORT_FIELD_MAP)} (optionally prefixed with -)"}), 400
+            sort_field, sort_dir = SORT_FIELD_MAP[key], direction
+
+        total = db.applicants.count_documents(query)
+        cursor = db.applicants.find(query).sort(sort_field, sort_dir).skip((page - 1) * limit).limit(limit)
+        applicants = [serialize_applicant(a) for a in cursor]
+
+        return jsonify({
+            "applicants": applicants,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "pages": max(1, (total + limit - 1) // limit),
+        })
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
@@ -756,6 +982,7 @@ def get_applicant(applicant_id):
 # ── SUBMIT APPLICATION ──
 @app.route('/api/apply', methods=['POST'])
 @require_auth
+@limiter.limit("10 per minute")
 def submit_application():
     data = request.get_json()
 
@@ -950,6 +1177,9 @@ def update_status(applicant_id):
         if not applicant:
             return jsonify({"error": "Applicant not found"}), 404
 
+        if (applicant.get('application') or {}).get('status') == 'Withdrawn':
+            return jsonify({"error": "This application was withdrawn by the applicant and can't be modified."}), 400
+
         db.applicants.update_one(
             {"_id": applicant_oid},
             {
@@ -973,7 +1203,7 @@ def update_status(applicant_id):
         )
 
         notify_user_id = resolve_notify_user_id(db, applicant)
-        create_notification(db, notify_user_id, applicant_oid, notif_message, notif_type)
+        create_notification(db, notify_user_id, applicant, notif_message, notif_type)
 
         return jsonify({
             "message": f"Application {status} successfully",
@@ -987,6 +1217,95 @@ def update_status(applicant_id):
         if DEBUG:
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+def _verify_and_decide_one(db, applicant_oid, reviewed_by, now):
+    """Runs the ML eligibility decision for one applicant - shared by the
+    single-applicant and bulk verify routes. Returns (result_dict,
+    needs_recompute): needs_recompute is True when this applicant was found
+    Eligible, meaning the accepted-applicant pool must be recomputed
+    afterward. Callers processing several applicants should batch that into
+    one recompute_approvals() call rather than one per applicant, since it
+    re-evaluates the entire pool every time it runs."""
+    applicant = db.applicants.find_one({"_id": applicant_oid})
+    if not applicant:
+        return {"error": "Applicant not found"}, False
+
+    if (applicant.get('application') or {}).get('status') == 'Withdrawn':
+        return {"error": "This application was withdrawn by the applicant and can't be modified."}, False
+
+    row, ok = build_feature_row(applicant)
+    if not ok:
+        return {
+            "error": "This applicant was submitted before the updated eligibility "
+                     "model and can't be auto-decided. Ask them to resubmit using "
+                     "the current application form."
+        }, False
+
+    ml_score, ml_status = score_with_model(row)
+    old_status = (applicant.get('application') or {}).get('status', '')
+    breakdown = build_score_breakdown(applicant)
+
+    if ml_status == 'Not Eligible':
+        # Ineligible on the classifier's own terms - rejected outright, the
+        # accepted-applicant limit never even comes into play for this one.
+        final_status = 'Rejected'
+        rejection_reason = generate_rejection_reason(breakdown)
+        remarks = f'ML score: {ml_score} ({ml_status}) - {rejection_reason}'
+
+        db.applicants.update_one(
+            {"_id": applicant_oid},
+            {
+                "$set": {
+                    "application.status": final_status,
+                    "application.reviewed_at": now,
+                    "application.reviewed_by_name": reviewed_by,
+                    "ml_score": ml_score,
+                    "ml_status": ml_status,
+                    "application.rejection_reason": rejection_reason,
+                },
+                "$push": {
+                    "audit_trail": {
+                        "action": f'Documents verified by admin - model decided: {final_status}',
+                        "performed_by": reviewed_by,
+                        "performed_by_role": "admin",
+                        "old_status": old_status,
+                        "new_status": final_status,
+                        "remarks": remarks,
+                        "performed_at": now,
+                    }
+                }
+            }
+        )
+
+        notify_user_id = resolve_notify_user_id(db, applicant)
+        create_notification(
+            db, notify_user_id, applicant,
+            STATUS_MESSAGES[final_status] + ' ' + rejection_reason, STATUS_NOTIF_TYPE[final_status]
+        )
+        return {
+            "applicant_id": str(applicant_oid), "status": final_status,
+            "ml_score": ml_score, "ml_status": ml_status,
+            "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
+            "rejection_reason": rejection_reason, "reviewed_by": reviewed_by,
+        }, False
+
+    # Eligible on its own - but whether it's actually Approved depends on how
+    # it ranks against everyone else within the accepted applicant limit, so
+    # the final call is left to recompute_approvals(), run by the caller.
+    db.applicants.update_one(
+        {"_id": applicant_oid},
+        {"$set": {
+            "ml_score": ml_score,
+            "ml_status": ml_status,
+            "application.reviewed_by_name": reviewed_by,
+        }}
+    )
+    return {
+        "applicant_id": str(applicant_oid), "status": None,
+        "ml_score": ml_score, "ml_status": ml_status,
+        "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
+        "rejection_reason": None, "reviewed_by": reviewed_by,
+    }, True
 
 # ── VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
 @app.route('/api/applications/<applicant_id>/verify', methods=['PUT'])
@@ -1003,91 +1322,73 @@ def verify_and_decide(applicant_id):
 
     try:
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid})
-        if not applicant:
-            return jsonify({"error": "Applicant not found"}), 404
-
-        row, ok = build_feature_row(applicant)
-        if not ok:
-            return jsonify({
-                "error": "This applicant was submitted before the updated eligibility "
-                         "model and can't be auto-decided. Ask them to resubmit using "
-                         "the current application form."
-            }), 409
-
-        ml_score, ml_status = score_with_model(row)
-        old_status = (applicant.get('application') or {}).get('status', '')
         now = datetime.utcnow()
-        breakdown = build_score_breakdown(applicant)
+        result, needs_recompute = _verify_and_decide_one(db, applicant_oid, reviewed_by, now)
+        if "error" in result:
+            return jsonify(result), 404 if result["error"] == "Applicant not found" else 409
 
-        if ml_status == 'Not Eligible':
-            # Ineligible on the classifier's own terms - rejected outright, the
-            # accepted-applicant limit never even comes into play for this one.
-            final_status = 'Rejected'
-            rejection_reason = generate_rejection_reason(breakdown)
-            remarks = f'ML score: {ml_score} ({ml_status}) - {rejection_reason}'
-
-            db.applicants.update_one(
-                {"_id": applicant_oid},
-                {
-                    "$set": {
-                        "application.status": final_status,
-                        "application.reviewed_at": now,
-                        "application.reviewed_by_name": reviewed_by,
-                        "ml_score": ml_score,
-                        "ml_status": ml_status,
-                        "application.rejection_reason": rejection_reason,
-                    },
-                    "$push": {
-                        "audit_trail": {
-                            "action": f'Documents verified by admin - model decided: {final_status}',
-                            "performed_by": reviewed_by,
-                            "performed_by_role": "admin",
-                            "old_status": old_status,
-                            "new_status": final_status,
-                            "remarks": remarks,
-                            "performed_at": now,
-                        }
-                    }
-                }
-            )
-
-            notify_user_id = resolve_notify_user_id(db, applicant)
-            create_notification(
-                db, notify_user_id, applicant_oid,
-                STATUS_MESSAGES[final_status] + ' ' + rejection_reason, STATUS_NOTIF_TYPE[final_status]
-            )
-        else:
-            # Eligible on its own - but whether it's actually Approved depends on
-            # how it ranks against everyone else within the accepted applicant
-            # limit, so hand the final call to recompute_approvals(). That also
-            # re-evaluates every other Eligible applicant, since this one entering
-            # the pool can bump a previously-Approved but lower-scoring applicant.
-            db.applicants.update_one(
-                {"_id": applicant_oid},
-                {"$set": {
-                    "ml_score": ml_score,
-                    "ml_status": ml_status,
-                    "application.reviewed_by_name": reviewed_by,
-                }}
-            )
+        if needs_recompute:
             limit = get_applicant_limit(db)
             recompute_approvals(db, limit, reviewed_by=reviewed_by)
-
             applicant = db.applicants.find_one({"_id": applicant_oid})
-            final_status = applicant['application']['status']
-            rejection_reason = applicant['application'].get('rejection_reason')
+            result["status"] = applicant['application']['status']
+            result["rejection_reason"] = applicant['application'].get('rejection_reason')
 
-        return jsonify({
-            "applicant_id": applicant_id,
-            "status": final_status,
-            "ml_score": ml_score,
-            "ml_status": ml_status,
-            "regressor_cutoff": ml_regressor_cutoff,
-            "breakdown": breakdown,
-            "rejection_reason": rejection_reason,
-            "reviewed_by": reviewed_by
-        })
+        result["applicant_id"] = applicant_id
+        return jsonify(result)
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── BULK VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
+@app.route('/api/applications/bulk-verify', methods=['PUT'])
+@require_role('admin')
+def bulk_verify_and_decide():
+    if not ml_classifier or not ml_regressor:
+        return jsonify({"error": "ML model not loaded"}), 500
+
+    data = request.get_json() or {}
+    ids = data.get('applicant_ids') or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "applicant_ids must be a non-empty list"}), 400
+    if len(ids) > 100:
+        return jsonify({"error": "Can't process more than 100 applicants at once"}), 400
+
+    reviewed_by = g.current_user.get('email', 'Admin')
+
+    try:
+        db = get_db()
+        now = datetime.utcnow()
+        results = []
+        any_needs_recompute = False
+
+        for applicant_id in ids:
+            applicant_oid = oid(applicant_id)
+            if not applicant_oid:
+                results.append({"applicant_id": applicant_id, "error": "Invalid applicant id"})
+                continue
+            result, needs_recompute = _verify_and_decide_one(db, applicant_oid, reviewed_by, now)
+            result["applicant_id"] = applicant_id
+            results.append(result)
+            any_needs_recompute = any_needs_recompute or needs_recompute
+
+        # Recompute the accepted-applicant pool once at the end, rather than once
+        # per eligible applicant - it re-evaluates everyone, so doing it per-item
+        # in a batch would be needlessly expensive.
+        if any_needs_recompute:
+            limit = get_applicant_limit(db)
+            recompute_approvals(db, limit, reviewed_by=reviewed_by)
+            for r in results:
+                if r.get("status") is None and "error" not in r:
+                    applicant = db.applicants.find_one({"_id": oid(r["applicant_id"])})
+                    r["status"] = applicant['application']['status']
+                    r["rejection_reason"] = applicant['application'].get('rejection_reason')
+
+        succeeded = sum(1 for r in results if "error" not in r)
+        return jsonify({"results": results, "succeeded": succeeded, "total": len(ids)})
 
     except Exception as e:
         app.logger.error(str(e))
@@ -1173,6 +1474,7 @@ def mark_all_notifications_read():
 # ── UPLOAD DOCUMENT ──
 @app.route('/api/upload', methods=['POST'])
 @require_auth
+@limiter.limit("20 per minute")
 def upload_document():
     if 'file' not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -1210,6 +1512,7 @@ def upload_document():
 
             file_bytes = file.read()
             file_hash = hashlib.sha256(file_bytes).hexdigest()
+            phash = compute_perceptual_hash(file_bytes, filename)
 
             new_gridfs_id = _fs.put(
                 file_bytes, filename=unique_filename,
@@ -1223,6 +1526,7 @@ def upload_document():
                     "documents.$.status": "Uploaded",
                     "documents.$.uploaded_at": now,
                     "documents.$.file_hash": file_hash,
+                    "documents.$.phash": phash,
                 }}
             )
 
@@ -1235,6 +1539,7 @@ def upload_document():
                         "status": "Uploaded",
                         "uploaded_at": now,
                         "file_hash": file_hash,
+                        "phash": phash,
                     }}}
                 )
 
@@ -1266,6 +1571,43 @@ def upload_document():
                     })
                 except Exception:
                     pass
+            elif phash:
+                # ── Fraud signal: near-duplicate detection via perceptual hashing.
+                # Catches the same document re-uploaded after being re-saved,
+                # screenshotted, or lightly cropped - all of which change the file's
+                # bytes (so the exact-hash check above misses it) but leave the
+                # visual content essentially unchanged. Only runs when there was no
+                # exact-hash match, since that's already the stronger signal.
+                try:
+                    this_hash = imagehash.hex_to_hash(phash)
+                    best_match_doc, best_match_applicant, best_distance = None, None, None
+                    for other in db.applicants.find(
+                        {"_id": {"$ne": applicant_oid}, "documents.phash": {"$exists": True, "$ne": None}},
+                        {"full_name": 1, "documents.document_name": 1, "documents.phash": 1}
+                    ):
+                        for d in other.get('documents', []):
+                            if not d.get('phash'):
+                                continue
+                            # imagehash's ImageHash.__sub__ returns numpy.int64, which
+                            # bson/pymongo cannot encode - cast to a native int up front
+                            # so the flag document below is actually insertable.
+                            distance = int(this_hash - imagehash.hex_to_hash(d['phash']))
+                            if best_distance is None or distance < best_distance:
+                                best_distance, best_match_doc, best_match_applicant = distance, d, other
+
+                    if best_match_applicant and best_distance <= NEAR_DUPLICATE_THRESHOLD:
+                        db.duplicate_flags.insert_one({
+                            "applicant_id": applicant_oid,
+                            "duplicate_of_id": best_match_applicant["_id"],
+                            "reason": "near_duplicate_document",
+                            "document_name": document_name,
+                            "duplicate_of_document_name": best_match_doc.get("document_name"),
+                            "similarity_distance": best_distance,
+                            "flagged_at": now,
+                            "resolved": False,
+                        })
+                except Exception:
+                    pass
 
             return jsonify({
                 "message": "File uploaded successfully",
@@ -1283,6 +1625,7 @@ def upload_document():
 # ── OCR VERIFY DOCUMENT ──
 @app.route('/api/verify-document', methods=['POST'])
 @require_auth
+@limiter.limit("20 per minute")
 def verify_document_route():
     data = request.get_json()
     applicant_id = data.get('applicant_id')
@@ -1439,6 +1782,61 @@ def get_student_application():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
+# ── WITHDRAW APPLICATION ──
+# Deliberately does not let a student edit any submitted field (income, GWA,
+# etc. feed the eligibility model - allowing edits after submission would
+# reopen exactly the kind of post-submission tampering the fraud-detection
+# work elsewhere in this codebase is trying to catch). Withdrawing is
+# non-destructive: it sets a status, not a delete, so the record stays
+# visible to admins and in the audit trail. There's no "undo" - a student who
+# changes their mind submits a fresh application instead.
+@app.route('/api/student/application/withdraw', methods=['PUT'])
+@require_auth
+def withdraw_application():
+    if g.current_user.get('role') == 'admin':
+        return jsonify({"error": "Only the applicant can withdraw their own application"}), 403
+
+    email = g.current_user.get('email', '').strip().lower()
+
+    try:
+        db = get_db()
+        applicant = db.applicants.find_one({"email": email}, sort=[("_id", -1)])
+        if not applicant:
+            return jsonify({"error": "No application found"}), 404
+
+        current_status = (applicant.get('application') or {}).get('status')
+        if current_status == 'Withdrawn':
+            return jsonify({"error": "This application has already been withdrawn"}), 400
+
+        now = datetime.utcnow()
+        db.applicants.update_one(
+            {"_id": applicant["_id"]},
+            {
+                "$set": {
+                    "application.status": "Withdrawn",
+                    "application.reviewed_at": now,
+                },
+                "$push": {
+                    "audit_trail": {
+                        "action": "Application withdrawn by applicant",
+                        "performed_by": email,
+                        "performed_by_role": "student",
+                        "old_status": current_status,
+                        "new_status": "Withdrawn",
+                        "remarks": "Withdrawn by the applicant.",
+                        "performed_at": now,
+                    }
+                }
+            }
+        )
+        return jsonify({"message": "Application withdrawn"})
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
 # ── GET DUPLICATE FLAGS ──
 @app.route('/api/duplicate-flags', methods=['GET'])
 @require_role('admin')
@@ -1460,6 +1858,8 @@ def get_duplicate_flags():
                 "applicant_email": a1.get('email'),
                 "applicant_dob": a1.get('date_of_birth'),
                 "document_name": f.get('document_name'),
+                "duplicate_of_document_name": f.get('duplicate_of_document_name'),
+                "similarity_distance": f.get('similarity_distance'),
                 "duplicate_of_name": a2.get('full_name'),
                 "duplicate_of_email": a2.get('email'),
             })
@@ -1785,6 +2185,260 @@ def delete_doc_requirement(req_id):
         return jsonify({"error": "Requirement not found"}), 404
     return jsonify({"message": "Requirement deleted"})
 
+def serialize_admin(u):
+    return {
+        "id": str(u["_id"]),
+        "full_name": u.get("full_name", ""),
+        "email": u.get("email", ""),
+        "office": u.get("office", ""),
+        "municipality": u.get("municipality", ""),
+        # Accounts created before this field existed already have a real,
+        # self-chosen password, so they default to "activated".
+        "password_set": u.get("password_set", True),
+        "created_at": iso(u.get("created_at")),
+    }
+
+# ── ADMIN ACCOUNT MANAGEMENT ──
+@app.route('/api/admins', methods=['GET'])
+@require_role('admin')
+def list_admins():
+    db = get_db()
+    admins = list(db.users.find({"role": "admin"}).sort("created_at", 1))
+    return jsonify({"admins": [serialize_admin(a) for a in admins]})
+
+@app.route('/api/admins', methods=['POST'])
+@require_role('admin')
+def create_admin_account():
+    data = request.get_json() or {}
+    full_name = (data.get('full_name') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+
+    if not full_name or not email:
+        return jsonify({"error": "Full name and email are required"}), 400
+
+    db = get_db()
+    if db.users.find_one({"email": email}):
+        return jsonify({"error": "An account with this email already exists"}), 409
+
+    admin_doc = create_admin_with_setup_email(
+        full_name=full_name,
+        email=email,
+        heading=f"Welcome, {full_name}!",
+        intro="An existing EcoScholar admin has created an account for you. Set your password to get started.",
+    )
+    return jsonify({"admin": serialize_admin(admin_doc)}), 201
+
+@app.route('/api/admins/<admin_id>/resend-invite', methods=['POST'])
+@require_role('admin')
+@limiter.limit("5 per minute")
+def resend_admin_invite(admin_id):
+    admin_oid = oid(admin_id)
+    if not admin_oid:
+        return jsonify({"error": "Invalid admin id"}), 400
+
+    db = get_db()
+    admin = db.users.find_one({"_id": admin_oid, "role": "admin"})
+    if not admin:
+        return jsonify({"error": "Admin account not found"}), 404
+    if admin.get("password_set", True):
+        return jsonify({"error": "This admin has already set their password"}), 400
+
+    send_admin_setup_email(
+        admin["_id"], admin["email"],
+        heading=f"Hi {admin['full_name']}, here's your new link",
+        intro="Here's a fresh link to set your EcoScholar admin password - your previous one may have expired.",
+    )
+    return jsonify({"message": "Invite resent"})
+
+@app.route('/api/admins/<admin_id>', methods=['DELETE'])
+@require_role('admin')
+def delete_admin_account(admin_id):
+    admin_oid = oid(admin_id)
+    if not admin_oid:
+        return jsonify({"error": "Invalid admin id"}), 400
+
+    if str(admin_oid) == g.current_user['id']:
+        return jsonify({"error": "You can't remove your own account"}), 400
+
+    db = get_db()
+    if db.users.count_documents({"role": "admin"}) <= 1:
+        return jsonify({"error": "Can't remove the last remaining admin account"}), 400
+
+    result = db.users.delete_one({"_id": admin_oid, "role": "admin"})
+    if result.deleted_count == 0:
+        return jsonify({"error": "Admin account not found"}), 404
+    return jsonify({"message": "Admin account removed"})
+
+def create_admin_with_setup_email(full_name, email, heading, intro, office='', municipality=''):
+    """Inserts a new admin user with no usable starting password and emails them a
+    time-limited link to set one - used both when an admin-access request is approved
+    and when an existing admin adds a colleague directly, so nobody (not even the
+    admin who created the account) ever knows another admin's password."""
+    db = get_db()
+    placeholder_password = generate_password_hash(secrets.token_urlsafe(32))
+    result = db.users.insert_one({
+        "full_name": full_name,
+        "email": email,
+        "password": placeholder_password,
+        "password_set": False,
+        "role": "admin",
+        "status": "active",
+        "office": office,
+        "municipality": municipality,
+        "created_at": datetime.utcnow(),
+        "privacy_consent": True,
+    })
+
+    send_admin_setup_email(result.inserted_id, email, heading, intro)
+    return db.users.find_one({"_id": result.inserted_id})
+
+def send_admin_setup_email(user_id, email, heading, intro):
+    token = _reset_serializer.dumps({"id": str(user_id)})
+    setup_link = f"{FRONTEND_URL}/reset-password?token={token}"
+    html = f"""
+        <div style="background:#F3F0FF;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
+          <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
+            <div style="background:linear-gradient(135deg,#3D1FA8,#5C35D4);padding:28px 32px;text-align:center;">
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">EcoScholar</h1>
+            </div>
+            <div style="padding:32px;">
+              <h2 style="margin:0 0 12px;color:#1A1A2E;font-size:19px;">{heading}</h2>
+              <p style="margin:0 0 8px;color:#374151;font-size:15px;line-height:1.6;">{intro}</p>
+              <div style="text-align:center;margin:28px 0;">
+                <a href="{setup_link}" style="display:inline-block;background:#5C35D4;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 32px;border-radius:12px;">Set Your Password</a>
+              </div>
+              <p style="margin:0 0 8px;color:#6B7280;font-size:13px;line-height:1.5;">
+                This link expires in 30 minutes for your security. If it expires, use
+                "Forgot password" on the sign-in page to get a new one - your account already exists.
+              </p>
+              <p style="margin:16px 0 0;color:#6B7280;font-size:13px;">
+                If you weren't expecting this, you can safely ignore this email.
+              </p>
+            </div>
+          </div>
+          <p style="text-align:center;color:#9CA3AF;font-size:12px;margin-top:20px;">
+            EcoScholar &middot; Centralized Scholarship Allocation &amp; Automated Disbursement System
+          </p>
+        </div>
+    """
+    send_email_async(email, "Set up your EcoScholar admin account", html)
+
+def serialize_admin_request(r):
+    return {
+        "id": str(r["_id"]),
+        "full_name": r.get("full_name", ""),
+        "email": r.get("email", ""),
+        "office": r.get("office", ""),
+        "municipality": r.get("municipality", ""),
+        "contact_number": r.get("contact_number", ""),
+        "message": r.get("message", ""),
+        "status": r.get("status", "pending"),
+        "created_at": iso(r.get("created_at")),
+        "reviewed_at": iso(r.get("reviewed_at")),
+    }
+
+# ── ADMIN ACCOUNT REQUESTS (LGU officials applying for admin access) ──
+# A public submission never creates the account directly - it only queues a
+# request that an existing admin must approve, since admin accounts can see
+# every applicant's PII and control disbursement decisions.
+@app.route('/api/admin-requests', methods=['POST'])
+@limiter.limit("5 per minute")
+def submit_admin_request():
+    data = request.get_json() or {}
+    full_name = (data.get('full_name') or '').strip()
+    email = (data.get('email') or '').strip().lower()
+    office = (data.get('office') or '').strip()
+    municipality = (data.get('municipality') or '').strip()
+    contact_number = (data.get('contact_number') or '').strip()
+    message = (data.get('message') or '').strip()
+
+    if not full_name or not email or not office or not municipality or not contact_number:
+        return jsonify({"error": "Full name, email, office, municipality, and contact number are required"}), 400
+    if not re.match(r'^\S+@\S+\.\S+$', email):
+        return jsonify({"error": "Enter a valid email address"}), 400
+
+    db = get_db()
+    if db.users.find_one({"email": email}):
+        return jsonify({"error": "An account with this email already exists"}), 409
+    if db.admin_requests.find_one({"email": email, "status": "pending"}):
+        return jsonify({"error": "A request for this email is already pending review"}), 409
+
+    db.admin_requests.insert_one({
+        "full_name": full_name,
+        "email": email,
+        "office": office,
+        "municipality": municipality,
+        "contact_number": contact_number,
+        "message": message,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "reviewed_at": None,
+        "reviewed_by": None,
+    })
+    return jsonify({"message": "Your request has been submitted for review. An existing admin will verify your details."}), 201
+
+@app.route('/api/admin-requests', methods=['GET'])
+@require_role('admin')
+def list_admin_requests():
+    db = get_db()
+    status = request.args.get('status')
+    query = {"status": status} if status in ('pending', 'approved', 'rejected') else {}
+    requests_ = list(db.admin_requests.find(query).sort("created_at", -1))
+    return jsonify({"requests": [serialize_admin_request(r) for r in requests_]})
+
+@app.route('/api/admin-requests/<request_id>/approve', methods=['POST'])
+@require_role('admin')
+def approve_admin_request(request_id):
+    request_oid = oid(request_id)
+    if not request_oid:
+        return jsonify({"error": "Invalid request id"}), 400
+
+    db = get_db()
+    req = db.admin_requests.find_one({"_id": request_oid})
+    if not req:
+        return jsonify({"error": "Request not found"}), 404
+    if req.get("status") != "pending":
+        return jsonify({"error": "This request has already been reviewed"}), 400
+    if db.users.find_one({"email": req["email"]}):
+        return jsonify({"error": "An account with this email already exists"}), 409
+
+    office_line = req.get('office') or ''
+    if req.get('municipality'):
+        office_line = f"{office_line} &middot; {req['municipality']}" if office_line else req['municipality']
+
+    admin_doc = create_admin_with_setup_email(
+        full_name=req["full_name"],
+        email=req["email"],
+        heading=f"You're approved, {req['full_name']}!",
+        intro=f"Your admin account request{f' ({office_line})' if office_line else ''} has been approved. Set your password to activate your account.",
+        office=req.get("office", ""),
+        municipality=req.get("municipality", ""),
+    )
+
+    db.admin_requests.update_one({"_id": request_oid}, {"$set": {
+        "status": "approved",
+        "reviewed_at": datetime.utcnow(),
+        "reviewed_by": g.current_user['id'],
+    }})
+
+    return jsonify({"message": "Admin request approved", "admin": serialize_admin(admin_doc)}), 201
+
+@app.route('/api/admin-requests/<request_id>/reject', methods=['POST'])
+@require_role('admin')
+def reject_admin_request(request_id):
+    request_oid = oid(request_id)
+    if not request_oid:
+        return jsonify({"error": "Invalid request id"}), 400
+
+    db = get_db()
+    result = db.admin_requests.update_one(
+        {"_id": request_oid, "status": "pending"},
+        {"$set": {"status": "rejected", "reviewed_at": datetime.utcnow(), "reviewed_by": g.current_user['id']}}
+    )
+    if result.matched_count == 0:
+        return jsonify({"error": "Request not found or already reviewed"}), 404
+    return jsonify({"message": "Admin request rejected"})
+
 # ── GET DASHBOARD STATS ──
 @app.route('/api/stats', methods=['GET'])
 @require_role('admin')
@@ -1794,12 +2448,14 @@ def get_stats():
         total = db.applicants.count_documents({})
         approved = db.applicants.count_documents({"application.status": "Approved"})
         rejected = db.applicants.count_documents({"application.status": "Rejected"})
-        under_review = total - approved - rejected
+        withdrawn = db.applicants.count_documents({"application.status": "Withdrawn"})
+        under_review = total - approved - rejected - withdrawn
 
         return jsonify({
             "total": total,
             "approved": approved,
             "rejected": rejected,
+            "withdrawn": withdrawn,
             "under_review": under_review
         })
 

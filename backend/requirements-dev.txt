@@ -1,0 +1,5 @@
+# Test-only dependencies - not needed in production (Render installs
+# requirements.txt only). Install with: pip install -r requirements-dev.txt
+-r requirements.txt
+pytest==9.1.1
+mongomock==4.3.0

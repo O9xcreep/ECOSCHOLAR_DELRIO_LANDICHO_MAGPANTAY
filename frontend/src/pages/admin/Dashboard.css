@@ -143,6 +143,9 @@
 .badge-green  { background: #d1fae5; color: #065f46; }
 .badge-yellow { background: #fef3c7; color: #92400e; }
 .badge-red    { background: #fee2e2; color: #991b1b; }
+.badge-purple { background: #ede9fe; color: #5b21b6; }
+.badge-blue   { background: #dbeafe; color: #1d4ed8; }
+.badge-gray   { background: #f3f4f6; color: #6b7280; }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 1024px) {
@@ -167,6 +170,16 @@
   padding: 40px;
   color: #888;
   font-size: 14px;
+}
+
+.dash-error-banner {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 500;
 }
 /* ── DUPLICATE ALERTS ── */
 .duplicate-alert-card {
@@ -218,6 +231,34 @@
   font-size: 11px;
   color: #aaa;
   margin-top: 2px;
+}
+
+.duplicate-view-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-view-flag-doc {
+  padding: 5px 10px;
+  background: #ede9fe;
+  color: #7c3aed;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-view-flag-doc:hover {
+  background: #ddd6fe;
+}
+
+.btn-view-flag-doc:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .btn-resolve {

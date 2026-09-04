@@ -16,3 +16,17 @@ services:
         sync: false
       - key: FLASK_DEBUG
         value: "false"
+      - key: FRONTEND_URL
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.resend.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        value: resend
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        value: noreply@escholar.site
+      - key: SMTP_FROM_NAME
+        value: EcoScholar

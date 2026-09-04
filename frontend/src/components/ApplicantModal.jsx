@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch, displayStatus } from '../api'
 import './ApplicantModal.css'
 
@@ -46,8 +46,44 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const [viewingDoc, setViewingDoc] = useState('')
   const [customFieldDefs, setCustomFieldDefs] = useState([])
   const [requiredDocTypes, setRequiredDocTypes] = useState([])
+  const modalRef = useRef(null)
+  const closeBtnRef = useRef(null)
 
   // ALL HOOKS BEFORE EARLY RETURN
+
+  // Escape-to-close, focus moved into the modal on open, and Tab trapped
+  // within it while it's open - without this, keyboard-only users have no
+  // way to dismiss the modal short of tabbing all the way to the close button.
+  useEffect(() => {
+    if (!applicant) return
+
+    closeBtnRef.current?.focus()
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab' || !modalRef.current) return
+      const focusable = modalRef.current.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+      if (focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [applicant, onClose])
+
  useEffect(() => {
   if (!applicant) return
 
@@ -97,7 +133,8 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const currentStatus = applicant.application_status || applicant.status || ''
   const isApproved = currentStatus === 'Approved'
   const isRejected = currentStatus === 'Rejected'
-  const isPending = !isApproved && !isRejected
+  const isWithdrawn = currentStatus === 'Withdrawn'
+  const isPending = !isApproved && !isRejected && !isWithdrawn
   // Display-only: an eligible applicant bumped by the accepted-applicant limit
   // reads as "Waitlisted" rather than "Rejected" - isRejected etc. above still
   // drive actual behavior (buttons, overrides) off the real stored status.
@@ -228,7 +265,13 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-container" onClick={e => e.stopPropagation()}>
+      <div
+        className="modal-container"
+        onClick={e => e.stopPropagation()}
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="applicant-modal-name">
 
         {/* Header */}
         <div className="modal-header">
@@ -238,7 +281,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                 .split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
             </div>
             <div>
-              <h2 className="modal-name">{profile.full_name}</h2>
+              <h2 className="modal-name" id="applicant-modal-name">{profile.full_name}</h2>
               <p className="modal-course">{profile.course} — {profile.year_level}</p>
               <p className="modal-email">{profile.email}</p>
             </div>
@@ -246,11 +289,12 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           <div className="modal-header-right">
             <span className={`modal-status-badge ${
               isApproved ? 'badge-green' :
+              isWithdrawn ? 'badge-gray' :
               isRejected ? (displayCurrentStatus === 'Waitlisted' ? 'badge-yellow' : 'badge-red') : 'badge-yellow'
             }`}>
               {displayCurrentStatus || 'Pending'}
             </span>
-            <button className="modal-close" onClick={onClose}>&times;</button>
+            <button className="modal-close" onClick={onClose} ref={closeBtnRef} aria-label="Close">&times;</button>
           </div>
         </div>
 
@@ -601,6 +645,9 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                 onClick={handleVerifyAndDecide}>
                 {updating ? 'Deciding...' : 'Verify Documents & Decide Eligibility'}
               </button>
+            )}
+            {isWithdrawn && (
+              <span style={{ fontSize: '13px', color: '#6b7280' }}>This application was withdrawn by the applicant.</span>
             )}
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { apiFetch } from '../../api'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
@@ -11,11 +11,11 @@ const PAGE_STATUSES = [
 ]
 
 const TABS = [
-  { label: 'All', key: 'All' },
-  { label: 'Newly Submitted', key: 'Newly Submitted' },
-  { label: 'Pending Verification', key: 'Pending Verification' },
-  { label: 'Not Yet Reviewed', key: 'Not Yet Reviewed' },
-  { label: 'Incomplete', key: 'Incomplete' },
+  { label: 'All', key: 'All', value: PAGE_STATUSES.join(',') },
+  { label: 'Newly Submitted', key: 'Newly Submitted', value: 'Newly Submitted' },
+  { label: 'Pending Verification', key: 'Pending Verification', value: 'Pending Verification' },
+  { label: 'Not Yet Reviewed', key: 'Not Yet Reviewed', value: 'Not Yet Reviewed' },
+  { label: 'Incomplete', key: 'Incomplete', value: 'Incomplete' },
 ]
 
 const statusClass = {
@@ -36,41 +36,79 @@ function getInitials(name) {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
+const SORT_OPTIONS = [
+  { label: 'Newest first', value: '' },
+  { label: 'Submitted date (oldest first)', value: 'submitted_at' },
+  { label: 'GWA (highest first)', value: '-gpa' },
+  { label: 'GWA (lowest first)', value: 'gpa' },
+  { label: 'Name (A-Z)', value: 'full_name' },
+]
+
+const PAGE_SIZE = 20
+
 function Applications() {
   const [applications, setApplications] = useState([])
+  const [total, setTotal] = useState(0)
+  const [pages, setPages] = useState(1)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [activeTab, setActiveTab] = useState('All')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState([])
   const [selectedApplicant, setSelectedApplicant] = useState(null)
+  const [tabCounts, setTabCounts] = useState({})
+  const [bulkVerifying, setBulkVerifying] = useState(false)
+  const [sort, setSort] = useState('')
 
-  const fetchApplications = async () => {
+  const activeStatus = TABS.find(t => t.key === activeTab)?.value || PAGE_STATUSES.join(',')
+
+  const fetchApplications = useCallback(async () => {
+    setLoading(true)
     try {
-      const res = await apiFetch('/api/applicants')
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), status: activeStatus })
+      if (search.trim()) params.set('q', search.trim())
+      if (sort) params.set('sort', sort)
+      const res = await apiFetch(`/api/applicants?${params.toString()}`)
+      if (!res.ok) throw new Error(`Request failed with status ${res.status}`)
       const data = await res.json()
       setApplications(data.applicants || [])
+      setTotal(data.total || 0)
+      setPages(data.pages || 1)
+      setLoadError(false)
     } catch (err) {
       console.error('Error:', err)
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, activeStatus, search, sort])
 
-  useEffect(() => {
-    fetchApplications()
+  // Lightweight counts for the tab badges/stat cards - only reads `total`
+  // from each response, doesn't fetch full applicant records.
+  const fetchTabCounts = useCallback(async () => {
+    const entries = await Promise.all(TABS.map(async tab => {
+      try {
+        const res = await apiFetch(`/api/applicants?page=1&limit=1&status=${encodeURIComponent(tab.value)}`)
+        const data = await res.json()
+        return [tab.key, data.total || 0]
+      } catch {
+        return [tab.key, 0]
+      }
+    }))
+    setTabCounts(Object.fromEntries(entries))
   }, [])
 
-  const pageApplications = applications.filter(a =>
-    PAGE_STATUSES.includes(a.application_status)
-  )
+  useEffect(() => {
+    const t = setTimeout(fetchApplications, search ? 300 : 0)
+    return () => clearTimeout(t)
+  }, [fetchApplications])
 
-  const filtered = pageApplications.filter(a => {
-    const matchTab = activeTab === 'All' || a.application_status === activeTab
-    const matchSearch =
-      a.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      a.course?.toLowerCase().includes(search.toLowerCase())
-    return matchTab && matchSearch
-  })
+  useEffect(() => { fetchTabCounts() }, [fetchTabCounts])
+
+  useEffect(() => { setPage(1); setSelected([]) }, [activeTab, search, sort])
+
+  const refresh = () => { fetchApplications(); fetchTabCounts() }
 
   const toggleSelect = (id) => {
     setSelected(prev =>
@@ -79,13 +117,38 @@ function Applications() {
   }
 
   const toggleAll = () => {
-    if (selected.length === filtered.length) setSelected([])
-    else setSelected(filtered.map(a => a.id))
+    if (selected.length === applications.length) setSelected([])
+    else setSelected(applications.map(a => a.id))
   }
 
-  const getTabCount = (key) => {
-    if (key === 'All') return pageApplications.length
-    return pageApplications.filter(a => a.application_status === key).length
+  const handleBulkVerify = async () => {
+    if (!window.confirm(
+      `Verify documents for ${selected.length} selected applicant(s)? ` +
+      `The eligibility model will decide Approved/Rejected automatically for each.`
+    )) return
+    setBulkVerifying(true)
+    try {
+      const res = await apiFetch('/api/applications/bulk-verify', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicant_ids: selected })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Bulk verification failed')
+      } else {
+        const failed = (data.results || []).filter(r => r.error)
+        if (failed.length > 0) {
+          alert(`${data.succeeded} of ${data.total} verified successfully. ${failed.length} could not be processed (e.g. pre-model submissions).`)
+        }
+      }
+      setSelected([])
+      refresh()
+    } catch {
+      alert('Cannot connect to server. Please try again.')
+    } finally {
+      setBulkVerifying(false)
+    }
   }
 
   return (
@@ -96,7 +159,7 @@ function Applications() {
         {TABS.slice(1).map(tab => (
           <div key={tab.key}
             className={`app-stat-card stat-${tab.key.replace(/\s/g, '-').toLowerCase()}`}>
-            <h3>{getTabCount(tab.key)}</h3>
+            <h3>{tabCounts[tab.key] ?? '—'}</h3>
             <p>{tab.label}</p>
           </div>
         ))}
@@ -111,11 +174,16 @@ function Applications() {
               className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
               onClick={() => setActiveTab(tab.key)}>
               {tab.label}
-              <span className="tab-count">{getTabCount(tab.key)}</span>
+              <span className="tab-count">{tabCounts[tab.key] ?? '—'}</span>
             </button>
           ))}
         </div>
         <div className="header-actions">
+          <select className="sort-select" value={sort} onChange={e => setSort(e.target.value)}>
+            {SORT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
           <div className="search-box">
             <span></span>
             <input
@@ -125,15 +193,29 @@ function Applications() {
               onChange={e => setSearch(e.target.value)}
             />
           </div>
-          <button className="btn-export">Export</button>
         </div>
       </div>
+
+      {selected.length > 0 && (
+        <div className="bulk-action-bar">
+          <span>{selected.length} selected</span>
+          <button className="btn-bulk-verify" onClick={handleBulkVerify} disabled={bulkVerifying}>
+            {bulkVerifying ? 'Verifying…' : `Verify Selected (${selected.length})`}
+          </button>
+          <button className="btn-bulk-cancel" onClick={() => setSelected([])}>Clear</button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="table-card">
         {loading ? (
           <div style={{ padding: '40px', textAlign: 'center', color: '#888' }}>
             Loading applications...
+          </div>
+        ) : loadError ? (
+          <div style={{ padding: '40px', textAlign: 'center', color: '#991b1b' }}>
+            <p style={{ marginBottom: '14px' }}>Couldn't load applications. Check your connection and try again.</p>
+            <button className="btn-retry" onClick={fetchApplications}>Retry</button>
           </div>
         ) : (
           <table className="app-table">
@@ -142,7 +224,7 @@ function Applications() {
                 <th>
                   <input
                     type="checkbox"
-                    checked={selected.length === filtered.length && filtered.length > 0}
+                    checked={selected.length === applications.length && applications.length > 0}
                     onChange={toggleAll}
                   />
                 </th>
@@ -156,14 +238,14 @@ function Applications() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {applications.length === 0 ? (
                 <tr>
                   <td colSpan="8" className="empty-row">
                     No applications found.
                   </td>
                 </tr>
               ) : (
-                filtered.map((app, i) => (
+                applications.map((app, i) => (
                   <tr key={app.id}
                     className={selected.includes(app.id) ? 'selected-row' : ''}>
                     <td>
@@ -231,7 +313,7 @@ function Applications() {
                             )
                             const data = await res.json()
                             if (!res.ok) alert(data.error || 'Could not decide eligibility for this applicant')
-                            fetchApplications()
+                            refresh()
                           }}>
                           Verify
                         </button>
@@ -247,10 +329,12 @@ function Applications() {
         {/* Pagination */}
         <div className="pagination">
           <p className="pagination-info">
-            Showing {filtered.length} of {pageApplications.length} applications
+            Showing {applications.length} of {total} applications
           </p>
           <div className="pagination-btns">
-            <button className="page-btn active">1</button>
+            <button className="page-btn" onClick={() => setPage(p => p - 1)} disabled={page <= 1}>Prev</button>
+            <button className="page-btn active">{page}</button>
+            <button className="page-btn" onClick={() => setPage(p => p + 1)} disabled={page >= pages}>Next</button>
           </div>
         </div>
       </div>
@@ -259,7 +343,7 @@ function Applications() {
       <ApplicantModal
         applicant={selectedApplicant}
         onClose={() => setSelectedApplicant(null)}
-        onStatusChange={fetchApplications}
+        onStatusChange={refresh}
       />
 
     </div>
