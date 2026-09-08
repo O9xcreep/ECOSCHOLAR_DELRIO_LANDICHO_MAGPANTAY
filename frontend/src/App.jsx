@@ -9,6 +9,7 @@ import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import ApplyAdmin from './pages/ApplyAdmin'
 import ProtectedRoute from './components/ProtectedRoute'
+import { getUser } from './api'
 
 // Student
 import StudentDashboard from './pages/student/StudentDashboard'
@@ -52,7 +53,13 @@ function App() {
 
         {/* Admin */}
         <Route path="/admin" element={<ProtectedRoute role="admin"><AdminLayout /></ProtectedRoute>}>
-          <Route index element={<Navigate to="dashboard" />} />
+          <Route index element={<Navigate to={
+            (() => {
+              const u = getUser() || {}
+              const canReview = u.role === 'admin' || !!u.permissions?.can_review_applicants
+              return canReview ? 'dashboard' : 'settings'
+            })()
+          } />} />
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="ranking" element={<Ranking />} />
           <Route path="applicants" element={<Applicants />} />

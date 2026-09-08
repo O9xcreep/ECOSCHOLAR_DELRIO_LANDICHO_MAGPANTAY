@@ -19,14 +19,26 @@ def register_payload(email='juan@test.com', **overrides):
     return payload
 
 
+def get_otp_code(db, email):
+    return db.otps.find_one({'email': email, 'purpose': 'register'})['code']
+
+
 class TestRegister:
-    def test_register_success(self, client):
+    def test_register_success(self, client, db):
         res = client.post('/api/register', json=register_payload())
         assert res.status_code == 201
         body = res.get_json()
-        assert body['user']['role'] == 'student'
-        assert body['user']['email'] == 'juan@test.com'
-        assert 'token' in body
+        assert body['email'] == 'juan@test.com'
+        assert 'token' not in body
+
+        user = db.users.find_one({'email': 'juan@test.com'})
+        assert user['email_verified'] is False
+
+    def test_registered_account_cannot_log_in_before_verifying(self, client):
+        client.post('/api/register', json=register_payload())
+        res = client.post('/api/login', json={'email': 'juan@test.com', 'password': 'ValidPass123'})
+        assert res.status_code == 403
+        assert res.get_json()['needs_verification'] is True
 
     def test_register_duplicate_email(self, client):
         client.post('/api/register', json=register_payload())
@@ -46,15 +58,86 @@ class TestRegister:
         assert res.status_code == 400
 
 
-class TestLogin:
-    def test_login_success(self, client):
+class TestRegisterVerifyOtp:
+    def test_correct_code_verifies_and_logs_in(self, client, db):
         client.post('/api/register', json=register_payload())
+        code = get_otp_code(db, 'juan@test.com')
+
+        res = client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': code})
+        assert res.status_code == 200
+        body = res.get_json()
+        assert 'token' in body
+        assert db.users.find_one({'email': 'juan@test.com'})['email_verified'] is True
+
+    def test_verified_account_can_then_log_in(self, client, db):
+        client.post('/api/register', json=register_payload())
+        code = get_otp_code(db, 'juan@test.com')
+        client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': code})
+
+        res = client.post('/api/login', json={'email': 'juan@test.com', 'password': 'ValidPass123'})
+        assert res.status_code == 200
+
+    def test_wrong_code_rejected(self, client, db):
+        client.post('/api/register', json=register_payload())
+        res = client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': '000000'})
+        assert res.status_code == 400
+        assert db.users.find_one({'email': 'juan@test.com'})['email_verified'] is False
+
+    def test_wrong_code_does_not_consume_the_real_one(self, client, db):
+        """A typo shouldn't burn the user's one shot - the real code must still work after."""
+        client.post('/api/register', json=register_payload())
+        code = get_otp_code(db, 'juan@test.com')
+        client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': '000000'})
+        res = client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': code})
+        assert res.status_code == 200
+
+    def test_too_many_attempts_locks_out_the_code(self, client, db):
+        client.post('/api/register', json=register_payload())
+        code = get_otp_code(db, 'juan@test.com')
+        for _ in range(5):
+            client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': '000000'})
+        res = client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': code})
+        assert res.status_code == 400
+        assert 'Too many' in res.get_json()['error']
+
+    def test_missing_fields_rejected(self, client):
+        res = client.post('/api/register/verify-otp', json={'email': 'juan@test.com'})
+        assert res.status_code == 400
+
+
+class TestResendRegisterOtp:
+    def test_resend_issues_a_new_working_code(self, client, db):
+        client.post('/api/register', json=register_payload())
+        old_code = get_otp_code(db, 'juan@test.com')
+
+        res = client.post('/api/register/resend-otp', json={'email': 'juan@test.com'})
+        assert res.status_code == 200
+        new_code = get_otp_code(db, 'juan@test.com')
+        assert new_code != old_code
+
+        # the old code must no longer work
+        stale = client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': old_code})
+        assert stale.status_code == 400
+
+        fresh = client.post('/api/register/verify-otp', json={'email': 'juan@test.com', 'code': new_code})
+        assert fresh.status_code == 200
+
+    def test_same_response_for_already_verified_or_unknown_email(self, client, make_user):
+        make_user(email='already-verified@test.com')  # make_user defaults to verified
+        res1 = client.post('/api/register/resend-otp', json={'email': 'already-verified@test.com'})
+        res2 = client.post('/api/register/resend-otp', json={'email': 'no-such-account@test.com'})
+        assert res1.get_json() == res2.get_json()
+
+
+class TestLogin:
+    def test_login_success(self, client, make_user):
+        make_user(email='juan@test.com', password='ValidPass123')
         res = client.post('/api/login', json={'email': 'juan@test.com', 'password': 'ValidPass123'})
         assert res.status_code == 200
         assert 'token' in res.get_json()
 
-    def test_login_wrong_password(self, client):
-        client.post('/api/register', json=register_payload())
+    def test_login_wrong_password(self, client, make_user):
+        make_user(email='juan@test.com', password='ValidPass123')
         res = client.post('/api/login', json={'email': 'juan@test.com', 'password': 'WrongPass123'})
         assert res.status_code == 401
 

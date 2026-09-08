@@ -133,11 +133,34 @@ class TestApproveAdminRequest:
         assert res.status_code == 201
 
         created = db.users.find_one({'email': APPLICANT_EMAIL})
-        assert created['role'] == 'admin'
+        # Defaults to the least-privileged role - the approving admin has to
+        # explicitly opt in to granting super-admin access (see TestApproveAsAdmin).
+        assert created['role'] == 'lgu_member'
+        assert created['permissions'] == {'can_review_applicants': False, 'can_manage_members': False}
         assert created['municipality'] == 'Liliw'
 
         updated_req = db.admin_requests.find_one({'_id': req['_id']})
         assert updated_req['status'] == 'approved'
+
+    def test_can_approve_with_specific_role_and_permissions(self, client, db, auth_headers):
+        client.post('/api/admin-requests', json={**FORM_FIELDS, 'token': make_apply_token()})
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+
+        res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers(),
+                           json={'role': 'lgu_member', 'permissions': {'can_review_applicants': True}})
+        assert res.status_code == 201
+        created = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert created['permissions'] == {'can_review_applicants': True, 'can_manage_members': False}
+
+    def test_approving_as_super_admin_requires_super_admin_requester(self, client, db, auth_headers):
+        client.post('/api/admin-requests', json={**FORM_FIELDS, 'token': make_apply_token()})
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        # Has can_manage_members (so it gets past the endpoint's permission gate at
+        # all) but must still be refused the specific act of minting a super admin.
+        lgu_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
+
+        res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=lgu_headers, json={'role': 'admin'})
+        assert res.status_code == 403
 
     def test_approved_admin_has_no_usable_starting_password(self, client, db, auth_headers):
         """Approval must never leave a guessable/known password on the account -

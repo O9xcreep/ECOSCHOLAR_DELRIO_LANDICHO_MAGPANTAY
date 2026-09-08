@@ -1,6 +1,10 @@
 import { Navigate } from 'react-router-dom'
 import { getToken, getUser } from '../api'
 
+// LGU members share the admin area (with their own scoped permissions checked
+// server-side per endpoint) - only the route-level admin/student split happens here.
+const ADMIN_AREA_ROLES = ['admin', 'lgu_member']
+
 function ProtectedRoute({ role, children }) {
   const token = getToken()
   const user = getUser()
@@ -9,8 +13,9 @@ function ProtectedRoute({ role, children }) {
     return <Navigate to="/login" replace />
   }
 
-  if (role && user.role !== role) {
-    return <Navigate to={user.role === 'admin' ? '/admin/dashboard' : '/student/dashboard'} replace />
+  const allowed = role === 'admin' ? ADMIN_AREA_ROLES.includes(user.role) : user.role === role
+  if (role && !allowed) {
+    return <Navigate to={user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'} replace />
   }
 
   return children

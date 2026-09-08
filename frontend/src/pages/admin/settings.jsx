@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, setSession, logout } from '../../api'
 import './settings.css'
 
-const TABS = ['Profile', 'Security', 'System', 'Team']
+const ALL_TABS = ['Profile', 'Security', 'System', 'Team']
 
 // ── PROFILE TAB ──
 function ProfileTab() {
@@ -85,7 +85,7 @@ function ProfileTab() {
 
           <div className="info-item">
             <span className="info-label">Role</span>
-            <span className="badge badge-purple">Administrator</span>
+            <span className="badge badge-purple">{user.role === 'admin' ? 'Administrator' : 'LGU Member'}</span>
           </div>
 
           <div className="info-item">
@@ -401,19 +401,24 @@ function AdminRequestsSection({ onApproved }) {
   )
 }
 
+const EMPTY_TEAM_FORM = { full_name: '', email: '', role: 'lgu_member', permissions: { can_review_applicants: false, can_manage_members: false } }
+
 // ── TEAM TAB ──
 function TeamTab() {
   const currentUser = getUser() || {}
+  const isSuperAdmin = currentUser.role === 'admin'
   const [admins, setAdmins] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ full_name: '', email: '' })
+  const [form, setForm] = useState(EMPTY_TEAM_FORM)
   const [formError, setFormError] = useState('')
   const [creating, setCreating] = useState(false)
   const [removingId, setRemovingId] = useState(null)
   const [resendingId, setResendingId] = useState(null)
   const [resendMessage, setResendMessage] = useState('')
+  const [savingPermissionsId, setSavingPermissionsId] = useState(null)
+  const [permissionsError, setPermissionsError] = useState('')
 
   const loadAdmins = async () => {
     setLoading(true)
@@ -447,12 +452,32 @@ function TeamTab() {
       const data = await res.json()
       if (!res.ok) { setFormError(data.error || 'Failed to create admin account'); return }
       setAdmins(prev => [...prev, data.admin])
-      setForm({ full_name: '', email: '' })
+      setForm(EMPTY_TEAM_FORM)
       setShowForm(false)
     } catch {
       setFormError('Cannot connect to server. Please try again.')
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleTogglePermission = async (admin, key) => {
+    setPermissionsError('')
+    setSavingPermissionsId(admin.id)
+    const nextPermissions = { ...admin.permissions, [key]: !admin.permissions[key] }
+    try {
+      const res = await apiFetch(`/api/admins/${admin.id}/permissions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'lgu_member', permissions: nextPermissions })
+      })
+      const data = await res.json()
+      if (!res.ok) { setPermissionsError(data.error || 'Failed to update permissions'); return }
+      setAdmins(prev => prev.map(a => a.id === admin.id ? data.admin : a))
+    } catch {
+      setPermissionsError('Cannot connect to server. Please try again.')
+    } finally {
+      setSavingPermissionsId(null)
     }
   }
 
@@ -497,9 +522,10 @@ function TeamTab() {
           )}
         </div>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
-          Anyone with an admin account has full access to applicants, documents, and system settings.
+          Super admins have full access. LGU members only get the specific permissions you grant them below.
         </p>
         {resendMessage && <p className="info-sub" style={{ color: '#16a34a', marginBottom: '14px' }}>{resendMessage}</p>}
+        {permissionsError && <div className="security-error" style={{ marginBottom: '14px' }}>{permissionsError}</div>}
 
         {showForm && (
           <div className="settings-row" style={{ marginBottom: '18px', flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
@@ -514,14 +540,48 @@ function TeamTab() {
                 <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
               </div>
             </div>
+
+            <div className="password-field">
+              <label>Role</label>
+              <select
+                className="settings-select"
+                value={form.role}
+                onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>
+                <option value="lgu_member">LGU Member (scoped access)</option>
+                {isSuperAdmin && <option value="admin">Super Admin (full access)</option>}
+              </select>
+            </div>
+
+            {form.role === 'lgu_member' && (
+              <div className="password-field">
+                <label>Permissions</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px', marginBottom: '6px' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.permissions.can_review_applicants}
+                    onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_review_applicants: e.target.checked } }))}
+                  />
+                  Review applicants (view/decide applications, ranking, reports)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px' }}>
+                  <input
+                    type="checkbox"
+                    checked={form.permissions.can_manage_members}
+                    onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_manage_members: e.target.checked } }))}
+                  />
+                  Manage team members (add/remove, approve admin requests)
+                </label>
+              </div>
+            )}
+
             <p className="info-sub" style={{ marginBottom: 0 }}>
               They'll receive an email with a link to set their own password.
             </p>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button className="btn-primary" onClick={handleCreate} disabled={creating}>
-                {creating ? 'Creating...' : 'Create admin'}
+                {creating ? 'Creating...' : 'Create account'}
               </button>
-              <button className="btn-change" onClick={() => { setShowForm(false); setForm({ full_name: '', email: '' }); setFormError('') }}>
+              <button className="btn-change" onClick={() => { setShowForm(false); setForm(EMPTY_TEAM_FORM); setFormError('') }}>
                 Cancel
               </button>
             </div>
@@ -537,38 +597,70 @@ function TeamTab() {
           </div>
         ) : (
           <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
-            {admins.map(admin => (
-              <div key={admin.id} className="info-item" style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', display: 'flex', padding: '12px 0', borderBottom: '1px solid #F0F0F0' }}>
-                <div>
-                  <span className="info-value">
-                    {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
-                    {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
-                  </span>
-                  <span className="info-sub">{admin.email}</span>
-                  {(admin.office || admin.municipality) && (
-                    <span className="info-sub">{[admin.office, admin.municipality].filter(Boolean).join(' · ')}</span>
-                  )}
+            {admins.map(admin => {
+              // An lgu_member (even with can_manage_members) can't touch a super
+              // admin's account at all - matches the backend's guard exactly.
+              const canManageThisRow = isSuperAdmin || admin.role !== 'admin'
+              return (
+              <div key={admin.id} className="info-item" style={{ flexDirection: 'column', alignItems: 'stretch', padding: '12px 0', borderBottom: '1px solid #F0F0F0', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div>
+                    <span className="info-value">
+                      {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
+                      <span className="badge" style={{ marginLeft: '8px', background: admin.role === 'admin' ? '#EDE9FE' : '#E0F2FE', color: admin.role === 'admin' ? '#5B21B6' : '#075985' }}>
+                        {admin.role === 'admin' ? 'Super Admin' : 'LGU Member'}
+                      </span>
+                      {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
+                    </span>
+                    <span className="info-sub">{admin.email}</span>
+                    {(admin.office || admin.municipality) && (
+                      <span className="info-sub">{[admin.office, admin.municipality].filter(Boolean).join(' · ')}</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    {!admin.password_set && canManageThisRow && (
+                      <button
+                        className="btn-change"
+                        onClick={() => handleResendInvite(admin)}
+                        disabled={resendingId === admin.id}>
+                        {resendingId === admin.id ? 'Sending...' : 'Resend Invite'}
+                      </button>
+                    )}
+                    {admin.id !== currentUser.id && canManageThisRow && admins.length > 1 && (
+                      <button
+                        className="btn-danger-outline"
+                        onClick={() => handleRemove(admin)}
+                        disabled={removingId === admin.id}>
+                        {removingId === admin.id ? 'Removing...' : 'Remove'}
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                  {!admin.password_set && (
-                    <button
-                      className="btn-change"
-                      onClick={() => handleResendInvite(admin)}
-                      disabled={resendingId === admin.id}>
-                      {resendingId === admin.id ? 'Sending...' : 'Resend Invite'}
-                    </button>
-                  )}
-                  {admin.id !== currentUser.id && admins.length > 1 && (
-                    <button
-                      className="btn-danger-outline"
-                      onClick={() => handleRemove(admin)}
-                      disabled={removingId === admin.id}>
-                      {removingId === admin.id ? 'Removing...' : 'Remove'}
-                    </button>
-                  )}
-                </div>
+                {admin.role === 'lgu_member' && (
+                  <div style={{ display: 'flex', gap: '18px', paddingLeft: '2px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                      <input
+                        type="checkbox"
+                        checked={admin.permissions.can_review_applicants}
+                        disabled={admin.id === currentUser.id || savingPermissionsId === admin.id}
+                        onChange={() => handleTogglePermission(admin, 'can_review_applicants')}
+                      />
+                      Review applicants
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                      <input
+                        type="checkbox"
+                        checked={admin.permissions.can_manage_members}
+                        disabled={admin.id === currentUser.id || savingPermissionsId === admin.id}
+                        onChange={() => handleTogglePermission(admin, 'can_manage_members')}
+                      />
+                      Manage team members
+                    </label>
+                  </div>
+                )}
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -579,6 +671,15 @@ function TeamTab() {
 // ── MAIN SETTINGS ──
 function Settings() {
   const [activeTab, setActiveTab] = useState('Profile')
+  const currentUser = getUser() || {}
+  const isSuperAdmin = currentUser.role === 'admin'
+  const canManageMembers = isSuperAdmin || !!currentUser.permissions?.can_manage_members
+
+  // System (eligibility/export settings) stays super-admin-only; Team needs
+  // can_manage_members. Profile/Security are always available to everyone.
+  const tabs = ALL_TABS.filter(tab =>
+    (tab !== 'System' || isSuperAdmin) && (tab !== 'Team' || canManageMembers)
+  )
 
   return (
     <div className="settings-page">
@@ -590,7 +691,7 @@ function Settings() {
       </div>
 
       <div className="settings-tabs">
-        {TABS.map(tab => (
+        {tabs.map(tab => (
           <button
             key={tab}
             className={`settings-tab ${activeTab === tab ? 'active' : ''}`}

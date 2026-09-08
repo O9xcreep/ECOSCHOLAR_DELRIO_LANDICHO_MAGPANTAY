@@ -51,15 +51,22 @@ class TestDeleteAdmin:
         res = client.delete(f'/api/admins/{me["_id"]}', headers=headers)
         assert res.status_code == 400
 
-    def test_cannot_remove_last_admin(self, client, auth_headers, db, make_user):
+    def test_lgu_member_cannot_remove_a_super_admin(self, client, auth_headers, db):
+        """Even with can_manage_members, an lgu_member can't touch a super admin's
+        account at all - only another super admin can, and self-deletion is
+        separately blocked, so a lone super admin can never be removed by anyone."""
+        auth_headers()  # creates the sole super admin, admin@test.com
+        lgu_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
+        me = db.users.find_one({'email': 'admin@test.com'})
+
+        res = client.delete(f'/api/admins/{me["_id"]}', headers=lgu_headers)
+        assert res.status_code == 403
+
+    def test_delete_target_must_be_a_team_member(self, client, auth_headers, make_user):
         headers = auth_headers()
-        # Only one admin exists (the one auth_headers created) - even trying
-        # to remove a *different* nonexistent id should hit the last-admin
-        # guard before ever reaching the "not found" case.
         other_student = make_user(email='notadmin@test.com', role='student')
         res = client.delete(f'/api/admins/{other_student["id"]}', headers=headers)
-        assert res.status_code == 400
-        assert 'last remaining admin' in res.get_json()['error']
+        assert res.status_code == 404
 
     def test_can_remove_other_admin_when_multiple_exist(self, client, auth_headers, db):
         headers = auth_headers()

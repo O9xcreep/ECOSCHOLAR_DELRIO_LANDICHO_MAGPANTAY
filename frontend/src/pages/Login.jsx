@@ -634,9 +634,15 @@ function Login() {
   const [showRegPw, setShowRegPw] = useState(false)
   const [showConfirmPw, setShowConfirmPw] = useState(false)
   const [regError, setRegError] = useState('')
-  const [regSuccess, setRegSuccess] = useState(false)
   const [regLoading, setRegLoading] = useState(false)
   const [privacyConsent, setPrivacyConsent] = useState(false)
+
+  // ── REGISTER: EMAIL VERIFICATION (step 3) ──
+  const [regOtpCode, setRegOtpCode] = useState('')
+  const [regOtpError, setRegOtpError] = useState('')
+  const [regOtpLoading, setRegOtpLoading] = useState(false)
+  const [regResendMessage, setRegResendMessage] = useState('')
+  const [regResendLoading, setRegResendLoading] = useState(false)
 
   // ── FORGOT ──
   const [showForgot, setShowForgot] = useState(false)
@@ -661,6 +667,9 @@ function Login() {
   setPrivacyConsent(false)
   setRegStep(1)
   setRegFieldErrors({})
+  setRegOtpCode('')
+  setRegOtpError('')
+  setRegResendMessage('')
 }
 
   // ── LOGIN HANDLER ──
@@ -688,7 +697,7 @@ function Login() {
       }
 
       setSession(data.user, data.token)
-      navigate(data.user.role === 'admin' ? '/admin/dashboard' : '/student/dashboard')
+      navigate(data.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard')
     } catch {
       setLoginError('Cannot connect to server. Please try again.')
     } finally {
@@ -767,13 +776,58 @@ function Login() {
         return
       }
 
-      setRegSuccess(true)
+      setRegStep(3)
     } catch {
       setRegError('Cannot connect to server. Please try again.')
     } finally {
       setRegLoading(false)
     }
   }, [regData])
+
+  // ── REGISTER: VERIFY EMAIL OTP (STEP 3) ──
+  const handleVerifyRegOtp = useCallback(async () => {
+    setRegOtpError('')
+    if (!regOtpCode.trim()) { setRegOtpError('Enter the code from your email'); return }
+
+    setRegOtpLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/register/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regData.email.trim().toLowerCase(), code: regOtpCode.trim() })
+      })
+      const data = await res.json()
+
+      if (!res.ok) {
+        setRegOtpError(data.error || 'Verification failed. Please try again.')
+        return
+      }
+
+      setSession(data.user, data.token)
+      navigate('/student/dashboard')
+    } catch {
+      setRegOtpError('Cannot connect to server. Please try again.')
+    } finally {
+      setRegOtpLoading(false)
+    }
+  }, [regData.email, regOtpCode, navigate])
+
+  const handleResendRegOtp = useCallback(async () => {
+    setRegResendMessage('')
+    setRegResendLoading(true)
+    try {
+      await fetch(`${API_BASE_URL}/api/register/resend-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: regData.email.trim().toLowerCase() })
+      })
+      setRegResendMessage('A new code has been sent to your email.')
+    } catch {
+      setRegResendMessage('Cannot connect to server. Please try again.')
+    } finally {
+      setRegResendLoading(false)
+    }
+  }, [regData.email])
 
   // ── FORGOT HANDLER ──
   const handleForgot = useCallback(async () => {
@@ -849,7 +903,7 @@ function Login() {
 
         {/* ── RIGHT ── */}
         <div className="lp-right">
-          <div className={`lp-card${tab === 'register' && regStep === 2 && !regSuccess ? ' lp-card-wide' : ''}`}>
+          <div className={`lp-card${tab === 'register' && regStep === 2 ? ' lp-card-wide' : ''}`}>
 
             {/* Mobile logo */}
             <div className="lp-mobile-logo">
@@ -922,19 +976,42 @@ function Login() {
             {/* REGISTER FORM */}
             {tab === 'register' && (
               <>
-                {regSuccess ? (
-                  <div className="lp-success-box">
-                    <h2>Account Created</h2>
-                    <p>Your student account has been registered successfully. You can now sign in.</p>
-                    <button className="lp-btn" onClick={() => {
-                      setTab('login')
-                      setRegSuccess(false)
-                      setRegStep(1)
-                      setRegData(EMPTY_REG_DATA)
-                    }}>
-                      Go to Sign In
+                {regStep === 3 ? (
+                  <>
+                    <h2 className="lp-title">Verify Your Email</h2>
+                    <p className="lp-sub">
+                      We sent a 6-digit code to <strong>{regData.email}</strong>. Enter it below to finish creating your account.
+                    </p>
+
+                    {regOtpError && <div className="lp-alert error">{regOtpError}</div>}
+
+                    <div className="lp-field">
+                      <label>Verification Code</label>
+                      <input
+                        className="lp-input"
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        placeholder="123456"
+                        value={regOtpCode}
+                        onChange={e => { setRegOtpCode(e.target.value.replace(/\D/g, '')); setRegOtpError('') }}
+                        onKeyDown={e => e.key === 'Enter' && handleVerifyRegOtp()}
+                        autoFocus
+                      />
+                    </div>
+
+                    <button className="lp-btn" onClick={handleVerifyRegOtp} disabled={regOtpLoading}>
+                      {regOtpLoading ? <><span className="spinner" /> Verifying…</> : 'Verify & Continue'}
                     </button>
-                  </div>
+
+                    <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+                      Didn't get it?{' '}
+                      <button className="lp-link" type="button" onClick={handleResendRegOtp} disabled={regResendLoading}>
+                        {regResendLoading ? 'Sending…' : 'Resend code'}
+                      </button>
+                    </p>
+                    {regResendMessage && <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>{regResendMessage}</p>}
+                  </>
                 ) : regStep === 1 ? (
                   <>
                     <h2 className="lp-title">Create Account</h2>

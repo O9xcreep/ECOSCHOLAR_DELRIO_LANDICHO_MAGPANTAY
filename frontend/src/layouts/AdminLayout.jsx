@@ -8,6 +8,10 @@ function AdminLayout() {
   const user = getUser() || {}
   const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'A'
 
+  const isSuperAdmin = user.role === 'admin'
+  const canReview = isSuperAdmin || !!user.permissions?.can_review_applicants
+  const roleLabel = isSuperAdmin ? 'Administrator' : 'LGU Member'
+
   const handleLogout = async () => {
     await logout()
     navigate('/login')
@@ -23,25 +27,31 @@ function AdminLayout() {
         </div>
 
         <nav className="sidebar-nav">
-          <NavLink to="/admin/dashboard" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Home</span>
-          </NavLink>
-          <NavLink to="/admin/ranking"
-            className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Ranking</span>
-          </NavLink>
-          <NavLink to="/admin/applicants" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Applicants</span>
-          </NavLink>
-          <NavLink to="/admin/applications" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Applications</span>
-          </NavLink>
-          <NavLink to="/admin/reports" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Reports</span>
-          </NavLink>
-          <NavLink to="/admin/form-builder" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Form Builder</span>
-          </NavLink>
+          {canReview && (
+            <>
+              <NavLink to="/admin/dashboard" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+                <span>Home</span>
+              </NavLink>
+              <NavLink to="/admin/ranking"
+                className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+                <span>Ranking</span>
+              </NavLink>
+              <NavLink to="/admin/applicants" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+                <span>Applicants</span>
+              </NavLink>
+              <NavLink to="/admin/applications" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+                <span>Applications</span>
+              </NavLink>
+              <NavLink to="/admin/reports" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+                <span>Reports</span>
+              </NavLink>
+            </>
+          )}
+          {isSuperAdmin && (
+            <NavLink to="/admin/form-builder" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+              <span>Form Builder</span>
+            </NavLink>
+          )}
           <NavLink to="/admin/settings" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <span>Settings</span>
           </NavLink>
@@ -62,7 +72,7 @@ function AdminLayout() {
               <div className="admin-avatar">{initial}</div>
               <div>
                 <p className="admin-name">{user.full_name || 'Admin'}</p>
-                <p className="admin-role">Administrator</p>
+                <p className="admin-role">{roleLabel}</p>
               </div>
             </div>
             <button className="btn-logout" onClick={handleLogout} title="Log out">Log out</button>

@@ -5,9 +5,7 @@ import hashlib
 import threading
 import imagehash
 import pdf2image
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 from PIL import Image
 from datetime import datetime, timedelta
 from functools import wraps
@@ -54,35 +52,43 @@ _reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-reset')
 ADMIN_APPLY_TOKEN_MAX_AGE = 60 * 60 * 24  # 24 hours
 _admin_apply_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-admin-apply')
 
+# Email-verification OTP for new student registrations. A short numeric code
+# rather than a signed token, since the user types it in by hand. Stored in
+# plaintext (unlike passwords) - it's single-use, expires quickly, and attempts
+# are capped, so the threat model that justifies password hashing doesn't apply.
+OTP_LENGTH = 6
+OTP_MAX_AGE = 10 * 60  # 10 minutes
+OTP_MAX_ATTEMPTS = 5
+
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT') or 587)
-SMTP_USER = os.getenv('SMTP_USER', '')
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+# Sent via Resend's HTTP API (not raw SMTP) because Render's free-tier web
+# services block outbound traffic to SMTP ports 25/465/587 - the HTTP API
+# only needs normal outbound HTTPS (443), which is never blocked.
+RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
 SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'EcoScholar')
-# Separate from SMTP_USER because some transactional providers (e.g. Resend's SMTP
-# relay) authenticate with a fixed login like "resend" that isn't a real mailbox -
-# the actual visible sender is whatever address you've verified with the provider.
-# Defaults to SMTP_USER so a plain Gmail setup (where they're the same) needs no change.
-SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL') or SMTP_USER
+SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '')
 
 def send_email(to_email, subject, html_body):
-    """Best-effort synchronous email send via SMTP. Returns True/False and never
-    raises - callers must not let a failed send change what's shown to the
-    requester, since that would leak whether an email address exists in the system."""
-    if not SMTP_USER or not SMTP_PASSWORD:
-        app.logger.warning('Email not sent (SMTP not configured): %s', subject)
+    """Best-effort email send via the Resend HTTP API. Returns True/False and
+    never raises - callers must not let a failed send change what's shown to
+    the requester, since that would leak whether an email address exists in
+    the system."""
+    if not RESEND_API_KEY or not SMTP_FROM_EMAIL:
+        app.logger.warning('Email not sent (RESEND_API_KEY/SMTP_FROM_EMAIL not configured): %s', subject)
         return False
     try:
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>'
-        msg['To'] = to_email
-        msg.attach(MIMEText(html_body, 'html'))
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM_EMAIL, [to_email], msg.as_string())
+        resp = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {RESEND_API_KEY}'},
+            json={
+                'from': f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>',
+                'to': [to_email],
+                'subject': subject,
+                'html': html_body,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
         return True
     except Exception as e:
         app.logger.error('Email send failed: %s', str(e))
@@ -391,9 +397,53 @@ _fs = gridfs.GridFS(_mongo_db)
 # Logged-out tokens land here until their natural expiry so a stolen/leaked token
 # can be invalidated before TOKEN_MAX_AGE runs out. TTL index auto-purges entries.
 _mongo_db.revoked_tokens.create_index("expires_at", expireAfterSeconds=0)
+# Registration email-verification codes - same absolute-expiry TTL pattern.
+_mongo_db.otps.create_index("expires_at", expireAfterSeconds=0)
 
 def get_db():
     return _mongo_db
+
+def generate_otp_code():
+    return ''.join(secrets.choice('0123456789') for _ in range(OTP_LENGTH))
+
+def create_and_send_otp(email, full_name):
+    """(Re)issues a registration verification code - any previous unused code for
+    this email is discarded, so only the most recently sent one ever works."""
+    db = get_db()
+    db.otps.delete_many({"email": email, "purpose": "register"})
+    code = generate_otp_code()
+    db.otps.insert_one({
+        "email": email,
+        "purpose": "register",
+        "code": code,
+        "attempts": 0,
+        "created_at": datetime.utcnow(),
+        "expires_at": datetime.utcnow() + timedelta(seconds=OTP_MAX_AGE),
+    })
+    html = f"""
+        <p>Hi {full_name},</p>
+        <p>Your EcoScholar verification code is:</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:4px;color:#5C35D4;">{code}</p>
+        <p>Enter this on the sign-up page to finish creating your account. It expires in 10 minutes.</p>
+        <p>If you didn't try to create an account, you can safely ignore this email.</p>
+    """
+    send_email_async(email, 'Verify your EcoScholar account', html)
+
+def verify_otp(email, code):
+    """Returns (ok, error_message). Consumes the code on success; on a wrong
+    guess it counts against the attempt limit without consuming the code, so a
+    typo doesn't cost the user their one shot."""
+    db = get_db()
+    otp = db.otps.find_one({"email": email, "purpose": "register"})
+    if not otp or otp["expires_at"] < datetime.utcnow():
+        return False, "This code has expired. Please request a new one."
+    if otp["attempts"] >= OTP_MAX_ATTEMPTS:
+        return False, "Too many incorrect attempts. Please request a new code."
+    if not secrets.compare_digest(otp["code"], (code or '').strip()):
+        db.otps.update_one({"_id": otp["_id"]}, {"$inc": {"attempts": 1}})
+        return False, "Incorrect code. Please try again."
+    db.otps.delete_one({"_id": otp["_id"]})
+    return True, None
 
 def oid(id_str):
     """Parse a string into an ObjectId, or None if it isn't a valid one."""
@@ -462,6 +512,31 @@ def require_role(*roles):
         @require_auth
         def wrapper(*args, **kwargs):
             if g.current_user.get('role') not in roles:
+                return jsonify({"error": "Forbidden"}), 403
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+# LGU members (role="lgu_member") have scoped access via a `permissions` sub-document;
+# super admins (role="admin") always pass every check, same as before this existed.
+# Permissions are read fresh from the database on every request rather than trusted
+# from the token, since revoking one should take effect immediately - not only after
+# the member's current session token happens to expire.
+ADMIN_PERMISSIONS = ('can_review_applicants', 'can_manage_members')
+
+def require_permission(permission):
+    def decorator(f):
+        @wraps(f)
+        @require_auth
+        def wrapper(*args, **kwargs):
+            role = g.current_user.get('role')
+            if role == 'admin':
+                return f(*args, **kwargs)
+            if role != 'lgu_member':
+                return jsonify({"error": "Forbidden"}), 403
+            db = get_db()
+            user = db.users.find_one({"_id": oid(g.current_user.get('id'))})
+            if not user or not user.get('permissions', {}).get(permission):
                 return jsonify({"error": "Forbidden"}), 403
             return f(*args, **kwargs)
         return wrapper
@@ -623,12 +698,26 @@ def login():
         if not is_hashed:
             db.users.update_one({"_id": user['_id']}, {"$set": {"password": generate_password_hash(password)}})
 
+        # Accounts predating this field (or created outside /api/register, like admins)
+        # default to verified - only a registration left mid-way should ever hit this.
+        if not user.get('email_verified', True):
+            return jsonify({
+                "error": "Please verify your email before signing in.",
+                "needs_verification": True,
+                "email": user['email'],
+            }), 403
+
         user_payload = {
             "id": str(user['_id']),
             "full_name": user['full_name'],
             "email": user['email'],
             "role": user['role']
         }
+        # Informational only (drives which nav items the frontend shows) - every
+        # endpoint re-checks permissions fresh from the database regardless, so a
+        # stale cached value here can never grant access the server wouldn't.
+        if user['role'] == 'lgu_member':
+            user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
 
         return jsonify({
             "message": "Login successful",
@@ -715,29 +804,69 @@ def register():
         if db.users.find_one({"email": email}):
             return jsonify({"error": "An account with this email already exists"}), 409
 
-        result = db.users.insert_one({
+        db.users.insert_one({
             "full_name": full_name,
             "email": email,
             "password": generate_password_hash(password),
             "role": "student",
             "status": "active",
+            "email_verified": False,
             "created_at": datetime.utcnow(),
             "privacy_consent": True,
             **profile_data,
         })
-
-        user_payload = {"id": str(result.inserted_id), "full_name": full_name, "email": email, "role": "student"}
+        create_and_send_otp(email, full_name)
 
         return jsonify({
-            "message": "Account created successfully",
-            "user": user_payload,
-            "token": issue_token(user_payload)
+            "message": "Enter the verification code sent to your email to finish creating your account.",
+            "email": email,
         }), 201
 
     except Exception:
         if DEBUG:
             raise
         return jsonify({"error": "Registration failed"}), 500
+
+@app.route('/api/register/verify-otp', methods=['POST'])
+@limiter.limit("10 per minute")
+def verify_register_otp():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    code = data.get('code') or ''
+    if not email or not code:
+        return jsonify({"error": "Email and code are required"}), 400
+
+    ok, error = verify_otp(email, code)
+    if not ok:
+        return jsonify({"error": error}), 400
+
+    db = get_db()
+    db.users.update_one({"email": email}, {"$set": {"email_verified": True}})
+    user = db.users.find_one({"email": email})
+    if not user:
+        return jsonify({"error": "Account not found"}), 404
+
+    user_payload = {"id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role']}
+    return jsonify({
+        "message": "Email verified. Your account is ready.",
+        "user": user_payload,
+        "token": issue_token(user_payload)
+    })
+
+@app.route('/api/register/resend-otp', methods=['POST'])
+@limiter.limit("5 per minute")
+def resend_register_otp():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    generic = {"message": "If that email needs verification, a new code has been sent."}
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    db = get_db()
+    user = db.users.find_one({"email": email})
+    if user and not user.get('email_verified', True):
+        create_and_send_otp(email, user['full_name'])
+    return jsonify(generic)
 
 # ── AUTH: GET PROFILE (for pre-filling the application form) ──
 @app.route('/api/profile', methods=['GET'])
@@ -892,7 +1021,7 @@ def reset_password():
 # for the Applicants/Applications list pages, which only ever need one page at
 # a time and don't want to keep fetching the entire collection as it grows.
 @app.route('/api/applicants', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def get_applicants():
     try:
         db = get_db()
@@ -961,7 +1090,7 @@ def get_applicants():
 
 # ── GET SINGLE APPLICANT ──
 @app.route('/api/applicants/<applicant_id>', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def get_applicant(applicant_id):
     try:
         applicant_oid = oid(applicant_id)
@@ -1152,7 +1281,7 @@ def submit_application():
 
 # ── UPDATE APPLICATION STATUS ──
 @app.route('/api/applications/<applicant_id>/status', methods=['PUT'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def update_status(applicant_id):
     applicant_oid = oid(applicant_id)
     if not applicant_oid:
@@ -1316,7 +1445,7 @@ def _verify_and_decide_one(db, applicant_oid, reviewed_by, now):
 
 # ── VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
 @app.route('/api/applications/<applicant_id>/verify', methods=['PUT'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def verify_and_decide(applicant_id):
     if not ml_classifier or not ml_regressor:
         return jsonify({"error": "ML model not loaded"}), 500
@@ -1352,7 +1481,7 @@ def verify_and_decide(applicant_id):
 
 # ── BULK VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
 @app.route('/api/applications/bulk-verify', methods=['PUT'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def bulk_verify_and_decide():
     if not ml_classifier or not ml_regressor:
         return jsonify({"error": "ML model not loaded"}), 500
@@ -1405,7 +1534,7 @@ def bulk_verify_and_decide():
 
 # ── GET AUDIT TRAIL ──
 @app.route('/api/audit-trail/<applicant_id>', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def get_audit_trail(applicant_id):
     try:
         applicant_oid = oid(applicant_id)
@@ -1846,7 +1975,7 @@ def withdraw_application():
 
 # ── GET DUPLICATE FLAGS ──
 @app.route('/api/duplicate-flags', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def get_duplicate_flags():
     try:
         db = get_db()
@@ -1879,7 +2008,7 @@ def get_duplicate_flags():
 
 # ── RESOLVE DUPLICATE FLAG ──
 @app.route('/api/duplicate-flags/<flag_id>/resolve', methods=['PUT'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def resolve_flag(flag_id):
     try:
         flag_oid = oid(flag_id)
@@ -2193,28 +2322,50 @@ def delete_doc_requirement(req_id):
     return jsonify({"message": "Requirement deleted"})
 
 def serialize_admin(u):
-    return {
+    doc = {
         "id": str(u["_id"]),
         "full_name": u.get("full_name", ""),
         "email": u.get("email", ""),
         "office": u.get("office", ""),
         "municipality": u.get("municipality", ""),
+        "role": u.get("role", "admin"),
         # Accounts created before this field existed already have a real,
         # self-chosen password, so they default to "activated".
         "password_set": u.get("password_set", True),
         "created_at": iso(u.get("created_at")),
     }
+    if doc["role"] == "lgu_member":
+        doc["permissions"] = {p: bool(u.get("permissions", {}).get(p)) for p in ADMIN_PERMISSIONS}
+    return doc
+
+def parse_role_and_permissions(data, requester_role):
+    """Shared validation for any endpoint that lets a caller set a team member's
+    role/permissions. Returns (role, permissions, error_response_or_None).
+    Only an existing super admin may grant the super-admin role itself - an
+    lgu_member with can_manage_members can create/edit other lgu_members, but
+    can't mint another super admin (or touch one) through this path."""
+    role = data.get('role') or 'lgu_member'
+    if role not in ('admin', 'lgu_member'):
+        return None, None, (jsonify({"error": "Role must be 'admin' or 'lgu_member'"}), 400)
+    if role == 'admin' and requester_role != 'admin':
+        return None, None, (jsonify({"error": "Only a super admin can grant the super admin role"}), 403)
+
+    permissions = None
+    if role == 'lgu_member':
+        raw = data.get('permissions') or {}
+        permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
+    return role, permissions, None
 
 # ── ADMIN ACCOUNT MANAGEMENT ──
 @app.route('/api/admins', methods=['GET'])
-@require_role('admin')
+@require_permission('can_manage_members')
 def list_admins():
     db = get_db()
-    admins = list(db.users.find({"role": "admin"}).sort("created_at", 1))
+    admins = list(db.users.find({"role": {"$in": ["admin", "lgu_member"]}}).sort("created_at", 1))
     return jsonify({"admins": [serialize_admin(a) for a in admins]})
 
 @app.route('/api/admins', methods=['POST'])
-@require_role('admin')
+@require_permission('can_manage_members')
 def create_admin_account():
     data = request.get_json() or {}
     full_name = (data.get('full_name') or '').strip()
@@ -2222,6 +2373,10 @@ def create_admin_account():
 
     if not full_name or not email:
         return jsonify({"error": "Full name and email are required"}), 400
+
+    role, permissions, err = parse_role_and_permissions(data, g.current_user.get('role'))
+    if err:
+        return err
 
     db = get_db()
     if db.users.find_one({"email": email}):
@@ -2232,11 +2387,42 @@ def create_admin_account():
         email=email,
         heading=f"Welcome, {full_name}!",
         intro="An existing EcoScholar admin has created an account for you. Set your password to get started.",
+        role=role,
+        permissions=permissions,
     )
     return jsonify({"admin": serialize_admin(admin_doc)}), 201
 
+@app.route('/api/admins/<admin_id>/permissions', methods=['PUT'])
+@require_permission('can_manage_members')
+def update_admin_permissions(admin_id):
+    admin_oid = oid(admin_id)
+    if not admin_oid:
+        return jsonify({"error": "Invalid admin id"}), 400
+    if str(admin_oid) == g.current_user['id']:
+        return jsonify({"error": "You can't change your own role or permissions"}), 400
+
+    db = get_db()
+    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["admin", "lgu_member"]}})
+    if not target:
+        return jsonify({"error": "Admin account not found"}), 404
+    if target.get('role') == 'admin' and g.current_user.get('role') != 'admin':
+        return jsonify({"error": "Only a super admin can change another super admin's account"}), 403
+
+    data = request.get_json() or {}
+    role, permissions, err = parse_role_and_permissions(data, g.current_user.get('role'))
+    if err:
+        return err
+    if role == 'admin' and db.users.count_documents({"role": "admin"}) <= 1 and target.get('role') == 'admin':
+        return jsonify({"error": "Can't demote the last remaining super admin"}), 400
+
+    update = {"role": role}
+    if role == 'lgu_member':
+        update["permissions"] = permissions
+    db.users.update_one({"_id": admin_oid}, {"$set": update, "$unset": {} if role == 'lgu_member' else {"permissions": ""}})
+    return jsonify({"admin": serialize_admin(db.users.find_one({"_id": admin_oid}))})
+
 @app.route('/api/admins/<admin_id>/resend-invite', methods=['POST'])
-@require_role('admin')
+@require_permission('can_manage_members')
 @limiter.limit("5 per minute")
 def resend_admin_invite(admin_id):
     admin_oid = oid(admin_id)
@@ -2244,7 +2430,7 @@ def resend_admin_invite(admin_id):
         return jsonify({"error": "Invalid admin id"}), 400
 
     db = get_db()
-    admin = db.users.find_one({"_id": admin_oid, "role": "admin"})
+    admin = db.users.find_one({"_id": admin_oid, "role": {"$in": ["admin", "lgu_member"]}})
     if not admin:
         return jsonify({"error": "Admin account not found"}), 404
     if admin.get("password_set", True):
@@ -2258,7 +2444,7 @@ def resend_admin_invite(admin_id):
     return jsonify({"message": "Invite resent"})
 
 @app.route('/api/admins/<admin_id>', methods=['DELETE'])
-@require_role('admin')
+@require_permission('can_manage_members')
 def delete_admin_account(admin_id):
     admin_oid = oid(admin_id)
     if not admin_oid:
@@ -2268,33 +2454,40 @@ def delete_admin_account(admin_id):
         return jsonify({"error": "You can't remove your own account"}), 400
 
     db = get_db()
-    if db.users.count_documents({"role": "admin"}) <= 1:
-        return jsonify({"error": "Can't remove the last remaining admin account"}), 400
-
-    result = db.users.delete_one({"_id": admin_oid, "role": "admin"})
-    if result.deleted_count == 0:
+    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["admin", "lgu_member"]}})
+    if not target:
         return jsonify({"error": "Admin account not found"}), 404
+    if target.get('role') == 'admin':
+        if g.current_user.get('role') != 'admin':
+            return jsonify({"error": "Only a super admin can remove another super admin"}), 403
+        if db.users.count_documents({"role": "admin"}) <= 1:
+            return jsonify({"error": "Can't remove the last remaining admin account"}), 400
+
+    db.users.delete_one({"_id": admin_oid})
     return jsonify({"message": "Admin account removed"})
 
-def create_admin_with_setup_email(full_name, email, heading, intro, office='', municipality=''):
-    """Inserts a new admin user with no usable starting password and emails them a
-    time-limited link to set one - used both when an admin-access request is approved
-    and when an existing admin adds a colleague directly, so nobody (not even the
-    admin who created the account) ever knows another admin's password."""
+def create_admin_with_setup_email(full_name, email, heading, intro, office='', municipality='', role='admin', permissions=None):
+    """Inserts a new admin/LGU-member user with no usable starting password and emails
+    them a time-limited link to set one - used both when an admin-access request is
+    approved and when an existing admin adds a colleague directly, so nobody (not even
+    the admin who created the account) ever knows another team member's password."""
     db = get_db()
     placeholder_password = generate_password_hash(secrets.token_urlsafe(32))
-    result = db.users.insert_one({
+    doc = {
         "full_name": full_name,
         "email": email,
         "password": placeholder_password,
         "password_set": False,
-        "role": "admin",
+        "role": role,
         "status": "active",
         "office": office,
         "municipality": municipality,
         "created_at": datetime.utcnow(),
         "privacy_consent": True,
-    })
+    }
+    if role == 'lgu_member':
+        doc["permissions"] = permissions or {p: False for p in ADMIN_PERMISSIONS}
+    result = db.users.insert_one(doc)
 
     send_admin_setup_email(result.inserted_id, email, heading, intro)
     return db.users.find_one({"_id": result.inserted_id})
@@ -2435,7 +2628,7 @@ def submit_admin_request():
     return jsonify({"message": "Your request has been submitted for review. An existing admin will verify your details."}), 201
 
 @app.route('/api/admin-requests', methods=['GET'])
-@require_role('admin')
+@require_permission('can_manage_members')
 def list_admin_requests():
     db = get_db()
     status = request.args.get('status')
@@ -2444,7 +2637,7 @@ def list_admin_requests():
     return jsonify({"requests": [serialize_admin_request(r) for r in requests_]})
 
 @app.route('/api/admin-requests/<request_id>/approve', methods=['POST'])
-@require_role('admin')
+@require_permission('can_manage_members')
 def approve_admin_request(request_id):
     request_oid = oid(request_id)
     if not request_oid:
@@ -2459,6 +2652,11 @@ def approve_admin_request(request_id):
     if db.users.find_one({"email": req["email"]}):
         return jsonify({"error": "An account with this email already exists"}), 409
 
+    data = request.get_json(silent=True) or {}
+    role, permissions, err = parse_role_and_permissions(data, g.current_user.get('role'))
+    if err:
+        return err
+
     office_line = req.get('office') or ''
     if req.get('municipality'):
         office_line = f"{office_line} &middot; {req['municipality']}" if office_line else req['municipality']
@@ -2470,6 +2668,8 @@ def approve_admin_request(request_id):
         intro=f"Your admin account request{f' ({office_line})' if office_line else ''} has been approved. Set your password to activate your account.",
         office=req.get("office", ""),
         municipality=req.get("municipality", ""),
+        role=role,
+        permissions=permissions,
     )
 
     db.admin_requests.update_one({"_id": request_oid}, {"$set": {
@@ -2481,7 +2681,7 @@ def approve_admin_request(request_id):
     return jsonify({"message": "Admin request approved", "admin": serialize_admin(admin_doc)}), 201
 
 @app.route('/api/admin-requests/<request_id>/reject', methods=['POST'])
-@require_role('admin')
+@require_permission('can_manage_members')
 def reject_admin_request(request_id):
     request_oid = oid(request_id)
     if not request_oid:
@@ -2498,7 +2698,7 @@ def reject_admin_request(request_id):
 
 # ── GET DASHBOARD STATS ──
 @app.route('/api/stats', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def get_stats():
     try:
         db = get_db()
@@ -2524,7 +2724,7 @@ def get_stats():
 
 # ── SCHOLARS APPROVED PER ACADEMIC YEAR ──
 @app.route('/api/stats/scholars-per-year', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def scholars_per_year():
     try:
         db = get_db()
@@ -2543,7 +2743,7 @@ def scholars_per_year():
 
 # ── SYSTEM-WIDE DECISION HISTORY LOG (for the admin dashboard) ──
 @app.route('/api/history-log', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def get_history_log():
     try:
         limit = min(max(int(request.args.get('limit', 20)), 1), 100)
@@ -2599,7 +2799,7 @@ def get_history_log():
 
 # ── SCORE SINGLE APPLICANT ──
 @app.route('/api/score-applicant/<applicant_id>', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def score_applicant(applicant_id):
     if not ml_classifier or not ml_regressor:
         return jsonify({"error": "ML model not loaded"}), 500
@@ -2646,7 +2846,7 @@ def score_applicant(applicant_id):
 
 # ── SCORE AND RANK ALL APPLICANTS ──
 @app.route('/api/rank-applicants', methods=['GET'])
-@require_role('admin')
+@require_permission('can_review_applicants')
 def rank_applicants():
     if not ml_classifier or not ml_regressor:
         return jsonify({"error": "ML model not loaded"}), 500

@@ -83,26 +83,35 @@ def client():
 @pytest.fixture
 def make_user(db):
     """Inserts a user directly (bypassing /api/register) and returns its
-    email/password/id, for tests that need a pre-existing account."""
-    def _make(email='user@test.com', password='TestPass123', role='student', full_name='Test User'):
-        user_id = db.users.insert_one({
+    email/password/id, for tests that need a pre-existing account. `permissions`
+    only matters for role='lgu_member' - pass e.g. {'can_manage_members': True}
+    to grant specific scoped access; omitted keys default to False."""
+    def _make(email='user@test.com', password='TestPass123', role='student', full_name='Test User', permissions=None):
+        doc = {
             'full_name': full_name,
             'email': email,
             'password': generate_password_hash(password),
             'role': role,
             'status': 'active',
             'privacy_consent': True,
-        }).inserted_id
+        }
+        if role == 'lgu_member':
+            doc['permissions'] = {
+                'can_review_applicants': bool((permissions or {}).get('can_review_applicants')),
+                'can_manage_members': bool((permissions or {}).get('can_manage_members')),
+            }
+        user_id = db.users.insert_one(doc).inserted_id
         return {'id': user_id, 'email': email, 'password': password, 'role': role}
     return _make
 
 
 @pytest.fixture
 def auth_headers(client, make_user):
-    """Registers+logs in a fresh admin account and returns the Authorization
-    header for it, for tests that just need *some* authenticated admin."""
-    def _headers(role='admin'):
-        user = make_user(email=f'{role}@test.com', password='TestPass123', role=role)
+    """Registers+logs in a fresh account and returns the Authorization header
+    for it, for tests that just need *some* authenticated user of a given role.
+    For role='lgu_member', pass `permissions` to control what it can access."""
+    def _headers(role='admin', permissions=None):
+        user = make_user(email=f'{role}@test.com', password='TestPass123', role=role, permissions=permissions)
         res = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
         token = res.get_json()['token']
         return {'Authorization': f'Bearer {token}'}
