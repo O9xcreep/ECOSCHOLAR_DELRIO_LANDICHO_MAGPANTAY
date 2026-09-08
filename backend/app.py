@@ -6,7 +6,8 @@ import threading
 import imagehash
 import pdf2image
 import requests
-from PIL import Imageimport re
+from PIL 
+import Imageimport re
 import io
 import secrets
 import hashlib
