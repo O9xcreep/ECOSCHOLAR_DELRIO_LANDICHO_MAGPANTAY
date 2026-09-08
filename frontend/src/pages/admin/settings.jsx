@@ -196,6 +196,22 @@ function SecurityTab() {
 }
 
 // ── SYSTEM TAB ──
+// datetime-local inputs are naive "what you see is what you get" local time, with no
+// timezone marker - these two helpers do the conversion to/from the naive-UTC string
+// the backend stores (see are_results_visible() in app.py, compared against
+// datetime.utcnow()), so a Philippine admin picking "2pm" means 2pm Manila time, not
+// 2pm UTC.
+function utcStringToLocalInputValue(utcStr) {
+  if (!utcStr) return ''
+  const d = new Date(utcStr.replace(' ', 'T') + 'Z')
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function localInputValueToUtcIso(localStr) {
+  return localStr ? new Date(localStr).toISOString() : null
+}
+
 function SystemTab() {
   const [slots, setSlots] = useState(20)
   const [savedLimit, setSavedLimit] = useState(20)
@@ -204,15 +220,60 @@ function SystemTab() {
   const [limitError, setLimitError] = useState('')
   const [exporting, setExporting] = useState(false)
 
+  const [visibleAfter, setVisibleAfter] = useState('')
+  const [savedVisibleAfter, setSavedVisibleAfter] = useState('')
+  const [override, setOverride] = useState('auto')
+  const [savedOverride, setSavedOverride] = useState('auto')
+  const [resultsVisibleNow, setResultsVisibleNow] = useState(true)
+  const [savingVisibility, setSavingVisibility] = useState(false)
+  const [visibilityError, setVisibilityError] = useState('')
+
   useEffect(() => {
     apiFetch('/api/settings')
       .then(res => res.json())
       .then(data => {
         if (typeof data.max_accepted === 'number') { setSlots(data.max_accepted); setSavedLimit(data.max_accepted) }
         if (typeof data.approved_count === 'number') setApprovedCount(data.approved_count)
+
+        const localValue = utcStringToLocalInputValue(data.results_visible_after)
+        setVisibleAfter(localValue)
+        setSavedVisibleAfter(localValue)
+        const overrideValue = data.results_visible_override === true ? 'show'
+          : data.results_visible_override === false ? 'hide' : 'auto'
+        setOverride(overrideValue)
+        setSavedOverride(overrideValue)
+        if (typeof data.results_visible_now === 'boolean') setResultsVisibleNow(data.results_visible_now)
       })
       .catch(() => {})
   }, [])
+
+  const visibilityDirty = visibleAfter !== savedVisibleAfter || override !== savedOverride
+
+  const handleSaveVisibility = async () => {
+    setVisibilityError('')
+    setSavingVisibility(true)
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          results_visible_after: localInputValueToUtcIso(visibleAfter),
+          results_visible_override: override === 'show' ? true : override === 'hide' ? false : null,
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) { setVisibilityError(data.error || 'Failed to update result visibility'); return }
+      const localValue = utcStringToLocalInputValue(data.results_visible_after)
+      setVisibleAfter(localValue)
+      setSavedVisibleAfter(localValue)
+      setSavedOverride(override)
+      setResultsVisibleNow(data.results_visible_now)
+    } catch {
+      setVisibilityError('Cannot connect to server. Please try again.')
+    } finally {
+      setSavingVisibility(false)
+    }
+  }
 
   const handleSaveLimit = async () => {
     setLimitError('')
@@ -284,6 +345,54 @@ function SystemTab() {
           </button>
         </div>
         {limitError && <div className="security-error" style={{ marginTop: '10px' }}>{limitError}</div>}
+      </div>
+
+      <div className="settings-card">
+        <h4 className="card-label">Result Visibility</h4>
+        <p className="info-sub" style={{ marginBottom: '14px' }}>
+          Controls when students can see an Approved/Rejected decision (and, once
+          ranking is shown to students, their rank). Applications still in review are
+          always visible to the applicant regardless of this setting.
+          {' '}Students currently{resultsVisibleNow ? ' CAN ' : ' CANNOT '}see decisions.
+        </p>
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              Show results after
+            </label>
+            <input
+              type="datetime-local"
+              className="settings-select"
+              style={{ background: '#fff' }}
+              value={visibleAfter}
+              onChange={e => setVisibleAfter(e.target.value)}
+            />
+            {visibleAfter && (
+              <button className="btn-change" style={{ marginLeft: '8px' }}
+                onClick={() => setVisibleAfter('')}>
+                Clear
+              </button>
+            )}
+          </div>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              Manual override
+            </label>
+            <select className="settings-select" style={{ background: '#fff' }}
+              value={override} onChange={e => setOverride(e.target.value)}>
+              <option value="auto">Automatic (use date/time above)</option>
+              <option value="show">Force visible now</option>
+              <option value="hide">Force hidden</option>
+            </select>
+          </div>
+          <div>
+            <button className="btn-primary" onClick={handleSaveVisibility}
+              disabled={savingVisibility || !visibilityDirty}>
+              {savingVisibility ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        {visibilityError && <div className="security-error" style={{ marginTop: '10px' }}>{visibilityError}</div>}
       </div>
 
       <div className="settings-card">

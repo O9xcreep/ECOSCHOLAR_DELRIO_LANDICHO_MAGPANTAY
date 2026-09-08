@@ -98,3 +98,62 @@ class TestUpdateAdminPermissions:
         res = client.put('/api/admins/000000000000000000000000/permissions', headers=auth_headers(),
                           json={'role': 'lgu_member'})
         assert res.status_code == 404
+
+
+class TestDocumentAccess:
+    """GET /api/documents/<id> and /api/documents/<id>/view used to hard-code
+    role == 'admin', which locked an lgu_member with can_review_applicants out
+    of documents they're explicitly allowed to review (a bug this phase's
+    identity-verification comparison UI would otherwise inherit). Both routes
+    now accept: a super admin, an lgu_member with can_review_applicants, or the
+    applicant's own account."""
+
+    def login(self, client, make_user, **kwargs):
+        user = make_user(**kwargs)
+        res = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
+        token = res.get_json()['token']
+        return user, {'Authorization': f'Bearer {token}'}
+
+    def test_lgu_member_with_permission_can_list_documents(self, client, db, auth_headers):
+        applicant_id = db.applicants.insert_one({'full_name': 'A', 'email': 'a@test.com', 'documents': []}).inserted_id
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True})
+        res = client.get(f'/api/documents/{applicant_id}', headers=headers)
+        assert res.status_code == 200
+
+    def test_lgu_member_without_permission_cannot_list_documents(self, client, db, auth_headers):
+        applicant_id = db.applicants.insert_one({'full_name': 'A', 'email': 'a@test.com', 'documents': []}).inserted_id
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': False})
+        res = client.get(f'/api/documents/{applicant_id}', headers=headers)
+        assert res.status_code == 403
+
+    def test_owning_student_can_list_their_own_documents(self, client, db, make_user):
+        user, headers = self.login(client, make_user, email='owner@test.com', role='student')
+        applicant_id = db.applicants.insert_one(
+            {'full_name': 'A', 'email': 'owner@test.com', 'documents': [], 'user_id': user['id']}
+        ).inserted_id
+        res = client.get(f'/api/documents/{applicant_id}', headers=headers)
+        assert res.status_code == 200
+
+    def test_other_student_cannot_list_someone_elses_documents(self, client, db, make_user):
+        owner, _ = self.login(client, make_user, email='owner2@test.com', role='student')
+        _, other_headers = self.login(client, make_user, email='other@test.com', role='student')
+        applicant_id = db.applicants.insert_one(
+            {'full_name': 'A', 'email': 'owner2@test.com', 'documents': [], 'user_id': owner['id']}
+        ).inserted_id
+        res = client.get(f'/api/documents/{applicant_id}', headers=other_headers)
+        assert res.status_code == 403
+
+    def test_lgu_member_with_permission_can_reach_view_endpoint(self, client, db, auth_headers):
+        """Fake GridFS (see conftest.py) has no file to serve, so success here
+        means "past the permission check, 404 on the file itself" - not 403."""
+        applicant_id = db.applicants.insert_one({'full_name': 'A', 'email': 'a@test.com', 'documents': []}).inserted_id
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True})
+        res = client.get(f'/api/documents/{applicant_id}/view?document_name=School+ID', headers=headers)
+        assert res.status_code == 404
+        assert res.get_json()['error'] != 'Forbidden'
+
+    def test_lgu_member_without_permission_forbidden_from_view_endpoint(self, client, db, auth_headers):
+        applicant_id = db.applicants.insert_one({'full_name': 'A', 'email': 'a@test.com', 'documents': []}).inserted_id
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': False})
+        res = client.get(f'/api/documents/{applicant_id}/view?document_name=School+ID', headers=headers)
+        assert res.status_code == 403

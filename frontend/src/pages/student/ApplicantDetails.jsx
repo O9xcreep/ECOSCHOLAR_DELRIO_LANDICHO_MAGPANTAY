@@ -3,6 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
 import './ApplicantDetails.css'
 
+// Must match backend's SELFIE_DOC_LABEL (backend/app.py) - stored/uploaded through the
+// same generic document pipeline as everything else, but pulled out into its own
+// "Identity Verification" card here instead of the general document checklist below.
+const SELFIE_DOC_LABEL = 'Selfie / Face Photo'
+
 const STATUS_COLORS = {
   'Approved': 'badge-green',
   'Rejected': 'badge-red',
@@ -34,6 +39,7 @@ function ApplicantDetails() {
   const [loadError, setLoadError] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
   const [withdrawError, setWithdrawError] = useState('')
+  const [selfiePreviewUrl, setSelfiePreviewUrl] = useState('')
 
   const user = getUser() || {}
 
@@ -81,6 +87,29 @@ function ApplicantDetails() {
 
   useEffect(() => { loadApplicantDetails() }, [])
 
+  // Show the actual previously-uploaded selfie image (not just its filename/status)
+  // so the student can see what's on file without re-taking it.
+  useEffect(() => {
+    const selfie = docs.find(d => d.document_name === SELFIE_DOC_LABEL)
+    if (!application || !selfie || selfie.status !== 'Uploaded' || selfie.file) {
+      return
+    }
+    let objectUrl = ''
+    let cancelled = false
+    apiFetch(`/api/documents/${application.id}/view?document_name=${encodeURIComponent(SELFIE_DOC_LABEL)}`)
+      .then(res => (res.ok ? res.blob() : null))
+      .then(blob => {
+        if (cancelled || !blob) return
+        objectUrl = URL.createObjectURL(blob)
+        setSelfiePreviewUrl(objectUrl)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [application, docs])
+
   const handleWithdraw = async () => {
     if (!window.confirm(
       'Withdraw this application? Your submitted information stays on file, but it will no ' +
@@ -110,6 +139,12 @@ function ApplicantDetails() {
     setDocs(prev => prev.map(d => d.id === id ? { ...d, file, status: 'Uploaded' } : d))
 
     const doc = docs.find(d => d.id === id)
+    if (doc && doc.document_name === SELFIE_DOC_LABEL) {
+      setSelfiePreviewUrl(prev => {
+        if (prev) URL.revokeObjectURL(prev)
+        return URL.createObjectURL(file)
+      })
+    }
     const formData = new FormData()
     formData.append('file', file)
     formData.append('applicant_id', application.id)
@@ -127,6 +162,10 @@ function ApplicantDetails() {
   }
 
   const handleRemove = (id) => {
+    const doc = docs.find(d => d.id === id)
+    if (doc && doc.document_name === SELFIE_DOC_LABEL) {
+      setSelfiePreviewUrl(prev => { if (prev) URL.revokeObjectURL(prev); return '' })
+    }
     setDocs(prev => prev.map(d =>
       d.id === id ? { ...d, file: null, status: d.required ? 'Missing' : 'Not Required' } : d
     ))
@@ -182,9 +221,11 @@ function ApplicantDetails() {
 
   const status = application.application_status || 'Pending'
   const displayed = displayStatus(status, application.ml_status)
-  const uploaded = docs.filter(d => d.status === 'Uploaded').length
-  const missing = docs.filter(d => d.status === 'Missing').length
-  const totalRequired = docs.filter(d => d.required).length
+  const selfie = docs.find(d => d.document_name === SELFIE_DOC_LABEL)
+  const checklistDocs = docs.filter(d => d.document_name !== SELFIE_DOC_LABEL)
+  const uploaded = checklistDocs.filter(d => d.status === 'Uploaded').length
+  const missing = checklistDocs.filter(d => d.status === 'Missing').length
+  const totalRequired = checklistDocs.filter(d => d.required).length
 
   return (
     <div className="av-container">
@@ -241,6 +282,55 @@ function ApplicantDetails() {
           </p>
         )}
       </div>
+
+      {/* Identity Verification (selfie for face comparison against ID) */}
+      {selfie && (
+        <div className="av-card">
+          <h3 className="av-card-title">
+            Identity Verification
+            {selfie.required && <span className="required-star"> *</span>}
+          </h3>
+          <p className="selfie-instructions">
+            Upload a clear photo of your face, looking straight at the camera in good
+            lighting. Our team will compare it against your uploaded ID to confirm
+            your identity.
+          </p>
+
+          <div className="selfie-row">
+            <div className="selfie-preview">
+              {selfiePreviewUrl ? (
+                <img src={selfiePreviewUrl} alt="Your selfie" />
+              ) : (
+                <div className="selfie-placeholder" aria-hidden="true">
+                  <span>No photo yet</span>
+                </div>
+              )}
+            </div>
+
+            <div className="selfie-actions">
+              <span className={`badge ${getStatusClass(selfie.status)}`}>
+                {selfie.status}
+              </span>
+              <button className="btn-upload"
+                onClick={() => document.getElementById(`doc-${selfie.id}`).click()}>
+                {selfie.status === 'Uploaded' ? 'Replace Photo' : 'Upload Photo'}
+              </button>
+              {selfie.status === 'Uploaded' && (
+                <button className="btn-remove" onClick={() => handleRemove(selfie.id)}>
+                  Remove
+                </button>
+              )}
+              <input
+                type="file"
+                id={`doc-${selfie.id}`}
+                style={{ display: 'none' }}
+                accept="image/*"
+                onChange={e => handleUpload(selfie.id, e.target.files[0])}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Personal Info */}
       <div className="av-card">
@@ -371,7 +461,7 @@ function ApplicantDetails() {
         <p className="doc-list-sub">Accepted formats: PDF, JPG, PNG — Max size: 5MB per file</p>
 
         <div className="doc-list">
-          {docs.map(doc => (
+          {checklistDocs.map(doc => (
             <div
               key={doc.id}
               className={`doc-item ${dragOver === doc.id ? 'drag-over' : ''}`}

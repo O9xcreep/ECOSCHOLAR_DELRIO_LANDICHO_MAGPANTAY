@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { apiFetch, displayStatus } from '../api'
 import './ApplicantModal.css'
 
+// Must match backend's SELFIE_DOC_LABEL / ID_DOC_LABEL (backend/app.py). The selfie is
+// pulled out of the generic documents grid below and shown side-by-side with the ID
+// photo instead, for the reviewer to manually compare - no automated face-matching.
+const SELFIE_DOC_LABEL = 'Selfie / Face Photo'
+const ID_DOC_LABEL = 'School ID'
+
 const MOCK_BREAKDOWN = [
   { label: 'GPA Score', value: 95, color: '#10b981' },
   { label: 'Income Score', value: 88, color: '#7c3aed' },
@@ -46,6 +52,9 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const [viewingDoc, setViewingDoc] = useState('')
   const [customFieldDefs, setCustomFieldDefs] = useState([])
   const [requiredDocTypes, setRequiredDocTypes] = useState([])
+  const [selfieImgUrl, setSelfieImgUrl] = useState('')
+  const [idImgUrl, setIdImgUrl] = useState('')
+  const [remarks, setRemarks] = useState('')
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
 
@@ -87,6 +96,8 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
  useEffect(() => {
   if (!applicant) return
 
+  setRemarks('')
+
   // Fetch audit trail
   setLoadingAudit(true)
   apiFetch(`/api/audit-trail/${applicant.id}`)
@@ -125,6 +136,40 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     .then(data => setRequiredDocTypes((data.requirements || []).filter(r => r.enabled)))
     .catch(() => setRequiredDocTypes([]))
 }, [applicant])
+
+  // Fetch the selfie + ID photos as images (not the "open in new tab" flow the rest of
+  // the documents grid uses) so they can be shown side-by-side for visual comparison.
+  useEffect(() => {
+    if (!applicant) return
+
+    let cancelled = false
+    const urls = []
+
+    const loadImage = (documentName, setUrl) => {
+      const doc = documents.find(d => d.document_name === documentName)
+      if (!doc || (doc.status !== 'Uploaded' && doc.status !== 'Submitted')) {
+        setUrl('')
+        return
+      }
+      apiFetch(`/api/documents/${applicant.id}/view?document_name=${encodeURIComponent(documentName)}`)
+        .then(res => (res.ok ? res.blob() : null))
+        .then(blob => {
+          if (cancelled || !blob) return
+          const url = URL.createObjectURL(blob)
+          urls.push(url)
+          setUrl(url)
+        })
+        .catch(() => {})
+    }
+
+    loadImage(SELFIE_DOC_LABEL, setSelfieImgUrl)
+    loadImage(ID_DOC_LABEL, setIdImgUrl)
+
+    return () => {
+      cancelled = true
+      urls.forEach(URL.revokeObjectURL)
+    }
+  }, [applicant, documents])
 
   // EARLY RETURN AFTER ALL HOOKS
   if (!applicant) return null
@@ -197,7 +242,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           body: JSON.stringify({
             status: newStatus,
             old_status: currentStatus,
-            remarks: ''
+            remarks: remarks.trim()
           })
         }
       )
@@ -473,11 +518,34 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
             </div>
           </div>
 
+          {/* Identity Verification (selfie vs. ID photo, manual comparison) */}
+          <div className="modal-section">
+            <h3 className="section-title">Identity Verification</h3>
+            <p className="identity-note">
+              Compare the two photos below to confirm this is the same person. This is a
+              manual check — no automated face-matching is performed.
+            </p>
+            <div className="identity-compare">
+              <div className="identity-photo">
+                <p className="identity-photo-label">Selfie</p>
+                {selfieImgUrl
+                  ? <img src={selfieImgUrl} alt="Applicant selfie" />
+                  : <div className="identity-photo-placeholder">Not yet uploaded</div>}
+              </div>
+              <div className="identity-photo">
+                <p className="identity-photo-label">{ID_DOC_LABEL}</p>
+                {idImgUrl
+                  ? <img src={idImgUrl} alt="Applicant ID" />
+                  : <div className="identity-photo-placeholder">Not yet uploaded</div>}
+              </div>
+            </div>
+          </div>
+
           {/* Documents */}
           <div className="modal-section">
             <h3 className="section-title">Submitted Documents</h3>
             <div className="docs-grid">
-              {mergeDocuments(documents, requiredDocTypes).map((doc, i) => (
+              {mergeDocuments(documents, requiredDocTypes.filter(r => r.label !== SELFIE_DOC_LABEL)).map((doc, i) => (
                 <div key={i} className="doc-item">
                   <div className="doc-item-left">
                     <span className="doc-label">{doc.label}</span>
@@ -604,6 +672,20 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
         {/* Footer */}
         <div className="modal-footer">
+          {(isApproved || isRejected) && (
+            <div className="remarks-field">
+              <label htmlFor="applicant-remarks">Note (optional, visible in the audit trail)</label>
+              <textarea
+                id="applicant-remarks"
+                rows={2}
+                placeholder="e.g. what's missing, or why this decision is being reconsidered..."
+                value={remarks}
+                onChange={e => setRemarks(e.target.value)}
+              />
+            </div>
+          )}
+
+          <div className="modal-footer-row">
           <button className="btn-close-modal" onClick={onClose}>Close</button>
 
           {updateSuccess && (() => {
@@ -649,6 +731,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
             {isWithdrawn && (
               <span style={{ fontSize: '13px', color: '#6b7280' }}>This application was withdrawn by the applicant.</span>
             )}
+          </div>
           </div>
         </div>
 

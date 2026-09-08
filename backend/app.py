@@ -272,6 +272,27 @@ def get_applicant_limit(db):
     doc = db.settings.find_one({"_id": "global"})
     return (doc or {}).get("max_accepted", DEFAULT_APPLICANT_LIMIT)
 
+# ── RESULT VISIBILITY (Approved/Rejected status + eligibility details) ──
+# An LGU can hold back students seeing they've been decided until a chosen date/time
+# (results_visible_after), with a manual override that always wins when set: True
+# forces results visible early, False force-hides them past their own release date.
+# Not configuring either means "always visible" - the same behavior as before this
+# setting existed, so a deployment that never touches it sees no change.
+GENERIC_REVIEWED_MESSAGE = (
+    "Your application has finished review. Results will be available once released "
+    "by the program - check back or sign in again later."
+)
+
+def are_results_visible(db):
+    settings = db.settings.find_one({"_id": "global"}) or {}
+    override = settings.get('results_visible_override')
+    if override is not None:
+        return bool(override)
+    visible_after = settings.get('results_visible_after')
+    if not visible_after:
+        return True
+    return datetime.utcnow() >= visible_after
+
 def recompute_approvals(db, limit, reviewed_by='System'):
     """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score) among
     everyone the classifier found Eligible. Run after every verify decision and
@@ -289,6 +310,7 @@ def recompute_approvals(db, limit, reviewed_by='System'):
     eligible.sort(key=lambda a: a.get('ml_score', 0), reverse=True)
 
     now = datetime.utcnow()
+    results_visible = are_results_visible(db)
     for i, applicant in enumerate(eligible):
         should_be = 'Approved' if i < limit else 'Rejected'
         current = (applicant.get('application') or {}).get('status')
@@ -297,7 +319,7 @@ def recompute_approvals(db, limit, reviewed_by='System'):
 
         if should_be == 'Approved':
             remarks = f'A scholarship slot became available (applicant limit: {limit}).'
-            notif_message = STATUS_MESSAGES['Approved'] + ' ' + remarks
+            notif_message = (STATUS_MESSAGES['Approved'] + ' ' + remarks) if results_visible else GENERIC_REVIEWED_MESSAGE
         else:
             remarks = (
                 f'This applicant met the eligibility criteria, but the accepted applicant '
@@ -307,7 +329,7 @@ def recompute_approvals(db, limit, reviewed_by='System'):
                 f'Your application met the eligibility criteria, but the accepted applicant '
                 f'limit ({limit}) has been reached by higher-ranked applicants. You have been '
                 f'waitlisted and may be promoted automatically if a slot opens up.'
-            )
+            ) if results_visible else GENERIC_REVIEWED_MESSAGE
 
         db.applicants.update_one(
             {"_id": applicant["_id"]},
@@ -541,19 +563,25 @@ def require_role(*roles):
 # the member's current session token happens to expire.
 ADMIN_PERMISSIONS = ('can_review_applicants', 'can_manage_members')
 
+def has_permission(permission):
+    """Same check require_permission enforces as a decorator, exposed as a plain
+    function for routes that need to OR it with another condition (e.g. "reviewer
+    OR the applicant themself") rather than gate the whole route on it."""
+    role = g.current_user.get('role')
+    if role == 'admin':
+        return True
+    if role != 'lgu_member':
+        return False
+    db = get_db()
+    user = db.users.find_one({"_id": oid(g.current_user.get('id'))})
+    return bool(user and user.get('permissions', {}).get(permission))
+
 def require_permission(permission):
     def decorator(f):
         @wraps(f)
         @require_auth
         def wrapper(*args, **kwargs):
-            role = g.current_user.get('role')
-            if role == 'admin':
-                return f(*args, **kwargs)
-            if role != 'lgu_member':
-                return jsonify({"error": "Forbidden"}), 403
-            db = get_db()
-            user = db.users.find_one({"_id": oid(g.current_user.get('id'))})
-            if not user or not user.get('permissions', {}).get(permission):
+            if not has_permission(permission):
                 return jsonify({"error": "Forbidden"}), 403
             return f(*args, **kwargs)
         return wrapper
@@ -1431,10 +1459,8 @@ def _verify_and_decide_one(db, applicant_oid, reviewed_by, now):
         )
 
         notify_user_id = resolve_notify_user_id(db, applicant)
-        create_notification(
-            db, notify_user_id, applicant,
-            STATUS_MESSAGES[final_status] + ' ' + rejection_reason, STATUS_NOTIF_TYPE[final_status]
-        )
+        notif_message = (STATUS_MESSAGES[final_status] + ' ' + rejection_reason) if are_results_visible(db) else GENERIC_REVIEWED_MESSAGE
+        create_notification(db, notify_user_id, applicant, notif_message, STATUS_NOTIF_TYPE[final_status])
         return {
             "applicant_id": str(applicant_oid), "status": final_status,
             "ml_score": ml_score, "ml_status": ml_status,
@@ -1850,8 +1876,15 @@ def get_documents(applicant_id):
             return jsonify({"error": "Invalid applicant id"}), 400
 
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid}, {"documents": 1})
-        documents = (applicant or {}).get('documents', [])
+        applicant = db.applicants.find_one({"_id": applicant_oid}, {"documents": 1, "user_id": 1})
+        if not applicant:
+            return jsonify({"error": "Applicant not found"}), 404
+
+        is_owner = applicant.get('user_id') and str(applicant['user_id']) == g.current_user['id']
+        if not has_permission('can_review_applicants') and not is_owner:
+            return jsonify({"error": "Forbidden"}), 403
+
+        documents = applicant.get('documents', [])
         return jsonify({"documents": [serialize_document(d) for d in documents]})
     except Exception as e:
         app.logger.error(str(e))
@@ -1878,7 +1911,7 @@ def view_document_file(applicant_id):
             return jsonify({"error": "Applicant not found"}), 404
 
         is_owner = applicant.get('user_id') and str(applicant['user_id']) == g.current_user['id']
-        if g.current_user.get('role') != 'admin' and not is_owner:
+        if not has_permission('can_review_applicants') and not is_owner:
             return jsonify({"error": "Forbidden"}), 403
 
         doc = next((d for d in applicant.get('documents', []) if d.get('document_name') == document_name), None)
@@ -1924,8 +1957,21 @@ def get_student_application():
         if not applicant:
             return jsonify({"application": None})
 
+        application = serialize_applicant(applicant)
+        # Only mask for the applicant viewing their own record - admins/reviewers
+        # calling this same endpoint (e.g. from an admin context) always see the
+        # real decision, same as every other admin-facing route.
+        if g.current_user.get('role') != 'admin' and application['application_status'] in ('Approved', 'Rejected'):
+            if not are_results_visible(db):
+                application['application_status'] = 'Pending Verification'
+                application['ml_status'] = 'Pending'
+                application['ml_score'] = 0
+                application['rejection_reason'] = None
+                application['reviewed_at'] = None
+                application['reviewed_by_name'] = None
+
         return jsonify({
-            "application": serialize_applicant(applicant),
+            "application": application,
             "documents": [serialize_document(d) for d in applicant.get('documents', [])]
         })
 
@@ -2042,23 +2088,29 @@ def resolve_flag(flag_id):
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 # ── ACCEPTED APPLICANT LIMIT SETTING ──
+def serialize_settings(db):
+    doc = db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "max_accepted": get_applicant_limit(db),
+        "approved_count": db.applicants.count_documents({"application.status": "Approved"}),
+        "hidden_builtin_fields": get_hidden_builtin_fields(db),
+        "results_visible_after": iso(doc.get('results_visible_after')),
+        "results_visible_override": doc.get('results_visible_override'),
+        "results_visible_now": are_results_visible(db),
+    }
+
 @app.route('/api/settings', methods=['GET'])
 @require_role('admin')
 def get_settings():
     db = get_db()
-    limit = get_applicant_limit(db)
-    approved_count = db.applicants.count_documents({"application.status": "Approved"})
-    return jsonify({
-        "max_accepted": limit,
-        "approved_count": approved_count,
-        "hidden_builtin_fields": get_hidden_builtin_fields(db),
-    })
+    return jsonify(serialize_settings(db))
 
 @app.route('/api/settings', methods=['PUT'])
 @require_role('admin')
 def update_settings():
     data = request.get_json() or {}
     set_fields = {}
+    unset_fields = {}
 
     if 'max_accepted' in data:
         max_accepted = data.get('max_accepted')
@@ -2072,21 +2124,39 @@ def update_settings():
             return jsonify({"error": f"hidden_builtin_fields must be a list from {list(HIDEABLE_BUILTIN_FIELDS)}"}), 400
         set_fields['hidden_builtin_fields'] = hidden
 
-    if not set_fields:
+    if 'results_visible_after' in data:
+        raw = data.get('results_visible_after')
+        if raw in (None, ''):
+            unset_fields['results_visible_after'] = ''
+        else:
+            try:
+                set_fields['results_visible_after'] = datetime.fromisoformat(raw.replace('Z', '+00:00')).replace(tzinfo=None)
+            except (ValueError, AttributeError):
+                return jsonify({"error": "results_visible_after must be an ISO date/time string, or null"}), 400
+
+    if 'results_visible_override' in data:
+        override = data.get('results_visible_override')
+        if override is None:
+            unset_fields['results_visible_override'] = ''
+        elif isinstance(override, bool):
+            set_fields['results_visible_override'] = override
+        else:
+            return jsonify({"error": "results_visible_override must be true, false, or null"}), 400
+
+    if not set_fields and not unset_fields:
         return jsonify({"error": "No valid settings provided"}), 400
 
     try:
         db = get_db()
-        db.settings.update_one({"_id": "global"}, {"$set": set_fields}, upsert=True)
+        update = {}
+        if set_fields:
+            update['$set'] = set_fields
+        if unset_fields:
+            update['$unset'] = unset_fields
+        db.settings.update_one({"_id": "global"}, update, upsert=True)
         if 'max_accepted' in set_fields:
             recompute_approvals(db, set_fields['max_accepted'], reviewed_by=g.current_user.get('email', 'Admin'))
-        approved_count = db.applicants.count_documents({"application.status": "Approved"})
-        return jsonify({
-            "message": "Settings updated",
-            "max_accepted": get_applicant_limit(db),
-            "approved_count": approved_count,
-            "hidden_builtin_fields": get_hidden_builtin_fields(db),
-        })
+        return jsonify({"message": "Settings updated", **serialize_settings(db)})
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
@@ -2232,13 +2302,24 @@ def delete_form_field(field_id):
 # document_name stored against every upload (see upload_document()) - one string
 # used consistently as the storage key, the OCR verify_document()/parse_document_fields()
 # doc_type, and the label shown to students/admins, rather than three drifting variants.
+#
+# SELFIE_DOC_LABEL is stored/uploaded exactly like any other requirement (same GridFS
+# path, same fraud checks) but the frontend pulls it out of the generic checklist and
+# gives it its own "Identity Verification" UI - a live-camera capture on the student
+# side, and a side-by-side compare against ID_DOC_LABEL's photo on the admin side, for
+# manual visual comparison (not automated face-matching, which is a separate, bigger
+# feature - see feature spec Â§1.2).
+SELFIE_DOC_LABEL = "Selfie / Face Photo"
+ID_DOC_LABEL = "School ID"
+
 DEFAULT_DOC_REQUIREMENTS = [
     {"label": "Enrollment Form", "required": True},
     {"label": "Barangay Endorsement", "required": True},
-    {"label": "School ID", "required": True},
+    {"label": ID_DOC_LABEL, "required": True},
     {"label": "Grade 12 Grades", "required": True},
     {"label": "4Ps Certificate", "required": False},
     {"label": "Proof of Income", "required": True},
+    {"label": SELFIE_DOC_LABEL, "required": True},
 ]
 
 def serialize_doc_requirement(d):
@@ -2252,13 +2333,22 @@ def serialize_doc_requirement(d):
 
 def get_doc_requirements_collection(db):
     """Lazy-seeds the default requirements on first use so existing deployments
-    (and fresh ones) start with the same six documents the form always had."""
+    (and fresh ones) start with the same documents the form always had."""
     if db.document_requirements.count_documents({}) == 0:
         now = datetime.utcnow()
         db.document_requirements.insert_many([
             {**d, "enabled": True, "order": i, "created_at": now}
             for i, d in enumerate(DEFAULT_DOC_REQUIREMENTS)
         ])
+    elif db.document_requirements.count_documents({"label": SELFIE_DOC_LABEL}) == 0:
+        # Backfill for deployments seeded before the selfie step existed.
+        db.document_requirements.insert_one({
+            "label": SELFIE_DOC_LABEL,
+            "required": True,
+            "enabled": True,
+            "order": db.document_requirements.count_documents({}),
+            "created_at": datetime.utcnow(),
+        })
     return db.document_requirements
 
 @app.route('/api/document-requirements', methods=['GET'])
