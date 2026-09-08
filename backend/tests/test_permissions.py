@@ -12,6 +12,14 @@ class TestRequirePermissionGating:
         assert client.get('/api/admins', headers=headers).status_code == 200
         assert client.get('/api/applicants', headers=headers).status_code == 200
 
+    def test_lgu_admin_bypasses_every_permission_check_too(self, client, auth_headers):
+        """The one-per-LGU Admin seat gets the same unconditional full access as
+        Super Admin - it just isn't visible/reachable through the Team UI."""
+        headers = auth_headers('lgu_admin')
+        assert client.get('/api/admins', headers=headers).status_code == 200
+        assert client.get('/api/applicants', headers=headers).status_code == 200
+        assert client.get('/api/settings', headers=headers).status_code == 200
+
     def test_lgu_member_without_permission_is_forbidden(self, client, auth_headers):
         headers = auth_headers('lgu_member', permissions={'can_manage_members': False, 'can_review_applicants': False})
         assert client.get('/api/admins', headers=headers).status_code == 403
@@ -38,66 +46,170 @@ class TestRequirePermissionGating:
 
 
 class TestUpdateAdminPermissions:
+    """Role is no longer settable through this endpoint at all - creating an account
+    always makes an lgu_member, and the one Admin seat can only change hands via
+    POST /api/admins/<id>/transfer-admin (see TestAdminSeatTransfer)."""
+
     def test_super_admin_can_grant_permissions_to_lgu_member(self, client, auth_headers, db):
         admin_headers = auth_headers()
         create_res = client.post('/api/admins', headers=admin_headers,
-                                  json={'full_name': 'Member', 'email': 'member@test.com',
-                                        'role': 'lgu_member', 'permissions': {}})
+                                  json={'full_name': 'Member', 'email': 'member@test.com', 'permissions': {}})
         member_id = create_res.get_json()['admin']['id']
 
         res = client.put(f'/api/admins/{member_id}/permissions', headers=admin_headers,
-                          json={'role': 'lgu_member', 'permissions': {'can_review_applicants': True}})
+                          json={'permissions': {'can_review_applicants': True}})
         assert res.status_code == 200
-        assert res.get_json()['admin']['permissions'] == {'can_review_applicants': True, 'can_manage_members': False}
+        assert res.get_json()['admin']['permissions'] == {
+            'can_review_applicants': True, 'can_manage_members': False, 'can_reset_program': False
+        }
 
     def test_lgu_member_with_can_manage_members_can_edit_another_lgu_member(self, client, auth_headers, db):
         admin_headers = auth_headers()
         create_res = client.post('/api/admins', headers=admin_headers,
-                                  json={'full_name': 'Member', 'email': 'member@test.com', 'role': 'lgu_member'})
+                                  json={'full_name': 'Member', 'email': 'member@test.com'})
         member_id = create_res.get_json()['admin']['id']
 
         manager_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
         res = client.put(f'/api/admins/{member_id}/permissions', headers=manager_headers,
-                          json={'role': 'lgu_member', 'permissions': {'can_review_applicants': True}})
+                          json={'permissions': {'can_review_applicants': True}})
         assert res.status_code == 200
 
-    def test_lgu_member_cannot_promote_to_super_admin(self, client, auth_headers, db):
+    def test_sending_a_role_field_has_no_effect(self, client, auth_headers, db):
+        """The endpoint only ever edits permissions - a role field in the body is
+        silently ignored, it can never be used to mint or touch the Admin seat."""
         admin_headers = auth_headers()
         create_res = client.post('/api/admins', headers=admin_headers,
-                                  json={'full_name': 'Member', 'email': 'member@test.com', 'role': 'lgu_member'})
+                                  json={'full_name': 'Member', 'email': 'member@test.com'})
         member_id = create_res.get_json()['admin']['id']
 
-        manager_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
-        res = client.put(f'/api/admins/{member_id}/permissions', headers=manager_headers,
-                          json={'role': 'admin'})
-        assert res.status_code == 403
+        res = client.put(f'/api/admins/{member_id}/permissions', headers=admin_headers,
+                          json={'role': 'lgu_admin', 'permissions': {'can_review_applicants': True}})
+        assert res.status_code == 200
+        assert res.get_json()['admin']['role'] == 'lgu_member'
+        assert db.users.count_documents({'role': 'lgu_admin'}) == 0
 
-    def test_lgu_member_cannot_edit_a_super_admin(self, client, auth_headers, db):
+    def test_cannot_target_super_admin(self, client, auth_headers, make_user):
+        """Super Admin isn't reachable through this LGU-facing endpoint at all -
+        looking it up by id 404s, same as any other id that isn't an lgu_member."""
         admin_headers = auth_headers()
-        me = db.users.find_one({'email': 'admin@test.com'})
-        manager_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
+        other_super_admin = make_user(email='othersuperadmin@test.com', role='admin')
 
-        res = client.put(f'/api/admins/{me["_id"]}/permissions', headers=manager_headers,
-                          json={'role': 'lgu_member', 'permissions': {}})
-        assert res.status_code == 403
+        res = client.put(f'/api/admins/{other_super_admin["id"]}/permissions', headers=admin_headers,
+                          json={'permissions': {}})
+        assert res.status_code == 404
+
+    def test_cannot_target_the_admin_seat_holder(self, client, auth_headers, db):
+        lgu_admin_headers = auth_headers('lgu_admin')
+        admin_user = db.users.find_one({'email': 'lgu_admin@test.com'})
+        super_admin_headers = auth_headers()
+
+        res = client.put(f'/api/admins/{admin_user["_id"]}/permissions', headers=super_admin_headers,
+                          json={'permissions': {}})
+        assert res.status_code == 404
 
     def test_cannot_edit_own_permissions(self, client, auth_headers, db):
         manager_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
         me = db.users.find_one({'email': 'lgu_member@test.com'})
 
         res = client.put(f'/api/admins/{me["_id"]}/permissions', headers=manager_headers,
-                          json={'role': 'lgu_member', 'permissions': {'can_manage_members': False}})
+                          json={'permissions': {'can_manage_members': False}})
         assert res.status_code == 400
 
     def test_invalid_id(self, client, auth_headers):
-        res = client.put('/api/admins/not-a-valid-id/permissions', headers=auth_headers(),
-                          json={'role': 'lgu_member'})
+        res = client.put('/api/admins/not-a-valid-id/permissions', headers=auth_headers(), json={})
         assert res.status_code == 400
 
     def test_not_found(self, client, auth_headers):
-        res = client.put('/api/admins/000000000000000000000000/permissions', headers=auth_headers(),
-                          json={'role': 'lgu_member'})
+        res = client.put('/api/admins/000000000000000000000000/permissions', headers=auth_headers(), json={})
         assert res.status_code == 404
+
+
+class TestAdminSeatTransfer:
+    """POST /api/admins/<id>/transfer-admin - exactly one lgu_admin can exist. Super
+    Admin can assign or reassign it at any time; once held, only the current holder
+    can pass it on; a plain lgu_member never can, no matter what else they're granted."""
+
+    def test_super_admin_assigns_the_first_admin(self, client, auth_headers, db):
+        admin_headers = auth_headers()
+        create_res = client.post('/api/admins', headers=admin_headers,
+                                  json={'full_name': 'Member', 'email': 'member@test.com'})
+        member_id = create_res.get_json()['admin']['id']
+
+        res = client.post(f'/api/admins/{member_id}/transfer-admin', headers=admin_headers)
+        assert res.status_code == 200
+        assert res.get_json()['admin']['role'] == 'lgu_admin'
+        assert db.users.count_documents({'role': 'lgu_admin'}) == 1
+
+    def test_current_admin_can_pass_it_on(self, client, auth_headers, db):
+        from werkzeug.security import generate_password_hash
+        admin_headers = auth_headers()
+        create_res = client.post('/api/admins', headers=admin_headers,
+                                  json={'full_name': 'First', 'email': 'first@test.com'})
+        first_id = create_res.get_json()['admin']['id']
+        client.post(f'/api/admins/{first_id}/transfer-admin', headers=admin_headers)
+        # create_admin_account() sends a set-your-own-password invite rather than a
+        # usable password - set one directly here since this test only needs a
+        # working login, not the OTP setup flow itself (covered in test_admins.py).
+        db.users.update_one({'email': 'first@test.com'},
+                             {'$set': {'password': generate_password_hash('TestPass123'), 'password_set': True}})
+
+        first_res = client.post('/api/login', json={'email': 'first@test.com', 'password': 'TestPass123'})
+        first_headers = {'Authorization': f"Bearer {first_res.get_json()['token']}"}
+
+        create_res2 = client.post('/api/admins', headers=first_headers,
+                                   json={'full_name': 'Second', 'email': 'second@test.com'})
+        second_id = create_res2.get_json()['admin']['id']
+
+        res = client.post(f'/api/admins/{second_id}/transfer-admin', headers=first_headers)
+        assert res.status_code == 200
+        assert res.get_json()['admin']['role'] == 'lgu_admin'
+
+        first_user = db.users.find_one({'email': 'first@test.com'})
+        assert first_user['role'] == 'lgu_member'
+        assert first_user['permissions'] == {'can_review_applicants': False, 'can_manage_members': False, 'can_reset_program': False}
+        assert db.users.count_documents({'role': 'lgu_admin'}) == 1
+
+    def test_lgu_member_cannot_transfer_even_with_manage_members(self, client, auth_headers, db):
+        admin_headers = auth_headers()
+        create_res = client.post('/api/admins', headers=admin_headers,
+                                  json={'full_name': 'Target', 'email': 'target@test.com'})
+        target_id = create_res.get_json()['admin']['id']
+
+        manager_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
+        res = client.post(f'/api/admins/{target_id}/transfer-admin', headers=manager_headers)
+        assert res.status_code == 403
+
+    def test_non_holder_lgu_admin_cannot_transfer(self, client, db):
+        """Defensive: if somehow two lgu_admin rows existed, only the actual current
+        holder (found via role='lgu_admin' lookup) can transfer - a stale/duplicate
+        one can't. (Normal flows never create a second one.)"""
+        from werkzeug.security import generate_password_hash
+        db.users.insert_one({'full_name': 'Real Admin', 'email': 'realadmin@test.com',
+                              'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
+                              'status': 'active', 'privacy_consent': True})
+        db.users.insert_one({'full_name': 'Stale Admin', 'email': 'staleadmin@test.com',
+                              'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
+                              'status': 'active', 'privacy_consent': True})
+        target = db.users.insert_one({'full_name': 'Target', 'email': 'target2@test.com',
+                                       'password': generate_password_hash('TestPass123'), 'role': 'lgu_member',
+                                       'status': 'active', 'privacy_consent': True,
+                                       'permissions': {'can_manage_members': True, 'can_review_applicants': False, 'can_reset_program': False}}).inserted_id
+
+        res = client.post('/api/login', json={'email': 'staleadmin@test.com', 'password': 'TestPass123'})
+        stale_headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
+        res = client.post(f'/api/admins/{target}/transfer-admin', headers=stale_headers)
+        assert res.status_code == 403
+
+    def test_target_must_be_an_existing_lgu_member(self, client, auth_headers, db):
+        admin_headers = auth_headers()
+        res = client.post('/api/admins/000000000000000000000000/transfer-admin', headers=admin_headers)
+        assert res.status_code == 404
+
+    def test_cannot_transfer_to_self(self, client, auth_headers, db):
+        admin_headers = auth_headers()
+        me = db.users.find_one({'email': 'admin@test.com'})
+        res = client.post(f'/api/admins/{me["_id"]}/transfer-admin', headers=admin_headers)
+        assert res.status_code == 400
 
 
 class TestDocumentAccess:

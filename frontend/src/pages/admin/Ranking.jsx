@@ -14,7 +14,7 @@ function Ranking() {
   const fetchRanking = async () => {
     setLoading(true)
     try {
-      const res = await apiFetch('/api/rank-applicants')
+      const res = await apiFetch('/api/rank-applicants?cycle=current')
       const data = await res.json()
       setRanked(data.ranked || [])
     } catch (err) {

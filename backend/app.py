@@ -293,18 +293,98 @@ def are_results_visible(db):
         return True
     return datetime.utcnow() >= visible_after
 
+# ── PROGRAM CYCLES (archive-then-clear reset) ──
+# A "cycle" is a scholarship program run. Applicants carry a cycle_id; the current
+# (live) cycle is whichever program_cycles document has closed_at: None - at most one
+# at a time. Before the very first reset, no program_cycles documents exist at all and
+# get_current_cycle_id() returns None, which every "current cycle" query below matches
+# against applicants with no cycle_id field - i.e. every applicant that predates this
+# feature is implicitly "the current cycle" until the first reset closes it out. This
+# is exactly the "implicit Cycle 0" backward-compatibility the feature spec calls for,
+# with no need to backfill millions of old documents with an explicit id.
+def get_current_cycle(db):
+    return db.program_cycles.find_one({"closed_at": None})
+
+def get_current_cycle_id(db):
+    cycle = get_current_cycle(db)
+    return cycle["_id"] if cycle else None
+
+def serialize_cycle(c, applicant_count=None):
+    return {
+        "id": str(c["_id"]),
+        "label": c.get("label"),
+        "started_at": iso(c.get("started_at")),
+        "closed_at": iso(c.get("closed_at")),
+        "started_by": c.get("started_by"),
+        "closed_by": c.get("closed_by"),
+        "is_current": c.get("closed_at") is None,
+        "applicant_count": applicant_count,
+    }
+
+def do_program_reset(db, performed_by, new_label=None):
+    """Archives the current cycle (or, on a deployment's very first reset, retroactively
+    records the implicit pre-tracking cycle as 'Cycle 0') and opens a new one. Nothing is
+    deleted - applicants/documents/audit trails all stay exactly where they are; they
+    just stop matching get_current_cycle_id() once their cycle's closed_at is set, which
+    is what every "current cycle only" query in this file filters on."""
+    now = datetime.utcnow()
+    current = get_current_cycle(db)
+    if current:
+        db.program_cycles.update_one(
+            {"_id": current["_id"]},
+            {"$set": {"closed_at": now, "closed_by": performed_by}}
+        )
+    elif db.applicants.count_documents({"cycle_id": None}) > 0:
+        # First-ever reset with pre-existing data: give that data a real (now-closed)
+        # cycle record, and backfill it onto every cycle_id: None applicant so the
+        # data model stays consistent going forward - without this, those applicants
+        # would show up as an orphaned "0 applicants" Cycle 0 record *and* a separate
+        # legacy bucket in list_program_cycles(), both pointing at the same data.
+        cycle0_id = db.program_cycles.insert_one({
+            "label": "Cycle 0 (before cycle tracking)",
+            "started_at": None,
+            "closed_at": now,
+            "started_by": None,
+            "closed_by": performed_by,
+        }).inserted_id
+        db.applicants.update_many({"cycle_id": None}, {"$set": {"cycle_id": cycle0_id}})
+
+    cycle_count = db.program_cycles.count_documents({})
+    new_cycle = {
+        "label": (new_label or '').strip() or f"Cycle {cycle_count + 1}",
+        "started_at": now,
+        "closed_at": None,
+        "started_by": performed_by,
+        "closed_by": None,
+    }
+    new_cycle_id = db.program_cycles.insert_one(new_cycle).inserted_id
+
+    # A fresh cycle starts with results hidden by default rather than silently
+    # inheriting whatever visibility state the outgoing cycle was left in - an LGU
+    # that forgets to re-hide results for the new batch would otherwise leak new
+    # decisions the moment the first one is verified.
+    db.settings.update_one(
+        {"_id": "global"},
+        {"$set": {"results_visible_override": False}, "$unset": {"results_visible_after": ""}},
+        upsert=True
+    )
+
+    return new_cycle_id
+
 def recompute_approvals(db, limit, reviewed_by='System'):
     """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score) among
-    everyone the classifier found Eligible. Run after every verify decision and
-    whenever the limit changes, since either can promote or bump applicants who
-    weren't directly touched by that specific action - a newly-verified strong
-    applicant can displace a previously-Approved weaker one, and raising the
-    limit can promote applicants who were waiting just below the old cutoff."""
+    everyone the classifier found Eligible **in the current cycle**. Run after every
+    verify decision and whenever the limit changes, since either can promote or bump
+    applicants who weren't directly touched by that specific action - a newly-verified
+    strong applicant can displace a previously-Approved weaker one, and raising the
+    limit can promote applicants who were waiting just below the old cutoff. Scoped to
+    the current cycle so re-verifying someone this cycle can never reach back and flip
+    an already-archived cycle's decisions."""
     eligible = list(db.applicants.find(
         # A withdrawn applicant can still carry ml_status: "Eligible" from a
         # prior verification - excluded here so recompute never overwrites
         # "Withdrawn" back to Approved/Rejected.
-        {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"}},
+        {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"}, "cycle_id": get_current_cycle_id(db)},
         {"ml_score": 1, "application": 1, "full_name": 1, "email": 1, "user_id": 1}
     ))
     eligible.sort(key=lambda a: a.get('ml_score', 0), reverse=True)
@@ -556,19 +636,33 @@ def require_role(*roles):
         return wrapper
     return decorator
 
-# LGU members (role="lgu_member") have scoped access via a `permissions` sub-document;
-# super admins (role="admin") always pass every check, same as before this existed.
-# Permissions are read fresh from the database on every request rather than trusted
-# from the token, since revoking one should take effect immediately - not only after
-# the member's current session token happens to expire.
-ADMIN_PERMISSIONS = ('can_review_applicants', 'can_manage_members')
+# Three role tiers:
+#  - "admin"      Super Admin - a dev/platform-level account. Full unconditional access,
+#                  but not part of an LGU's own team: hidden from the Team list and not
+#                  reachable through any of the LGU-facing team-management endpoints.
+#  - "lgu_admin"  Admin - the one-per-deployment head of an LGU's team. Full access to
+#                  everything within this LGU (same as Super Admin, functionally), but
+#                  can only come to hold that seat via POST /api/admins/<id>/transfer-admin.
+#  - "lgu_member" scoped access via a `permissions` sub-document, granted by whoever
+#                  holds can_manage_members (Admin always does; a member can be granted it).
+# Permissions are read fresh from the database on every request rather than trusted from
+# the token, since revoking one should take effect immediately - not only after the
+# member's current session token happens to expire.
+ADMIN_PERMISSIONS = ('can_review_applicants', 'can_manage_members', 'can_reset_program')
+
+def is_full_access_role(role):
+    """True for Super Admin and the LGU's Admin - both get full, unconditional access
+    everywhere; only lgu_member is ever permission-scoped. Use this (not a raw
+    role == 'admin' check) anywhere in the codebase that needs "is this caller an
+    admin-tier user", so lgu_admin never has to be added to a comparison twice."""
+    return role in ('admin', 'lgu_admin')
 
 def has_permission(permission):
     """Same check require_permission enforces as a decorator, exposed as a plain
     function for routes that need to OR it with another condition (e.g. "reviewer
     OR the applicant themself") rather than gate the whole route on it."""
     role = g.current_user.get('role')
-    if role == 'admin':
+    if is_full_access_role(role):
         return True
     if role != 'lgu_member':
         return False
@@ -641,6 +735,7 @@ def serialize_applicant(doc):
         "rejection_reason": application.get('rejection_reason'),
         "city": derive_city(doc.get('address')),
         "extra_fields": doc.get('extra_fields', {}),
+        "cycle_id": str(doc['cycle_id']) if doc.get('cycle_id') else None,
     }
 
 def serialize_document(d):
@@ -1071,9 +1166,14 @@ def get_applicants():
     try:
         db = get_db()
         page_param = request.args.get('page')
+        # Opt-in, not opt-out: defaults to every cycle ever (unchanged from before this
+        # feature existed) so nothing that already calls this route without the param -
+        # Reports, CSV export - silently starts seeing less than it used to. Only the
+        # live Applications queue explicitly asks for cycle=current.
+        base_query = {"cycle_id": get_current_cycle_id(db)} if request.args.get('cycle') == 'current' else {}
 
         if page_param is None:
-            applicants = [serialize_applicant(a) for a in db.applicants.find({})]
+            applicants = [serialize_applicant(a) for a in db.applicants.find(base_query)]
             return jsonify({"applicants": applicants})
 
         try:
@@ -1085,7 +1185,7 @@ def get_applicants():
         except ValueError:
             return jsonify({"error": "limit must be a number"}), 400
 
-        query = {}
+        query = dict(base_query)
         status_param = request.args.get('status')
         if status_param and status_param != 'All':
             # Comma-separated so a page's "All" tab can mean "any of these
@@ -1176,9 +1276,15 @@ def submit_application():
 
     try:
         db = get_db()
+        current_cycle_id = get_current_cycle_id(db)
 
         # ── Check duplicate by EMAIL ──
-        existing = db.applicants.find_one({"email": email})
+        # Scoped to the current cycle only: someone who already applied in a past,
+        # now-archived cycle must be able to apply again in a new one - that's the
+        # entire point of a program reset. A DIFFERENT check (reused document/photo
+        # detection in upload_document) is what catches the same person trying to
+        # reapply under a new identity, and that one deliberately stays cross-cycle.
+        existing = db.applicants.find_one({"email": email, "cycle_id": current_cycle_id})
         duplicate_reason = 'email' if existing else None
 
         # ── Check duplicate by FULL NAME + DATE OF BIRTH ──
@@ -1188,7 +1294,8 @@ def submit_application():
             if full_name and dob:
                 existing = db.applicants.find_one({
                     "full_name": {"$regex": f"^{re.escape(full_name)}$", "$options": "i"},
-                    "date_of_birth": dob
+                    "date_of_birth": dob,
+                    "cycle_id": current_cycle_id,
                 })
                 if existing:
                     duplicate_reason = 'name_and_birthdate'
@@ -1263,6 +1370,7 @@ def submit_application():
 
         applicant_doc = {
             "user_id": oid(g.current_user['id']),
+            "cycle_id": current_cycle_id,
             "full_name": data['fullName'],
             "email": email,
             "contact_number": data['contactNumber'],
@@ -1944,15 +2052,21 @@ def get_student_application():
     if not email:
         return jsonify({"error": "Email is required"}), 400
 
-    if g.current_user.get('role') != 'admin' and email.strip().lower() != g.current_user.get('email', '').lower():
+    if not is_full_access_role(g.current_user.get('role')) and email.strip().lower() != g.current_user.get('email', '').lower():
         return jsonify({"error": "Forbidden"}), 403
 
     try:
         db = get_db()
-        applicant = db.applicants.find_one(
-            {"email": email.strip().lower()},
-            sort=[("_id", -1)]
-        )
+        query = {"email": email.strip().lower()}
+        # A student only ever sees their CURRENT cycle's application here - once a
+        # reset closes their old cycle, this correctly goes back to "No Application
+        # Found" so they can start fresh, rather than reopening an archived one every
+        # time they log in. Admins bypass this (see the masking check below too) since
+        # they legitimately need to look up a student's latest record regardless of
+        # cycle, e.g. from a support/audit context.
+        if not is_full_access_role(g.current_user.get('role')):
+            query["cycle_id"] = get_current_cycle_id(db)
+        applicant = db.applicants.find_one(query, sort=[("_id", -1)])
 
         if not applicant:
             return jsonify({"application": None})
@@ -1961,7 +2075,7 @@ def get_student_application():
         # Only mask for the applicant viewing their own record - admins/reviewers
         # calling this same endpoint (e.g. from an admin context) always see the
         # real decision, same as every other admin-facing route.
-        if g.current_user.get('role') != 'admin' and application['application_status'] in ('Approved', 'Rejected'):
+        if not is_full_access_role(g.current_user.get('role')) and application['application_status'] in ('Approved', 'Rejected'):
             if not are_results_visible(db):
                 application['application_status'] = 'Pending Verification'
                 application['ml_status'] = 'Pending'
@@ -1992,7 +2106,7 @@ def get_student_application():
 @app.route('/api/student/application/withdraw', methods=['PUT'])
 @require_auth
 def withdraw_application():
-    if g.current_user.get('role') == 'admin':
+    if is_full_access_role(g.current_user.get('role')):
         return jsonify({"error": "Only the applicant can withdraw their own application"}), 403
 
     email = g.current_user.get('email', '').strip().lower()
@@ -2090,23 +2204,34 @@ def resolve_flag(flag_id):
 # ── ACCEPTED APPLICANT LIMIT SETTING ──
 def serialize_settings(db):
     doc = db.settings.find_one({"_id": "global"}) or {}
+    current_cycle = get_current_cycle(db)
     return {
         "max_accepted": get_applicant_limit(db),
-        "approved_count": db.applicants.count_documents({"application.status": "Approved"}),
+        "approved_count": db.applicants.count_documents({
+            "application.status": "Approved", "cycle_id": get_current_cycle_id(db)
+        }),
         "hidden_builtin_fields": get_hidden_builtin_fields(db),
         "results_visible_after": iso(doc.get('results_visible_after')),
         "results_visible_override": doc.get('results_visible_override'),
         "results_visible_now": are_results_visible(db),
+        "reset_password_set": bool(doc.get('reset_password_hash')),
+        "current_cycle": serialize_cycle(current_cycle) if current_cycle else None,
     }
 
 @app.route('/api/settings', methods=['GET'])
-@require_role('admin')
+@require_auth
 def get_settings():
+    # Read access is a bit wider than write access: an lgu_member granted only
+    # can_reset_program still needs to see reset_password_set/current_cycle to use
+    # the Reset Program action at all - none of the other fields here are sensitive
+    # enough to gate behind full LGU-admin access just for that one field's sake.
+    if not (is_full_access_role(g.current_user.get('role')) or has_permission('can_reset_program')):
+        return jsonify({"error": "Forbidden"}), 403
     db = get_db()
     return jsonify(serialize_settings(db))
 
 @app.route('/api/settings', methods=['PUT'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def update_settings():
     data = request.get_json() or {}
     set_fields = {}
@@ -2143,6 +2268,18 @@ def update_settings():
         else:
             return jsonify({"error": "results_visible_override must be true, false, or null"}), 400
 
+    # The reset confirmation password (see POST /api/program-reset) - deliberately
+    # separate from the admin's login password, and never read back: GET /api/settings
+    # only ever reports whether one is set (reset_password_set), never the hash.
+    if 'reset_password' in data:
+        reset_password = data.get('reset_password')
+        if reset_password in (None, ''):
+            unset_fields['reset_password_hash'] = ''
+        elif isinstance(reset_password, str) and len(reset_password) >= 6:
+            set_fields['reset_password_hash'] = generate_password_hash(reset_password)
+        else:
+            return jsonify({"error": "reset_password must be at least 6 characters, or null to remove it"}), 400
+
     if not set_fields and not unset_fields:
         return jsonify({"error": "No valid settings provided"}), 400
 
@@ -2157,6 +2294,72 @@ def update_settings():
         if 'max_accepted' in set_fields:
             recompute_approvals(db, set_fields['max_accepted'], reviewed_by=g.current_user.get('email', 'Admin'))
         return jsonify({"message": "Settings updated", **serialize_settings(db)})
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── LIST PROGRAM CYCLES ──
+@app.route('/api/program-cycles', methods=['GET'])
+@require_permission('can_review_applicants')
+def list_program_cycles():
+    db = get_db()
+    cycles = list(db.program_cycles.find({}).sort('started_at', -1))
+    result = []
+    for c in cycles:
+        count = db.applicants.count_documents({"cycle_id": c["_id"]})
+        result.append(serialize_cycle(c, applicant_count=count))
+
+    legacy_count = db.applicants.count_documents({"cycle_id": None})
+    if legacy_count > 0:
+        result.append({
+            "id": None, "label": "Before cycle tracking (legacy data)",
+            "started_at": None, "closed_at": None,
+            "started_by": None, "closed_by": None,
+            "is_current": len(cycles) == 0,
+            "applicant_count": legacy_count,
+        })
+
+    return jsonify({"cycles": result})
+
+# ── PROGRAM RESET (archive current cycle, start a new one) ──
+# Super Admin and the LGU's Admin always have this (see has_permission); an lgu_member
+# only gets it if explicitly granted can_reset_program - this changes what's "live"
+# everywhere in the app at once, a meaningfully bigger blast radius than the other two
+# permissions, so it's opt-in per member rather than bundled with can_manage_members.
+# Nothing is destructive: see do_program_reset()'s docstring.
+@app.route('/api/program-reset', methods=['POST'])
+@require_permission('can_reset_program')
+@limiter.limit("5 per minute")
+def program_reset():
+    data = request.get_json() or {}
+    password = data.get('password') or ''
+    label = data.get('label')
+
+    try:
+        db = get_db()
+        settings_doc = db.settings.find_one({"_id": "global"}) or {}
+        reset_hash = settings_doc.get('reset_password_hash')
+        if not reset_hash:
+            return jsonify({"error": "Set a reset confirmation password in Settings before resetting."}), 400
+        if not check_password_hash(reset_hash, password):
+            return jsonify({"error": "Incorrect reset confirmation password."}), 403
+
+        outgoing_cycle = get_current_cycle(db)
+        outgoing_count = db.applicants.count_documents(
+            {"cycle_id": outgoing_cycle["_id"]} if outgoing_cycle else {"cycle_id": None}
+        )
+
+        performed_by = g.current_user.get('email', 'Admin')
+        new_cycle_id = do_program_reset(db, performed_by, new_label=label)
+
+        return jsonify({
+            "message": "Program reset complete. A new cycle has started.",
+            "archived_applicant_count": outgoing_count,
+            **serialize_settings(db),
+            "new_cycle_id": str(new_cycle_id),
+        })
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
@@ -2201,7 +2404,7 @@ def serialize_form_field(f):
 @require_auth
 def list_form_fields():
     db = get_db()
-    query = {} if g.current_user.get('role') == 'admin' else {"enabled": True}
+    query = {} if is_full_access_role(g.current_user.get('role')) else {"enabled": True}
     fields = list(db.form_fields.find(query).sort([("section", 1), ("order", 1)]))
     return jsonify({
         "fields": [serialize_form_field(f) for f in fields],
@@ -2210,7 +2413,7 @@ def list_form_fields():
     })
 
 @app.route('/api/form-fields', methods=['POST'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def create_form_field():
     data = request.get_json() or {}
     key = (data.get('key') or '').strip()
@@ -2253,7 +2456,7 @@ def create_form_field():
     return jsonify({"field": serialize_form_field(doc)}), 201
 
 @app.route('/api/form-fields/<field_id>', methods=['PUT'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def update_form_field(field_id):
     field_oid = oid(field_id)
     if not field_oid:
@@ -2285,7 +2488,7 @@ def update_form_field(field_id):
     return jsonify({"field": serialize_form_field(updated)})
 
 @app.route('/api/form-fields/<field_id>', methods=['DELETE'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def delete_form_field(field_id):
     field_oid = oid(field_id)
     if not field_oid:
@@ -2356,12 +2559,12 @@ def get_doc_requirements_collection(db):
 def list_doc_requirements():
     db = get_db()
     coll = get_doc_requirements_collection(db)
-    query = {} if g.current_user.get('role') == 'admin' else {"enabled": True}
+    query = {} if is_full_access_role(g.current_user.get('role')) else {"enabled": True}
     docs = list(coll.find(query).sort("order", 1))
     return jsonify({"requirements": [serialize_doc_requirement(d) for d in docs]})
 
 @app.route('/api/document-requirements', methods=['POST'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def create_doc_requirement():
     data = request.get_json() or {}
     label = (data.get('label') or '').strip()
@@ -2385,7 +2588,7 @@ def create_doc_requirement():
     return jsonify({"requirement": serialize_doc_requirement(doc)}), 201
 
 @app.route('/api/document-requirements/<req_id>', methods=['PUT'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def update_doc_requirement(req_id):
     req_oid = oid(req_id)
     if not req_oid:
@@ -2416,7 +2619,7 @@ def update_doc_requirement(req_id):
     return jsonify({"requirement": serialize_doc_requirement(updated)})
 
 @app.route('/api/document-requirements/<req_id>', methods=['DELETE'])
-@require_role('admin')
+@require_role('admin', 'lgu_admin')
 def delete_doc_requirement(req_id):
     req_oid = oid(req_id)
     if not req_oid:
@@ -2435,7 +2638,7 @@ def serialize_admin(u):
         "email": u.get("email", ""),
         "office": u.get("office", ""),
         "municipality": u.get("municipality", ""),
-        "role": u.get("role", "admin"),
+        "role": u.get("role", "lgu_member"),
         # Accounts created before this field existed already have a real,
         # self-chosen password, so they default to "activated".
         "password_set": u.get("password_set", True),
@@ -2443,37 +2646,29 @@ def serialize_admin(u):
     }
     if doc["role"] == "lgu_member":
         doc["permissions"] = {p: bool(u.get("permissions", {}).get(p)) for p in ADMIN_PERMISSIONS}
+    elif doc["role"] == "lgu_admin":
+        # Not individually configurable - the Admin seat always has everything, same
+        # as Super Admin. Serialized as all-True so the frontend can render it with
+        # the same checklist it uses for lgu_member, without branching on role.
+        doc["permissions"] = {p: True for p in ADMIN_PERMISSIONS}
     return doc
 
-def parse_role_and_permissions(data, requester_role):
-    """Shared validation for any endpoint that lets a caller set a team member's
-    role/permissions. Returns (role, permissions, error_response_or_None).
-    Only an existing super admin may grant the super-admin role itself - an
-    lgu_member with can_manage_members can create/edit other lgu_members, but
-    can't mint another super admin (or touch one) through this path."""
-    role = data.get('role') or 'lgu_member'
-    if role not in ('admin', 'lgu_member'):
-        return None, None, (jsonify({"error": "Role must be 'admin' or 'lgu_member'"}), 400)
-    if role == 'admin' and requester_role != 'admin':
-        return None, None, (jsonify({"error": "Only a super admin can grant the super admin role"}), 403)
-
-    permissions = None
-    if role == 'lgu_member':
-        raw = data.get('permissions') or {}
-        permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
-    return role, permissions, None
-
 # ── ADMIN ACCOUNT MANAGEMENT ──
+# Super Admin (role="admin") is deliberately invisible and unreachable here - it's a
+# dev/platform account, not part of an LGU's own team. This surface only ever manages
+# "lgu_admin" (the one Admin seat) and "lgu_member" (scoped team members).
 @app.route('/api/admins', methods=['GET'])
 @require_permission('can_manage_members')
 def list_admins():
     db = get_db()
-    admins = list(db.users.find({"role": {"$in": ["admin", "lgu_member"]}}).sort("created_at", 1))
+    admins = list(db.users.find({"role": {"$in": ["lgu_admin", "lgu_member"]}}).sort("created_at", 1))
     return jsonify({"admins": [serialize_admin(a) for a in admins]})
 
 @app.route('/api/admins', methods=['POST'])
 @require_permission('can_manage_members')
 def create_admin_account():
+    """Always creates a plain LGU Member - the Admin seat can only be reached via
+    POST /api/admins/<id>/transfer-admin, never created directly."""
     data = request.get_json() or {}
     full_name = (data.get('full_name') or '').strip()
     email = (data.get('email') or '').strip().lower()
@@ -2481,9 +2676,8 @@ def create_admin_account():
     if not full_name or not email:
         return jsonify({"error": "Full name and email are required"}), 400
 
-    role, permissions, err = parse_role_and_permissions(data, g.current_user.get('role'))
-    if err:
-        return err
+    raw = data.get('permissions') or {}
+    permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
 
     db = get_db()
     if db.users.find_one({"email": email}):
@@ -2492,7 +2686,7 @@ def create_admin_account():
     admin_doc = create_admin_with_setup_email(
         full_name=full_name,
         email=email,
-        role=role,
+        role='lgu_member',
         permissions=permissions,
     )
     return jsonify({"admin": serialize_admin(admin_doc)}), 201
@@ -2500,31 +2694,63 @@ def create_admin_account():
 @app.route('/api/admins/<admin_id>/permissions', methods=['PUT'])
 @require_permission('can_manage_members')
 def update_admin_permissions(admin_id):
+    """Edits an existing LGU Member's permission checkboxes. Does not touch role -
+    the Admin seat can only change hands via transfer_admin_role() below, and Super
+    Admin isn't reachable through this endpoint at all (see the role filter below)."""
     admin_oid = oid(admin_id)
     if not admin_oid:
         return jsonify({"error": "Invalid admin id"}), 400
     if str(admin_oid) == g.current_user['id']:
-        return jsonify({"error": "You can't change your own role or permissions"}), 400
+        return jsonify({"error": "You can't change your own permissions"}), 400
 
     db = get_db()
-    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["admin", "lgu_member"]}})
+    target = db.users.find_one({"_id": admin_oid, "role": "lgu_member"})
     if not target:
-        return jsonify({"error": "Admin account not found"}), 404
-    if target.get('role') == 'admin' and g.current_user.get('role') != 'admin':
-        return jsonify({"error": "Only a super admin can change another super admin's account"}), 403
+        return jsonify({"error": "LGU member not found (use Pass Admin Role to change who holds the Admin seat)"}), 404
 
     data = request.get_json() or {}
-    role, permissions, err = parse_role_and_permissions(data, g.current_user.get('role'))
-    if err:
-        return err
-    if role == 'admin' and db.users.count_documents({"role": "admin"}) <= 1 and target.get('role') == 'admin':
-        return jsonify({"error": "Can't demote the last remaining super admin"}), 400
+    raw = data.get('permissions') or {}
+    permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
 
-    update = {"role": role}
-    if role == 'lgu_member':
-        update["permissions"] = permissions
-    db.users.update_one({"_id": admin_oid}, {"$set": update, "$unset": {} if role == 'lgu_member' else {"permissions": ""}})
+    db.users.update_one({"_id": admin_oid}, {"$set": {"permissions": permissions}})
     return jsonify({"admin": serialize_admin(db.users.find_one({"_id": admin_oid}))})
+
+# ── TRANSFER THE ADMIN SEAT ──
+# Exactly one lgu_admin can exist at a time. Super Admin can assign the very first one
+# (or reassign in an emergency); once the seat is held, only the current holder can pass
+# it on - an lgu_member, even with every other permission granted, can never promote
+# themselves or a peer directly. The outgoing Admin is demoted to a bare lgu_member
+# (all permissions cleared) rather than left with any residual elevated access.
+@app.route('/api/admins/<admin_id>/transfer-admin', methods=['POST'])
+@require_permission('can_manage_members')
+@limiter.limit("5 per minute")
+def transfer_admin_role(admin_id):
+    target_oid = oid(admin_id)
+    if not target_oid:
+        return jsonify({"error": "Invalid admin id"}), 400
+    if str(target_oid) == g.current_user['id']:
+        return jsonify({"error": "You already hold the Admin seat"}), 400
+
+    db = get_db()
+    target = db.users.find_one({"_id": target_oid, "role": "lgu_member"})
+    if not target:
+        return jsonify({"error": "Target must be an existing LGU member"}), 404
+
+    requester_role = g.current_user.get('role')
+    current_admin = db.users.find_one({"role": "lgu_admin"})
+    if requester_role == 'lgu_member':
+        return jsonify({"error": "Only the current Admin (or Super Admin) can pass on the Admin seat"}), 403
+    if requester_role == 'lgu_admin' and (not current_admin or str(current_admin['_id']) != g.current_user['id']):
+        return jsonify({"error": "Only the current Admin can pass on the Admin seat"}), 403
+
+    if current_admin:
+        db.users.update_one(
+            {"_id": current_admin["_id"]},
+            {"$set": {"role": "lgu_member", "permissions": {p: False for p in ADMIN_PERMISSIONS}}}
+        )
+    db.users.update_one({"_id": target_oid}, {"$set": {"role": "lgu_admin"}, "$unset": {"permissions": ""}})
+
+    return jsonify({"admin": serialize_admin(db.users.find_one({"_id": target_oid}))})
 
 @app.route('/api/admins/<admin_id>/resend-invite', methods=['POST'])
 @require_permission('can_manage_members')
@@ -2535,7 +2761,7 @@ def resend_admin_invite(admin_id):
         return jsonify({"error": "Invalid admin id"}), 400
 
     db = get_db()
-    admin = db.users.find_one({"_id": admin_oid, "role": {"$in": ["admin", "lgu_member"]}})
+    admin = db.users.find_one({"_id": admin_oid, "role": {"$in": ["lgu_admin", "lgu_member"]}})
     if not admin:
         return jsonify({"error": "Admin account not found"}), 404
     if admin.get("password_set", True):
@@ -2564,7 +2790,7 @@ def verify_admin_setup_otp():
         return jsonify({"error": error}), 400
 
     db = get_db()
-    user = db.users.find_one({"email": email, "role": {"$in": ["admin", "lgu_member"]}, "password_set": False})
+    user = db.users.find_one({"email": email, "role": {"$in": ["lgu_admin", "lgu_member"]}, "password_set": False})
     if not user:
         return jsonify({"error": "Account not found"}), 404
 
@@ -2593,7 +2819,7 @@ def resend_admin_setup_otp():
         return jsonify({"error": "Email is required"}), 400
 
     db = get_db()
-    user = db.users.find_one({"email": email, "role": {"$in": ["admin", "lgu_member"]}, "password_set": False})
+    user = db.users.find_one({"email": email, "role": {"$in": ["lgu_admin", "lgu_member"]}, "password_set": False})
     if user:
         create_and_send_otp(email, 'admin_setup', user['full_name'])
     return jsonify(generic)
@@ -2609,19 +2835,16 @@ def delete_admin_account(admin_id):
         return jsonify({"error": "You can't remove your own account"}), 400
 
     db = get_db()
-    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["admin", "lgu_member"]}})
+    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["lgu_admin", "lgu_member"]}})
     if not target:
         return jsonify({"error": "Admin account not found"}), 404
-    if target.get('role') == 'admin':
-        if g.current_user.get('role') != 'admin':
-            return jsonify({"error": "Only a super admin can remove another super admin"}), 403
-        if db.users.count_documents({"role": "admin"}) <= 1:
-            return jsonify({"error": "Can't remove the last remaining admin account"}), 400
+    if target.get('role') == 'lgu_admin':
+        return jsonify({"error": "Can't remove the account currently holding the Admin seat - pass the Admin role to someone else first"}), 400
 
     db.users.delete_one({"_id": admin_oid})
     return jsonify({"message": "Admin account removed"})
 
-def create_admin_with_setup_email(full_name, email, office='', municipality='', role='admin', permissions=None):
+def create_admin_with_setup_email(full_name, email, office='', municipality='', role='lgu_member', permissions=None):
     """Inserts a new admin/LGU-member user with no usable starting password and emails
     them a one-time code to set one - used when an existing admin adds a colleague
     directly, so nobody (not even the admin who created the account) ever knows
@@ -2847,12 +3070,13 @@ def approve_admin_request(request_id):
     if db.users.find_one({"email": req["email"]}):
         return jsonify({"error": "An account with this email already exists"}), 409
 
+    # Always approved as a plain LGU Member - same as create_admin_account(), the
+    # Admin seat only changes hands via POST /api/admins/<id>/transfer-admin.
     data = request.get_json(silent=True) or {}
-    role, permissions, err = parse_role_and_permissions(data, g.current_user.get('role'))
-    if err:
-        return err
+    raw = data.get('permissions') or {}
+    permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
 
-    admin_doc = create_admin_from_approved_request(req, role, permissions)
+    admin_doc = create_admin_from_approved_request(req, 'lgu_member', permissions)
 
     db.admin_requests.update_one({"_id": request_oid}, {"$set": {
         "status": "approved",
@@ -2884,10 +3108,11 @@ def reject_admin_request(request_id):
 def get_stats():
     try:
         db = get_db()
-        total = db.applicants.count_documents({})
-        approved = db.applicants.count_documents({"application.status": "Approved"})
-        rejected = db.applicants.count_documents({"application.status": "Rejected"})
-        withdrawn = db.applicants.count_documents({"application.status": "Withdrawn"})
+        base = {"cycle_id": get_current_cycle_id(db)} if request.args.get('cycle') == 'current' else {}
+        total = db.applicants.count_documents(base)
+        approved = db.applicants.count_documents({**base, "application.status": "Approved"})
+        rejected = db.applicants.count_documents({**base, "application.status": "Rejected"})
+        withdrawn = db.applicants.count_documents({**base, "application.status": "Withdrawn"})
         under_review = total - approved - rejected - withdrawn
 
         return jsonify({
@@ -3035,9 +3260,10 @@ def rank_applicants():
 
     try:
         db = get_db()
-        applicants = list(db.applicants.find({
-            "application.status": {"$nin": ["Rejected", "Newly Submitted"]}
-        }))
+        query = {"application.status": {"$nin": ["Rejected", "Newly Submitted"]}}
+        if request.args.get('cycle') == 'current':
+            query["cycle_id"] = get_current_cycle_id(db)
+        applicants = list(db.applicants.find(query))
 
         ranked = []
         for applicant in applicants:

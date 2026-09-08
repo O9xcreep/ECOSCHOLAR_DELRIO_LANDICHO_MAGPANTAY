@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch, getUser, setSession, logout } from '../../api'
+import { apiFetch, getUser, setSession, logout, isFullAccess } from '../../api'
 import FormBuilder from './FormBuilder'
 import './settings.css'
 
@@ -86,7 +86,9 @@ function ProfileTab() {
 
           <div className="info-item">
             <span className="info-label">Role</span>
-            <span className="badge badge-purple">{user.role === 'admin' ? 'Administrator' : 'LGU Member'}</span>
+            <span className="badge badge-purple">
+              {user.role === 'admin' ? 'Super Admin' : user.role === 'lgu_admin' ? 'Admin' : 'LGU Member'}
+            </span>
           </div>
 
           <div className="info-item">
@@ -213,6 +215,10 @@ function localInputValueToUtcIso(localStr) {
 }
 
 function SystemTab() {
+  const currentUser = getUser() || {}
+  const canManageSystemConfig = isFullAccess(currentUser)
+  const canResetProgram = canManageSystemConfig || !!currentUser.permissions?.can_reset_program
+
   const [slots, setSlots] = useState(20)
   const [savedLimit, setSavedLimit] = useState(20)
   const [approvedCount, setApprovedCount] = useState(0)
@@ -228,7 +234,19 @@ function SystemTab() {
   const [savingVisibility, setSavingVisibility] = useState(false)
   const [visibilityError, setVisibilityError] = useState('')
 
-  useEffect(() => {
+  const [currentCycle, setCurrentCycle] = useState(null)
+  const [resetPasswordSet, setResetPasswordSet] = useState(false)
+  const [newResetPassword, setNewResetPassword] = useState('')
+  const [savingResetPassword, setSavingResetPassword] = useState(false)
+  const [resetPasswordError, setResetPasswordError] = useState('')
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState(false)
+  const [newCycleLabel, setNewCycleLabel] = useState('')
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('')
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState('')
+  const [resetSuccess, setResetSuccess] = useState('')
+
+  const loadSettings = () => {
     apiFetch('/api/settings')
       .then(res => res.json())
       .then(data => {
@@ -243,9 +261,66 @@ function SystemTab() {
         setOverride(overrideValue)
         setSavedOverride(overrideValue)
         if (typeof data.results_visible_now === 'boolean') setResultsVisibleNow(data.results_visible_now)
+
+        setResetPasswordSet(!!data.reset_password_set)
+        setCurrentCycle(data.current_cycle || null)
       })
       .catch(() => {})
-  }, [])
+  }
+
+  useEffect(loadSettings, [])
+
+  const handleSaveResetPassword = async () => {
+    setResetPasswordError('')
+    setResetPasswordSuccess(false)
+    setSavingResetPassword(true)
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset_password: newResetPassword })
+      })
+      const data = await res.json()
+      if (!res.ok) { setResetPasswordError(data.error || 'Failed to update the reset confirmation password'); return }
+      setResetPasswordSet(data.reset_password_set)
+      setNewResetPassword('')
+      setResetPasswordSuccess(true)
+    } catch {
+      setResetPasswordError('Cannot connect to server. Please try again.')
+    } finally {
+      setSavingResetPassword(false)
+    }
+  }
+
+  const handleProgramReset = async () => {
+    setResetError('')
+    setResetSuccess('')
+    if (!window.confirm(
+      "This archives every current applicant record (nothing is deleted - it stays " +
+      "visible in Reports) and starts a brand new cycle. Students will see a fresh, " +
+      "empty application state. Are you sure?"
+    )) return
+
+    setResetting(true)
+    try {
+      const res = await apiFetch('/api/program-reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: resetConfirmPassword, label: newCycleLabel.trim() || undefined })
+      })
+      const data = await res.json()
+      if (!res.ok) { setResetError(data.error || 'Failed to reset the program'); return }
+      setResetSuccess(`Done - ${data.archived_applicant_count} applicant(s) archived. "${data.current_cycle.label}" has started.`)
+      setResetConfirmPassword('')
+      setNewCycleLabel('')
+      setCurrentCycle(data.current_cycle)
+      setApprovedCount(data.approved_count)
+    } catch {
+      setResetError('Cannot connect to server. Please try again.')
+    } finally {
+      setResetting(false)
+    }
+  }
 
   const visibilityDirty = visibleAfter !== savedVisibleAfter || override !== savedOverride
 
@@ -324,6 +399,7 @@ function SystemTab() {
 
   return (
     <div className="tab-content">
+      {canManageSystemConfig && <>
       <div className="settings-card">
         <h4 className="card-label">Accepted Applicant Limit</h4>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
@@ -407,8 +483,100 @@ function SystemTab() {
           </button>
         </div>
       </div>
+      </>}
 
-      <FormBuilder />
+      {canResetProgram && (
+      <div className="settings-card">
+        <h4 className="card-label">Program Reset</h4>
+        <p className="info-sub" style={{ marginBottom: '14px' }}>
+          Archives every current applicant record and starts a brand new cycle. Nothing
+          is deleted - past cycles stay fully visible in Reports - but student
+          dashboards and the live Applications queue show a clean slate, and past
+          applicants can submit a new application under the new cycle.
+        </p>
+
+        {currentCycle && (
+          <p className="info-sub" style={{ marginBottom: '14px' }}>
+            Current cycle: <strong>{currentCycle.label}</strong>
+            {currentCycle.started_at && ` — started ${new Date(currentCycle.started_at).toLocaleDateString('en-PH', {
+              month: 'long', day: 'numeric', year: 'numeric'
+            })}`}
+          </p>
+        )}
+
+        {canManageSystemConfig && (
+        <>
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', marginBottom: '14px' }}>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              Reset confirmation password {resetPasswordSet ? '(already set — enter a new one to change it)' : '(not set yet — required before resetting)'}
+            </label>
+            <input
+              type="password"
+              className="settings-select"
+              style={{ background: '#fff', width: '260px' }}
+              placeholder="At least 6 characters"
+              value={newResetPassword}
+              onChange={e => setNewResetPassword(e.target.value)}
+            />
+            <button className="btn-primary" style={{ marginLeft: '8px' }}
+              onClick={handleSaveResetPassword} disabled={savingResetPassword || !newResetPassword}>
+              {savingResetPassword ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        {resetPasswordError && <div className="security-error" style={{ marginBottom: '10px' }}>{resetPasswordError}</div>}
+        {resetPasswordSuccess && <div className="info-sub" style={{ color: '#059669', marginBottom: '10px' }}>Reset confirmation password updated.</div>}
+        </>
+        )}
+
+        {!canManageSystemConfig && !resetPasswordSet && (
+          <p className="info-sub" style={{ marginBottom: '14px' }}>
+            No reset confirmation password has been set yet - ask the LGU's Admin to
+            set one in this same section before you can reset the program.
+          </p>
+        )}
+
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              New cycle label (optional)
+            </label>
+            <input
+              type="text"
+              className="settings-select"
+              style={{ background: '#fff', width: '260px' }}
+              placeholder="e.g. 2027 Cycle 1"
+              value={newCycleLabel}
+              onChange={e => setNewCycleLabel(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              Reset confirmation password
+            </label>
+            <input
+              type="password"
+              className="settings-select"
+              style={{ background: '#fff', width: '260px' }}
+              value={resetConfirmPassword}
+              onChange={e => setResetConfirmPassword(e.target.value)}
+            />
+          </div>
+          <div>
+            <button className="btn-danger" onClick={handleProgramReset}
+              disabled={resetting || !resetConfirmPassword || !resetPasswordSet}>
+              {resetting ? 'Resetting...' : 'Reset Program & Start New Cycle'}
+            </button>
+          </div>
+        </div>
+        {resetError && <div className="security-error" style={{ marginTop: '10px' }}>{resetError}</div>}
+        {resetSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{resetSuccess}</div>}
+      </div>
+
+      )}
+
+      {canManageSystemConfig && <FormBuilder />}
     </div>
   )
 }
@@ -513,12 +681,15 @@ function AdminRequestsSection({ onApproved }) {
   )
 }
 
-const EMPTY_TEAM_FORM = { full_name: '', email: '', role: 'lgu_member', permissions: { can_review_applicants: false, can_manage_members: false } }
+const EMPTY_TEAM_FORM = {
+  full_name: '', email: '',
+  permissions: { can_review_applicants: false, can_manage_members: false, can_reset_program: false },
+}
 
 // ── TEAM TAB ──
 function TeamTab() {
   const currentUser = getUser() || {}
-  const isSuperAdmin = currentUser.role === 'admin'
+  const canPassAdminRole = isFullAccess(currentUser)
   const [admins, setAdmins] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -531,6 +702,7 @@ function TeamTab() {
   const [resendMessage, setResendMessage] = useState('')
   const [savingPermissionsId, setSavingPermissionsId] = useState(null)
   const [permissionsError, setPermissionsError] = useState('')
+  const [transferringId, setTransferringId] = useState(null)
 
   const loadAdmins = async () => {
     setLoading(true)
@@ -581,7 +753,7 @@ function TeamTab() {
       const res = await apiFetch(`/api/admins/${admin.id}/permissions`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'lgu_member', permissions: nextPermissions })
+        body: JSON.stringify({ permissions: nextPermissions })
       })
       const data = await res.json()
       if (!res.ok) { setPermissionsError(data.error || 'Failed to update permissions'); return }
@@ -623,6 +795,27 @@ function TeamTab() {
     }
   }
 
+  const handleTransferAdmin = async (admin) => {
+    if (!window.confirm(
+      `Pass the Admin role to ${admin.full_name} (${admin.email})?\n\n` +
+      `This is a significant change: whoever currently holds Admin will be switched ` +
+      `back to a plain LGU Member with no permissions, and ${admin.full_name} will get ` +
+      `full control of this LGU's account (manage members, review applicants, and ` +
+      `reset the program). This can be undone later the same way, but not automatically.`
+    )) return
+    setTransferringId(admin.id)
+    try {
+      const res = await apiFetch(`/api/admins/${admin.id}/transfer-admin`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { alert(data.error || 'Failed to pass on the Admin role'); return }
+      await loadAdmins()
+    } catch {
+      alert('Cannot connect to server. Please try again.')
+    } finally {
+      setTransferringId(null)
+    }
+  }
+
   return (
     <div className="tab-content">
       <AdminRequestsSection onApproved={(admin) => admin && setAdmins(prev => [...prev, admin])} />
@@ -634,7 +827,9 @@ function TeamTab() {
           )}
         </div>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
-          Super admins have full access. LGU members only get the specific permissions you grant them below.
+          New accounts are added as LGU Members with the permissions you choose below.
+          Exactly one member holds the Admin seat (full access) at a time - see their row
+          below to pass it on.
         </p>
         {resendMessage && <p className="info-sub" style={{ color: '#16a34a', marginBottom: '14px' }}>{resendMessage}</p>}
         {permissionsError && <div className="security-error" style={{ marginBottom: '14px' }}>{permissionsError}</div>}
@@ -654,37 +849,32 @@ function TeamTab() {
             </div>
 
             <div className="password-field">
-              <label>Role</label>
-              <select
-                className="settings-select"
-                value={form.role}
-                onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>
-                <option value="lgu_member">LGU Member (scoped access)</option>
-                {isSuperAdmin && <option value="admin">Super Admin (full access)</option>}
-              </select>
+              <label>Permissions</label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px', marginBottom: '6px' }}>
+                <input
+                  type="checkbox"
+                  checked={form.permissions.can_review_applicants}
+                  onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_review_applicants: e.target.checked } }))}
+                />
+                Review applicants (view/decide applications, ranking, reports)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px', marginBottom: '6px' }}>
+                <input
+                  type="checkbox"
+                  checked={form.permissions.can_manage_members}
+                  onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_manage_members: e.target.checked } }))}
+                />
+                Manage team members (add/remove, approve admin requests)
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px' }}>
+                <input
+                  type="checkbox"
+                  checked={form.permissions.can_reset_program}
+                  onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_reset_program: e.target.checked } }))}
+                />
+                Reset the program (archive the current cycle and start a new one)
+              </label>
             </div>
-
-            {form.role === 'lgu_member' && (
-              <div className="password-field">
-                <label>Permissions</label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px', marginBottom: '6px' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.permissions.can_review_applicants}
-                    onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_review_applicants: e.target.checked } }))}
-                  />
-                  Review applicants (view/decide applications, ranking, reports)
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 400, fontSize: '13.5px' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.permissions.can_manage_members}
-                    onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_manage_members: e.target.checked } }))}
-                  />
-                  Manage team members (add/remove, approve admin requests)
-                </label>
-              </div>
-            )}
 
             <p className="info-sub" style={{ marginBottom: 0 }}>
               They'll receive an email with a verification code to set their own password at /admin-setup.
@@ -710,17 +900,15 @@ function TeamTab() {
         ) : (
           <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
             {admins.map(admin => {
-              // An lgu_member (even with can_manage_members) can't touch a super
-              // admin's account at all - matches the backend's guard exactly.
-              const canManageThisRow = isSuperAdmin || admin.role !== 'admin'
+              const isAdminSeat = admin.role === 'lgu_admin'
               return (
               <div key={admin.id} className="info-item" style={{ flexDirection: 'column', alignItems: 'stretch', padding: '12px 0', borderBottom: '1px solid #F0F0F0', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div>
                     <span className="info-value">
                       {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
-                      <span className="badge" style={{ marginLeft: '8px', background: admin.role === 'admin' ? '#EDE9FE' : '#E0F2FE', color: admin.role === 'admin' ? '#5B21B6' : '#075985' }}>
-                        {admin.role === 'admin' ? 'Super Admin' : 'LGU Member'}
+                      <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? '#EDE9FE' : '#E0F2FE', color: isAdminSeat ? '#5B21B6' : '#075985' }}>
+                        {isAdminSeat ? 'Admin' : 'LGU Member'}
                       </span>
                       {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
                     </span>
@@ -730,7 +918,7 @@ function TeamTab() {
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                    {!admin.password_set && canManageThisRow && (
+                    {!admin.password_set && (
                       <button
                         className="btn-change"
                         onClick={() => handleResendInvite(admin)}
@@ -738,7 +926,15 @@ function TeamTab() {
                         {resendingId === admin.id ? 'Sending...' : 'Resend Invite'}
                       </button>
                     )}
-                    {admin.id !== currentUser.id && canManageThisRow && admins.length > 1 && (
+                    {!isAdminSeat && canPassAdminRole && admin.id !== currentUser.id && (
+                      <button
+                        className="btn-change"
+                        onClick={() => handleTransferAdmin(admin)}
+                        disabled={transferringId === admin.id}>
+                        {transferringId === admin.id ? 'Passing role...' : 'Pass Admin Role'}
+                      </button>
+                    )}
+                    {admin.id !== currentUser.id && !isAdminSeat && (
                       <button
                         className="btn-danger-outline"
                         onClick={() => handleRemove(admin)}
@@ -748,8 +944,15 @@ function TeamTab() {
                     )}
                   </div>
                 </div>
-                {admin.role === 'lgu_member' && (
-                  <div style={{ display: 'flex', gap: '18px', paddingLeft: '2px' }}>
+                {isAdminSeat ? (
+                  <p className="info-sub" style={{ paddingLeft: '2px' }}>
+                    Holds the Admin seat: full access to review applicants, manage the
+                    team, and reset the program. Use "Pass Admin Role" on another
+                    member's row to hand it off - this account can't be removed while
+                    it holds the seat.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', gap: '18px', paddingLeft: '2px', flexWrap: 'wrap' }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
                       <input
                         type="checkbox"
@@ -768,6 +971,15 @@ function TeamTab() {
                       />
                       Manage team members
                     </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                      <input
+                        type="checkbox"
+                        checked={admin.permissions.can_reset_program}
+                        disabled={admin.id === currentUser.id || savingPermissionsId === admin.id}
+                        onChange={() => handleTogglePermission(admin, 'can_reset_program')}
+                      />
+                      Reset program
+                    </label>
                   </div>
                 )}
               </div>
@@ -784,13 +996,13 @@ function TeamTab() {
 function Settings() {
   const [activeTab, setActiveTab] = useState('Profile')
   const currentUser = getUser() || {}
-  const isSuperAdmin = currentUser.role === 'admin'
-  const canManageMembers = isSuperAdmin || !!currentUser.permissions?.can_manage_members
+  const canManageMembers = isFullAccess(currentUser) || !!currentUser.permissions?.can_manage_members
 
-  // System (eligibility/export settings) stays super-admin-only; Team needs
+  // System (eligibility/reset/export settings) is Super Admin + Admin only; Team needs
   // can_manage_members. Profile/Security are always available to everyone.
   const tabs = ALL_TABS.filter(tab =>
-    (tab !== 'System' || isSuperAdmin) && (tab !== 'Team' || canManageMembers)
+    (tab !== 'System' || isFullAccess(currentUser) || !!currentUser.permissions?.can_reset_program) &&
+    (tab !== 'Team' || canManageMembers)
   )
 
   return (

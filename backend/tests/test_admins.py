@@ -8,12 +8,26 @@ class TestListAdmins:
         res = client.get('/api/admins', headers=auth_headers('student'))
         assert res.status_code == 403
 
-    def test_lists_only_admins(self, client, db, auth_headers, make_user):
+    def test_excludes_students_and_super_admin(self, client, db, auth_headers, make_user):
+        """Super Admin (role='admin') is a dev/platform account, not part of an LGU's
+        own team - it's deliberately invisible here, even to itself."""
         make_user(email='student1@test.com', role='student')
-        res = client.get('/api/admins', headers=auth_headers())
+        headers = auth_headers()  # creates admin@test.com, role='admin'
+        res = client.get('/api/admins', headers=headers)
         emails = [a['email'] for a in res.get_json()['admins']]
         assert 'student1@test.com' not in emails
-        assert 'admin@test.com' in emails  # the one auth_headers() itself created
+        assert 'admin@test.com' not in emails
+
+    def test_lists_lgu_admin_and_lgu_member(self, client, db, auth_headers):
+        headers = auth_headers()
+        create_res = client.post('/api/admins', headers=headers,
+                                  json={'full_name': 'Member', 'email': 'member@test.com'})
+        member_id = create_res.get_json()['admin']['id']
+        client.post(f'/api/admins/{member_id}/transfer-admin', headers=headers)
+
+        res = client.get('/api/admins', headers=headers)
+        emails = [a['email'] for a in res.get_json()['admins']]
+        assert 'member@test.com' in emails
 
 
 class TestCreateAdmin:
@@ -35,6 +49,15 @@ class TestCreateAdmin:
         res = client.post('/api/admins', headers=auth_headers(), json={'email': 'x@test.com'})
         assert res.status_code == 400
 
+    def test_role_field_in_body_is_ignored(self, client, auth_headers, db):
+        """Always creates a plain lgu_member - the Admin seat can only be reached
+        afterward via POST /api/admins/<id>/transfer-admin."""
+        res = client.post('/api/admins', headers=auth_headers(),
+                           json={'full_name': 'Sneaky', 'email': 'sneaky@test.com', 'role': 'admin'})
+        assert res.status_code == 201
+        assert res.get_json()['admin']['role'] == 'lgu_member'
+        assert db.users.find_one({'email': 'sneaky@test.com'})['role'] == 'lgu_member'
+
     def test_created_admin_has_no_usable_starting_password(self, client, auth_headers):
         """A manually created admin must not get a caller-chosen password - access is
         only granted by verifying the emailed one-time code and setting a real one."""
@@ -52,15 +75,15 @@ class TestDeleteAdmin:
         assert res.status_code == 400
 
     def test_lgu_member_cannot_remove_a_super_admin(self, client, auth_headers, db):
-        """Even with can_manage_members, an lgu_member can't touch a super admin's
-        account at all - only another super admin can, and self-deletion is
-        separately blocked, so a lone super admin can never be removed by anyone."""
+        """Super Admin isn't part of the LGU-facing team-management surface at all -
+        even with can_manage_members, looking it up by id here 404s rather than
+        ever exposing a 403 that would confirm the id belongs to an admin."""
         auth_headers()  # creates the sole super admin, admin@test.com
         lgu_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
         me = db.users.find_one({'email': 'admin@test.com'})
 
         res = client.delete(f'/api/admins/{me["_id"]}', headers=lgu_headers)
-        assert res.status_code == 403
+        assert res.status_code == 404
 
     def test_delete_target_must_be_a_team_member(self, client, auth_headers, make_user):
         headers = auth_headers()
@@ -68,7 +91,7 @@ class TestDeleteAdmin:
         res = client.delete(f'/api/admins/{other_student["id"]}', headers=headers)
         assert res.status_code == 404
 
-    def test_can_remove_other_admin_when_multiple_exist(self, client, auth_headers, db):
+    def test_can_remove_a_plain_team_member(self, client, auth_headers, db):
         headers = auth_headers()
         create_res = client.post('/api/admins', headers=headers,
                                   json={'full_name': 'Second', 'email': 'second@test.com'})
@@ -77,6 +100,17 @@ class TestDeleteAdmin:
         res = client.delete(f'/api/admins/{second_id}', headers=headers)
         assert res.status_code == 200
         assert db.users.find_one({'email': 'second@test.com'}) is None
+
+    def test_cannot_remove_the_admin_seat_holder(self, client, auth_headers, db):
+        headers = auth_headers()
+        create_res = client.post('/api/admins', headers=headers,
+                                  json={'full_name': 'Seat Holder', 'email': 'seatholder@test.com'})
+        member_id = create_res.get_json()['admin']['id']
+        client.post(f'/api/admins/{member_id}/transfer-admin', headers=headers)
+
+        res = client.delete(f'/api/admins/{member_id}', headers=headers)
+        assert res.status_code == 400
+        assert db.users.find_one({'email': 'seatholder@test.com'}) is not None
 
     def test_invalid_id(self, client, auth_headers):
         res = client.delete('/api/admins/not-a-valid-id', headers=auth_headers())
@@ -96,10 +130,12 @@ class TestResendInvite:
         res = client.post('/api/admins/000000000000000000000000/resend-invite', headers=auth_headers())
         assert res.status_code == 404
 
-    def test_rejects_already_activated_admin(self, client, auth_headers, db):
+    def test_rejects_already_activated_admin(self, client, auth_headers, make_user):
         headers = auth_headers()
-        me = db.users.find_one({'email': 'admin@test.com'})
-        res = client.post(f'/api/admins/{me["_id"]}/resend-invite', headers=headers)
+        # make_user() inserts with a real password and no explicit password_set
+        # field - serialize_admin() defaults a missing field to True (activated).
+        member = make_user(email='activated@test.com', role='lgu_member')
+        res = client.post(f'/api/admins/{member["id"]}/resend-invite', headers=headers)
         assert res.status_code == 400
 
     def test_succeeds_for_pending_admin(self, client, auth_headers):

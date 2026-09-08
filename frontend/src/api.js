@@ -9,6 +9,14 @@ export function displayStatus(status, mlStatus) {
   return status === 'Rejected' && mlStatus === 'Eligible' ? 'Waitlisted' : status
 }
 
+// Super Admin (dev/platform) and the LGU's own Admin both get full, unconditional
+// access everywhere - only lgu_member is ever permission-scoped. Mirrors
+// is_full_access_role() in backend/app.py; use this instead of a raw
+// role === 'admin' check so lgu_admin never has to be added twice.
+export function isFullAccess(user) {
+  return user?.role === 'admin' || user?.role === 'lgu_admin'
+}
+
 export function getToken() {
   return localStorage.getItem('token')
 }

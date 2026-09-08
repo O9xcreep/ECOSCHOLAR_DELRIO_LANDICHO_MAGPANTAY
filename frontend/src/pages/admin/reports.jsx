@@ -51,6 +51,8 @@ function Reports() {
   const [applicants, setApplicants] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [cycles, setCycles] = useState([])
+  const [selectedCycle, setSelectedCycle] = useState('all')
 
   useEffect(() => {
     apiFetch('/api/applicants')
@@ -63,12 +65,26 @@ function Reports() {
         setError('Could not load report data.')
         setLoading(false)
       })
+
+    apiFetch('/api/program-cycles')
+      .then(res => res.json())
+      .then(data => setCycles(data.cycles || []))
+      .catch(() => {})
   }, [])
 
+  // Every cycle option beyond "All cycles" narrows the already-fetched full list
+  // client-side, rather than re-fetching - the report already needs every applicant's
+  // full record for its charts regardless of which cycle is selected.
+  const filtered = useMemo(() => {
+    if (selectedCycle === 'all') return applicants
+    if (selectedCycle === 'legacy') return applicants.filter(a => !a.cycle_id)
+    return applicants.filter(a => a.cycle_id === selectedCycle)
+  }, [applicants, selectedCycle])
+
   const stats = useMemo(() => {
-    const total = applicants.length
-    const approved = applicants.filter(a => a.application_status === 'Approved').length
-    const rejected = applicants.filter(a => a.application_status === 'Rejected').length
+    const total = filtered.length
+    const approved = filtered.filter(a => a.application_status === 'Approved').length
+    const rejected = filtered.filter(a => a.application_status === 'Rejected').length
     const underReview = total - approved - rejected
     return [
       { label: 'Total Applicants', value: total, color: 'purple' },
@@ -76,24 +92,24 @@ function Reports() {
       { label: 'Under Review', value: underReview, color: 'yellow' },
       { label: 'Rejected', value: rejected, color: 'red' },
     ]
-  }, [applicants])
+  }, [filtered])
 
   const statusBreakdown = useMemo(() => {
     const counts = {}
-    for (const a of applicants) {
+    for (const a of filtered) {
       const status = a.application_status || 'Newly Submitted'
       counts[status] = (counts[status] || 0) + 1
     }
     return Object.entries(counts)
       .map(([name, value]) => ({ name, value, color: STATUS_COLORS[name] || '#94a3b8' }))
       .sort((a, b) => b.value - a.value)
-  }, [applicants])
+  }, [filtered])
 
   const gwaPercents = useMemo(() => {
-    return applicants
+    return filtered
       .map(a => normalizeGwaToPercent(parseFloat(a.gpa)))
       .filter(v => v !== null)
-  }, [applicants])
+  }, [filtered])
 
   const gwaDistribution = useMemo(() => {
     return GWA_BUCKETS.map(bucket => ({
@@ -104,7 +120,7 @@ function Reports() {
 
   const monthlyData = useMemo(() => {
     const counts = {}
-    for (const a of applicants) {
+    for (const a of filtered) {
       if (!a.submitted_at) continue
       const d = new Date(a.submitted_at)
       if (isNaN(d)) continue
@@ -117,11 +133,11 @@ function Reports() {
         const [, month] = key.split('-')
         return { month: MONTH_NAMES[Number(month)], count }
       })
-  }, [applicants])
+  }, [filtered])
 
   const byType = useMemo(() => {
     const groups = {}
-    for (const a of applicants) {
+    for (const a of filtered) {
       const type = a.application_type || 'General Application'
       if (!groups[type]) groups[type] = { name: type, applicants: 0, approved: 0, rejected: 0, review: 0 }
       groups[type].applicants++
@@ -130,7 +146,7 @@ function Reports() {
       else groups[type].review++
     }
     return Object.values(groups)
-  }, [applicants])
+  }, [filtered])
 
   const total = stats[0].value
 
@@ -188,7 +204,22 @@ function Reports() {
           <h2 className="page-title">Reports</h2>
           <p className="page-sub">Analytics overview for scholarship applications</p>
         </div>
-        <button className="btn-export" onClick={handleExportPdf}>Export PDF</button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {cycles.length > 0 && (
+            <select
+              className="cycle-select"
+              value={selectedCycle}
+              onChange={e => setSelectedCycle(e.target.value)}>
+              <option value="all">All cycles</option>
+              {cycles.map(c => (
+                <option key={c.id || 'legacy'} value={c.id || 'legacy'}>
+                  {c.label}{c.is_current ? ' (current)' : ''} — {c.applicant_count}
+                </option>
+              ))}
+            </select>
+          )}
+          <button className="btn-export" onClick={handleExportPdf}>Export PDF</button>
+        </div>
       </div>
 
       {/* Stat Cards */}

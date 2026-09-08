@@ -75,7 +75,7 @@ function Applications() {
   const fetchApplications = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), status: activeStatus })
+      const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE), status: activeStatus, cycle: 'current' })
       if (search.trim()) params.set('q', search.trim())
       if (sort) params.set('sort', sort)
       const res = await apiFetch(`/api/applicants?${params.toString()}`)
@@ -98,7 +98,7 @@ function Applications() {
   const fetchTabCounts = useCallback(async () => {
     const entries = await Promise.all(TABS.map(async tab => {
       try {
-        const res = await apiFetch(`/api/applicants?page=1&limit=1&status=${encodeURIComponent(tab.value)}`)
+        const res = await apiFetch(`/api/applicants?page=1&limit=1&cycle=current&status=${encodeURIComponent(tab.value)}`)
         const data = await res.json()
         return [tab.key, data.total || 0]
       } catch {

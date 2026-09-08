@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { getUser, logout } from '../api'
+import { getUser, logout, isFullAccess } from '../api'
 import NotificationBell from '../components/NotificationBell'
 import './AdminLayout.css'
 
@@ -8,9 +8,8 @@ function AdminLayout() {
   const user = getUser() || {}
   const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'A'
 
-  const isSuperAdmin = user.role === 'admin'
-  const canReview = isSuperAdmin || !!user.permissions?.can_review_applicants
-  const roleLabel = isSuperAdmin ? 'Administrator' : 'LGU Member'
+  const canReview = isFullAccess(user) || !!user.permissions?.can_review_applicants
+  const roleLabel = user.role === 'admin' ? 'Super Admin' : user.role === 'lgu_admin' ? 'Admin' : 'LGU Member'
 
   const handleLogout = async () => {
     await logout()

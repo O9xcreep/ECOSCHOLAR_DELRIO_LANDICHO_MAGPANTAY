@@ -56,13 +56,13 @@ function Dashboard() {
 
 useEffect(() => {
   // Fetch stats
-  apiFetch('/api/stats')
+  apiFetch('/api/stats?cycle=current')
     .then(res => res.json())
     .then(data => setStats(data))
     .catch(err => { console.error('Stats error:', err); setLoadError(true) })
 
   // Fetch recent applicants
-  apiFetch('/api/applicants')
+  apiFetch('/api/applicants?cycle=current')
     .then(res => res.json())
     .then(data => {
       setRecentApps((data.applicants || []).slice(0, 5))

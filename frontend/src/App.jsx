@@ -10,7 +10,7 @@ import ResetPassword from './pages/ResetPassword'
 import ApplyAdmin from './pages/ApplyAdmin'
 import AdminSetup from './pages/AdminSetup'
 import ProtectedRoute from './components/ProtectedRoute'
-import { getUser } from './api'
+import { getUser, isFullAccess } from './api'
 
 // Student
 import StudentDashboard from './pages/student/StudentDashboard'
@@ -57,7 +57,7 @@ function App() {
           <Route index element={<Navigate to={
             (() => {
               const u = getUser() || {}
-              const canReview = u.role === 'admin' || !!u.permissions?.can_review_applicants
+              const canReview = isFullAccess(u) || !!u.permissions?.can_review_applicants
               return canReview ? 'dashboard' : 'settings'
             })()
           } />} />

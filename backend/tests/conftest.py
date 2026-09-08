@@ -99,6 +99,7 @@ def make_user(db):
             doc['permissions'] = {
                 'can_review_applicants': bool((permissions or {}).get('can_review_applicants')),
                 'can_manage_members': bool((permissions or {}).get('can_manage_members')),
+                'can_reset_program': bool((permissions or {}).get('can_reset_program')),
             }
         user_id = db.users.insert_one(doc).inserted_id
         return {'id': user_id, 'email': email, 'password': password, 'role': role}
