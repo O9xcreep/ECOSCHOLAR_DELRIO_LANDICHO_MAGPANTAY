@@ -5,9 +5,7 @@ import hashlib
 import threading
 import imagehash
 import pdf2image
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 from PIL import Image
 from datetime import datetime, timedelta
 from functools import wraps
@@ -55,34 +53,34 @@ ADMIN_APPLY_TOKEN_MAX_AGE = 60 * 60 * 24  # 24 hours
 _admin_apply_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-admin-apply')
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT') or 587)
-SMTP_USER = os.getenv('SMTP_USER', '')
-SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+# Sent via Resend's HTTP API (not raw SMTP) because Render's free-tier web
+# services block outbound traffic to SMTP ports 25/465/587 - the HTTP API
+# only needs normal outbound HTTPS (443), which is never blocked.
+RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
 SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'EcoScholar')
-# Separate from SMTP_USER because some transactional providers (e.g. Resend's SMTP
-# relay) authenticate with a fixed login like "resend" that isn't a real mailbox -
-# the actual visible sender is whatever address you've verified with the provider.
-# Defaults to SMTP_USER so a plain Gmail setup (where they're the same) needs no change.
-SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL') or SMTP_USER
+SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '')
 
 def send_email(to_email, subject, html_body):
-    """Best-effort synchronous email send via SMTP. Returns True/False and never
-    raises - callers must not let a failed send change what's shown to the
-    requester, since that would leak whether an email address exists in the system."""
-    if not SMTP_USER or not SMTP_PASSWORD:
-        app.logger.warning('Email not sent (SMTP not configured): %s', subject)
+    """Best-effort email send via the Resend HTTP API. Returns True/False and
+    never raises - callers must not let a failed send change what's shown to
+    the requester, since that would leak whether an email address exists in
+    the system."""
+    if not RESEND_API_KEY or not SMTP_FROM_EMAIL:
+        app.logger.warning('Email not sent (RESEND_API_KEY/SMTP_FROM_EMAIL not configured): %s', subject)
         return False
     try:
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>'
-        msg['To'] = to_email
-        msg.attach(MIMEText(html_body, 'html'))
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM_EMAIL, [to_email], msg.as_string())
+        resp = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {RESEND_API_KEY}'},
+            json={
+                'from': f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>',
+                'to': [to_email],
+                'subject': subject,
+                'html': html_body,
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
         return True
     except Exception as e:
         app.logger.error('Email send failed: %s', str(e))
