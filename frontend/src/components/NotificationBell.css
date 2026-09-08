@@ -6,16 +6,21 @@
   position: relative;
   background: #f3f4f6;
   border: 1px solid #E5E7EB;
-  border-radius: 8px;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 600;
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  padding: 0;
   color: #374151;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.nb-icon {
+  display: block;
 }
 
 .nb-btn:hover {
@@ -69,7 +74,7 @@
 .nb-mark-all {
   background: none;
   border: none;
-  color: #7c3aed;
+  color: var(--accent, #7c3aed);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -102,7 +107,7 @@
 }
 
 .nb-item.unread {
-  background: #f5f3ff;
+  background: var(--accent-light, #f5f3ff);
   cursor: pointer;
 }
 
@@ -137,7 +142,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent, #7c3aed);
   flex-shrink: 0;
   margin-top: 5px;
 }

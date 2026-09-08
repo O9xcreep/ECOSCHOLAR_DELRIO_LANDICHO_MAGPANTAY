@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { getUser, logout } from '../api'
 import NotificationBell from '../components/NotificationBell'
+import { GraduationCapIcon } from '../components/NavIcons'
 import './StudentLayout.css'
 
 function StudentLayout() {
@@ -20,6 +21,7 @@ function StudentLayout() {
       {/* SIDEBAR */}
       <aside className="student-sidebar">
         <div className="sidebar-logo">
+          <GraduationCapIcon />
           <span className="logo-text">EcoScholar</span>
         </div>
 

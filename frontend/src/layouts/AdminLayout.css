@@ -8,14 +8,14 @@
 .admin-container {
   display: flex;
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--bg);
 }
 
-/* ── SIDEBAR ── */
+/* ── SIDEBAR (desktop) ── */
 .sidebar {
   width: 220px;
   min-height: 100vh;
-  background: #1e1b4b;
+  background: var(--header-bg);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -30,10 +30,7 @@
   gap: 10px;
   padding: 24px 20px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
-}
-
-.logo-icon {
-  font-size: 22px;
+  color: white;
 }
 
 .logo-text {
@@ -68,12 +65,12 @@
 }
 
 .nav-item.active {
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
 }
 
 .nav-icon {
-  font-size: 18px;
+  flex-shrink: 0;
 }
 
 /* ── MAIN WRAPPER ── */
@@ -85,11 +82,42 @@
   min-height: 100vh;
 }
 
-/* ── TOPBAR ── */
+/* ── MOBILE HEADER (hidden on desktop) ── */
+.mobile-header {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--header-bg);
+  color: white;
+  padding: 14px 18px;
+  position: sticky;
+  top: 0;
+  z-index: 99;
+}
+
+.mobile-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.mobile-header .nb-btn {
+  background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.2);
+  color: white;
+}
+
+.mobile-header .nb-btn:hover {
+  background: rgba(255,255,255,0.22);
+}
+
+/* ── TOPBAR (desktop) ── */
 .topbar {
   height: 64px;
-  background: white;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -102,7 +130,7 @@
 .topbar-left .page-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1e1b4b;
+  color: var(--header-bg);
 }
 
 .topbar-right {
@@ -111,27 +139,20 @@
   gap: 16px;
 }
 
-.notif-btn {
-  background: none;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-}
-
 .btn-logout {
   background: none;
-  border: 1px solid #E5E7EB;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .btn-logout:hover {
-  background: #F3F4F6;
+  background: var(--surface-alt);
 }
 
 .admin-profile {
@@ -145,7 +166,7 @@
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   display: flex;
   align-items: center;
@@ -157,12 +178,12 @@
 .admin-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
 }
 
 .admin-role {
   font-size: 11px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 /* ── MAIN CONTENT ── */
@@ -171,28 +192,61 @@
   flex: 1;
 }
 
-/* ── RESPONSIVE ── */
-@media (max-width: 768px) {
-  .sidebar {
-    width: 70px;
-  }
+/* ── BOTTOM NAV (mobile, hidden on desktop) ── */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  z-index: 99;
+}
 
-  .logo-text,
-  .nav-item span:last-child {
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 2px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+.bottom-nav-item.active {
+  color: var(--accent-dark);
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 860px) {
+  .sidebar {
     display: none;
   }
 
   .main-wrapper {
-    margin-left: 70px;
+    margin-left: 0;
   }
 
-  .sidebar-logo {
-    justify-content: center;
-    padding: 24px 10px;
+  .topbar {
+    display: none;
   }
 
-  .nav-item {
-    justify-content: center;
-    padding: 12px;
+  .mobile-header {
+    display: flex;
+  }
+
+  .bottom-nav {
+    display: flex;
+  }
+
+  /* room for the fixed bottom nav so content never sits underneath it */
+  .main-content {
+    padding: 16px 16px calc(84px + env(safe-area-inset-bottom, 0px));
   }
 }

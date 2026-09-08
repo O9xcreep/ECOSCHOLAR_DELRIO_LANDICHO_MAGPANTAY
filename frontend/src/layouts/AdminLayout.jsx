@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { getUser, logout, isFullAccess } from '../api'
 import NotificationBell from '../components/NotificationBell'
+import { GraduationCapIcon, HomeIcon, RankingIcon, ApplicationsIcon, ReportsIcon, SettingsIcon } from '../components/NavIcons'
 import './AdminLayout.css'
 
 function AdminLayout() {
@@ -16,43 +17,47 @@ function AdminLayout() {
     navigate('/login')
   }
 
+  const navItems = [
+    { to: '/admin/dashboard', label: 'Home', Icon: HomeIcon, show: canReview },
+    { to: '/admin/ranking', label: 'Ranking', Icon: RankingIcon, show: canReview },
+    { to: '/admin/applications', label: 'Applications', Icon: ApplicationsIcon, show: canReview },
+    { to: '/admin/reports', label: 'Reports', Icon: ReportsIcon, show: canReview },
+    { to: '/admin/settings', label: 'Settings', Icon: SettingsIcon, show: true },
+  ].filter(item => item.show)
+
   return (
     <div className="admin-container">
 
-      {/* SIDEBAR */}
+      {/* SIDEBAR (desktop) */}
       <aside className="sidebar">
         <div className="sidebar-logo">
+          <GraduationCapIcon />
           <span className="logo-text">EcoScholar</span>
         </div>
 
         <nav className="sidebar-nav">
-          {canReview && (
-            <>
-              <NavLink to="/admin/dashboard" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-                <span>Home</span>
-              </NavLink>
-              <NavLink to="/admin/ranking"
-                className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-                <span>Ranking</span>
-              </NavLink>
-              <NavLink to="/admin/applications" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-                <span>Applications</span>
-              </NavLink>
-              <NavLink to="/admin/reports" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-                <span>Reports</span>
-              </NavLink>
-            </>
-          )}
-          <NavLink to="/admin/settings" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Settings</span>
-          </NavLink>
+          {navItems.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+              <Icon className="nav-icon" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
         </nav>
       </aside>
 
       {/* MAIN CONTENT */}
       <div className="main-wrapper">
 
-        {/* TOP NAVBAR */}
+        {/* MOBILE HEADER */}
+        <header className="mobile-header">
+          <div className="mobile-header-brand">
+            <GraduationCapIcon />
+            <span>EcoScholar</span>
+          </div>
+          <NotificationBell />
+        </header>
+
+        {/* TOP NAVBAR (desktop) */}
         <header className="topbar">
           <div className="topbar-left">
             <h1 className="page-title">EcoScholar</h1>
@@ -74,6 +79,16 @@ function AdminLayout() {
         <main className="main-content">
           <Outlet />
         </main>
+
+        {/* BOTTOM NAV (mobile) */}
+        <nav className="bottom-nav">
+          {navItems.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'bottom-nav-item active' : 'bottom-nav-item'}>
+              <Icon />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
       </div>
     </div>

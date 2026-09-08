@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
+import { GraduationCapIcon } from '../components/NavIcons'
 
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
@@ -81,6 +82,7 @@ const css = `
     display: flex; align-items: center; justify-content: center;
     margin: 0 auto 20px;
     font-size: 38px;
+    color: #fff;
     box-shadow: 0 8px 32px rgba(0,0,0,.2);
   }
 
@@ -944,6 +946,9 @@ function Login() {
           <div className="lp-blob b2" />
           <div className="lp-blob b3" />
           <div className="lp-brand">
+            <div className="lp-logo-ring">
+              <GraduationCapIcon width={40} height={40} />
+            </div>
             <h1 className="lp-name">EcoScholar</h1>
             <p className="lp-tagline">
               Centralized Scholarship Allocation &amp; Automated Disbursement System
@@ -960,6 +965,7 @@ function Login() {
 
             {/* Mobile logo */}
             <div className="lp-mobile-logo">
+              <GraduationCapIcon width={24} height={24} />
               <span>EcoScholar</span>
             </div>
 

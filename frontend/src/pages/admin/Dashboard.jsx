@@ -93,11 +93,11 @@ useEffect(() => {
     .catch(err => { console.error('History log error:', err); setLoadError(true) })
 }, [])
 
-  const statCards = [
-    { label: 'Total Applicants', value: stats.total, color: 'purple' },
-    { label: 'Under Review', value: stats.under_review, color: 'yellow' },
-    { label: 'Approved', value: stats.approved, color: 'green' },
-    { label: 'Rejected', value: stats.rejected, color: 'red' },
+  const statCircles = [
+    { label: 'Total', value: stats.total, tone: 'total' },
+    { label: 'Review', value: stats.under_review, tone: 'review' },
+    { label: 'Approved', value: stats.approved, tone: 'approved' },
+    { label: 'Rejected', value: stats.rejected, tone: 'rejected' },
   ]
 
   return (
@@ -105,12 +105,8 @@ useEffect(() => {
 
       {/* Header */}
       <div className="dash-header">
-        <div>
-          <h2 className="dash-title">Home</h2>
-          <p className="dash-sub">
-            Welcome back, <strong>{user.full_name || 'Admin'}!</strong>
-          </p>
-        </div>
+        <h2 className="dash-title">Welcome back, {user.full_name || 'Admin'}!</h2>
+        <p className="dash-sub">System ledger report as of today.</p>
       </div>
 
       {loadError && (
@@ -123,13 +119,13 @@ useEffect(() => {
       {loading ? (
         <div className="loading">Loading stats...</div>
       ) : (
-        <div className="stats-grid">
-          {statCards.map((stat, i) => (
-            <div key={i} className={`stat-card stat-${stat.color}`}>
-              <div>
-                <h3 className="stat-value">{stat.value}</h3>
-                <p className="stat-label">{stat.label}</p>
+        <div className="stat-circles">
+          {statCircles.map((stat, i) => (
+            <div key={i} className="stat-circle-item">
+              <div className={`stat-circle tone-${stat.tone}`}>
+                <span className="stat-circle-value">{stat.value}</span>
               </div>
+              <p className="stat-circle-label">{stat.label}</p>
             </div>
           ))}
         </div>
@@ -146,7 +142,7 @@ useEffect(() => {
               <XAxis dataKey="year" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
               <Tooltip />
-              <Bar dataKey="count" name="Scholars" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="Scholars" fill="var(--accent)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         ) : (
@@ -227,6 +223,8 @@ useEffect(() => {
           <h3>Recent Applications</h3>
           <a href="/admin/applications" className="view-all">View All</a>
         </div>
+
+        {/* Desktop: table */}
         <table className="dash-table">
           <thead>
             <tr>
@@ -241,7 +239,7 @@ useEffect(() => {
           <tbody>
             {recentApps.length === 0 ? (
               <tr>
-                <td colSpan="6" style={{ textAlign: 'center', color: '#aaa', padding: '20px' }}>
+                <td colSpan="6" style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '20px' }}>
                   No recent applications
                 </td>
               </tr>
@@ -269,6 +267,26 @@ useEffect(() => {
             )}
           </tbody>
         </table>
+
+        {/* Mobile: card list */}
+        <div className="recent-cards">
+          {recentApps.length === 0 ? (
+            <p className="chart-sub">No recent applications</p>
+          ) : (
+            recentApps.map((app, i) => (
+              <div key={i} className="recent-card">
+                <div>
+                  <p className="recent-card-name">{app.full_name}</p>
+                  <p className="recent-card-detail">{app.course}</p>
+                  <p className="recent-card-detail">{app.gpa} GWA</p>
+                </div>
+                <span className={`badge ${statusClass[displayStatus(app.application_status, app.ml_status)] || 'badge-yellow'}`}>
+                  {displayStatus(app.application_status, app.ml_status) || 'Pending'}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       {/* History Log - recent Approved/Rejected decisions with interpreted reasons */}
