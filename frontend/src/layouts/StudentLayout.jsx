@@ -28,13 +28,9 @@ function StudentLayout() {
             className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <span>Dashboard</span>
           </NavLink>
-          <NavLink to="/student/view-application"
+          <NavLink to="/student/applicant-details"
             className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>My Application</span>
-          </NavLink>
-          <NavLink to="/student/documents"
-            className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Documents</span>
+            <span>Applicant Details</span>
           </NavLink>
           <NavLink to="/student/guidelines"
             className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>

@@ -223,7 +223,7 @@ function StudentDashboard() {
               <button
                 className="btn-continue"
                 onClick={() => navigate(
-                  application ? '/student/view-application' : '/student/application'
+                  application ? '/student/applicant-details' : '/student/application'
                 )}>
                 {application ? 'View My Application →' : 'Start Application →'}
               </button>
@@ -256,7 +256,7 @@ function StudentDashboard() {
               </div>
               <button
                 className="btn-upload-missing"
-                onClick={() => navigate('/student/documents')}>
+                onClick={() => navigate('/student/applicant-details')}>
                 + Upload Missing Files
               </button>
             </div>

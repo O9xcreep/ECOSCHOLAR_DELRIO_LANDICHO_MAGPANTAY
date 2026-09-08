@@ -1,21 +1,24 @@
 import { useState, useEffect, useCallback } from 'react'
-import { apiFetch } from '../../api'
+import { apiFetch, displayStatus } from '../../api'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
 
-const PAGE_STATUSES = [
-  'Newly Submitted',
-  'Pending Verification',
-  'Not Yet Reviewed',
-  'Incomplete'
-]
+// Still being worked through the review pipeline - these are the ones bulk
+// actions and the per-row Verify button apply to. Approved/Rejected/Withdrawn
+// are already decided, so they only ever get a View action.
+const REVIEWABLE_STATUSES = ['Newly Submitted', 'Pending Verification', 'Not Yet Reviewed', 'Incomplete']
+const DECIDED_STATUSES = ['Approved', 'Rejected', 'Withdrawn']
+const ALL_STATUSES = [...REVIEWABLE_STATUSES, ...DECIDED_STATUSES]
 
 const TABS = [
-  { label: 'All', key: 'All', value: PAGE_STATUSES.join(',') },
+  { label: 'All', key: 'All', value: ALL_STATUSES.join(',') },
   { label: 'Newly Submitted', key: 'Newly Submitted', value: 'Newly Submitted' },
   { label: 'Pending Verification', key: 'Pending Verification', value: 'Pending Verification' },
   { label: 'Not Yet Reviewed', key: 'Not Yet Reviewed', value: 'Not Yet Reviewed' },
   { label: 'Incomplete', key: 'Incomplete', value: 'Incomplete' },
+  { label: 'Approved', key: 'Approved', value: 'Approved' },
+  { label: 'Rejected', key: 'Rejected', value: 'Rejected' },
+  { label: 'Withdrawn', key: 'Withdrawn', value: 'Withdrawn' },
 ]
 
 const statusClass = {
@@ -23,6 +26,10 @@ const statusClass = {
   'Pending Verification': 'badge-yellow',
   'Not Yet Reviewed': 'badge-purple',
   'Incomplete': 'badge-red',
+  'Approved': 'badge-green',
+  'Rejected': 'badge-red',
+  'Waitlisted': 'badge-yellow',
+  'Withdrawn': 'badge-gray',
 }
 
 const avatarColors = [
@@ -41,6 +48,7 @@ const SORT_OPTIONS = [
   { label: 'Submitted date (oldest first)', value: 'submitted_at' },
   { label: 'GWA (highest first)', value: '-gpa' },
   { label: 'GWA (lowest first)', value: 'gpa' },
+  { label: 'ML score (highest first)', value: '-ml_score' },
   { label: 'Name (A-Z)', value: 'full_name' },
 ]
 
@@ -61,7 +69,8 @@ function Applications() {
   const [bulkVerifying, setBulkVerifying] = useState(false)
   const [sort, setSort] = useState('')
 
-  const activeStatus = TABS.find(t => t.key === activeTab)?.value || PAGE_STATUSES.join(',')
+  const activeStatus = TABS.find(t => t.key === activeTab)?.value || ALL_STATUSES.join(',')
+  const reviewableIds = applications.filter(a => REVIEWABLE_STATUSES.includes(a.application_status)).map(a => a.id)
 
   const fetchApplications = useCallback(async () => {
     setLoading(true)
@@ -117,8 +126,8 @@ function Applications() {
   }
 
   const toggleAll = () => {
-    if (selected.length === applications.length) setSelected([])
-    else setSelected(applications.map(a => a.id))
+    if (selected.length === reviewableIds.length && reviewableIds.length > 0) setSelected([])
+    else setSelected(reviewableIds)
   }
 
   const handleBulkVerify = async () => {
@@ -154,9 +163,9 @@ function Applications() {
   return (
     <div className="applications-page">
 
-      {/* Stat Cards */}
+      {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">
-        {TABS.slice(1).map(tab => (
+        {TABS.slice(1, 5).map(tab => (
           <div key={tab.key}
             className={`app-stat-card stat-${tab.key.replace(/\s/g, '-').toLowerCase()}`}>
             <h3>{tabCounts[tab.key] ?? '—'}</h3>
@@ -224,7 +233,7 @@ function Applications() {
                 <th>
                   <input
                     type="checkbox"
-                    checked={selected.length === applications.length && applications.length > 0}
+                    checked={selected.length === reviewableIds.length && reviewableIds.length > 0}
                     onChange={toggleAll}
                   />
                 </th>
@@ -241,19 +250,24 @@ function Applications() {
               {applications.length === 0 ? (
                 <tr>
                   <td colSpan="8" className="empty-row">
-                    No applications found.
+                    No applicants found.
                   </td>
                 </tr>
               ) : (
-                applications.map((app, i) => (
+                applications.map((app, i) => {
+                  const isReviewable = REVIEWABLE_STATUSES.includes(app.application_status)
+                  const displayed = isReviewable ? app.application_status : displayStatus(app.application_status, app.ml_status)
+                  return (
                   <tr key={app.id}
                     className={selected.includes(app.id) ? 'selected-row' : ''}>
                     <td>
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(app.id)}
-                        onChange={() => toggleSelect(app.id)}
-                      />
+                      {isReviewable && (
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(app.id)}
+                          onChange={() => toggleSelect(app.id)}
+                        />
+                      )}
                     </td>
                     <td>
                       <div className="applicant-cell">
@@ -287,8 +301,8 @@ function Applications() {
                         : 'N/A'}
                     </td>
                     <td>
-                      <span className={`badge ${statusClass[app.application_status] || 'badge-yellow'}`}>
-                        {app.application_status || 'Pending'}
+                      <span className={`badge ${statusClass[displayed] || 'badge-yellow'}`}>
+                        {displayed || 'Pending'}
                       </span>
                     </td>
                     <td>
@@ -299,28 +313,31 @@ function Applications() {
                           onClick={() => setSelectedApplicant(app)}>
                           View
                         </button>
-                        <button
-                          className="action-btn approve"
-                          title="Verify documents & let the model decide eligibility"
-                          onClick={async () => {
-                            if (!window.confirm(
-                              `Confirm ${app.full_name}'s documents are correct and complete. ` +
-                              `The eligibility model will then decide Approved/Rejected automatically.`
-                            )) return
-                            const res = await apiFetch(
-                              `/api/applications/${app.id}/verify`,
-                              { method: 'PUT' }
-                            )
-                            const data = await res.json()
-                            if (!res.ok) alert(data.error || 'Could not decide eligibility for this applicant')
-                            refresh()
-                          }}>
-                          Verify
-                        </button>
+                        {isReviewable && (
+                          <button
+                            className="action-btn approve"
+                            title="Verify documents & let the model decide eligibility"
+                            onClick={async () => {
+                              if (!window.confirm(
+                                `Confirm ${app.full_name}'s documents are correct and complete. ` +
+                                `The eligibility model will then decide Approved/Rejected automatically.`
+                              )) return
+                              const res = await apiFetch(
+                                `/api/applications/${app.id}/verify`,
+                                { method: 'PUT' }
+                              )
+                              const data = await res.json()
+                              if (!res.ok) alert(data.error || 'Could not decide eligibility for this applicant')
+                              refresh()
+                            }}>
+                            Verify
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>

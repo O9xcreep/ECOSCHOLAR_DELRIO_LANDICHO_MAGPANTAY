@@ -36,9 +36,6 @@ function AdminLayout() {
                 className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
                 <span>Ranking</span>
               </NavLink>
-              <NavLink to="/admin/applicants" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-                <span>Applicants</span>
-              </NavLink>
               <NavLink to="/admin/applications" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
                 <span>Applications</span>
               </NavLink>
@@ -46,11 +43,6 @@ function AdminLayout() {
                 <span>Reports</span>
               </NavLink>
             </>
-          )}
-          {isSuperAdmin && (
-            <NavLink to="/admin/form-builder" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-              <span>Form Builder</span>
-            </NavLink>
           )}
           <NavLink to="/admin/settings" className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
             <span>Settings</span>

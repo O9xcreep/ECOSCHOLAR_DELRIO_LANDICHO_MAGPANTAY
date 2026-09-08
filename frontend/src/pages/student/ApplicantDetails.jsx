@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
-import './ApplicationView.css'
+import './ApplicantDetails.css'
 
 const STATUS_COLORS = {
   'Approved': 'badge-green',
@@ -25,32 +25,61 @@ const STATUS_MESSAGES = {
   'Withdrawn': 'You have withdrawn this application. If you change your mind, you can submit a new application.',
 }
 
-function ApplicationView() {
+function ApplicantDetails() {
   const navigate = useNavigate()
   const [application, setApplication] = useState(null)
-  const [documents, setDocuments] = useState([])
+  const [docs, setDocs] = useState([])
+  const [dragOver, setDragOver] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
   const [withdrawError, setWithdrawError] = useState('')
 
   const user = getUser() || {}
 
-  const loadApplication = () => {
+  const loadApplicantDetails = async () => {
+    setLoading(true)
+    setLoadError(false)
     if (!user.email) { setLoading(false); return }
 
-    apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.application) {
-          setApplication(data.application)
-          setDocuments(data.documents || [])
+    try {
+      const [appRes, reqRes] = await Promise.all([
+        apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`),
+        apiFetch('/api/document-requirements'),
+      ])
+      if (!appRes.ok) throw new Error(`Request failed with status ${appRes.status}`)
+      const appData = await appRes.json()
+
+      if (appData.application) {
+        setApplication(appData.application)
+
+        const reqData = reqRes.ok ? await reqRes.json() : { requirements: [] }
+        const requirements = (reqData.requirements || []).filter(r => r.enabled)
+        let mergedDocs = requirements.map(r => ({
+          id: r.id,
+          document_name: r.label,
+          required: r.required,
+          status: r.required ? 'Missing' : 'Not Required',
+          file: null,
+        }))
+        if (appData.documents && appData.documents.length > 0) {
+          mergedDocs = mergedDocs.map(d => {
+            const found = appData.documents.find(u => u.document_name === d.document_name)
+            return found ? { ...d, status: found.status } : d
+          })
         }
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
+        setDocs(mergedDocs)
+      } else {
+        setApplication(null)
+      }
+    } catch (err) {
+      console.error('Error:', err)
+      setLoadError(true)
+    }
+    setLoading(false)
   }
 
-  useEffect(() => { loadApplication() }, [])
+  useEffect(() => { loadApplicantDetails() }, [])
 
   const handleWithdraw = async () => {
     if (!window.confirm(
@@ -67,7 +96,7 @@ function ApplicationView() {
         setWithdrawError(data.error || 'Could not withdraw your application.')
         return
       }
-      loadApplication()
+      loadApplicantDetails()
     } catch {
       setWithdrawError('Cannot connect to server. Please try again.')
     } finally {
@@ -75,10 +104,63 @@ function ApplicationView() {
     }
   }
 
+  const handleUpload = async (id, file) => {
+    if (!file || !application) return
+
+    setDocs(prev => prev.map(d => d.id === id ? { ...d, file, status: 'Uploaded' } : d))
+
+    const doc = docs.find(d => d.id === id)
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('applicant_id', application.id)
+    formData.append('document_name', doc.document_name)
+
+    try {
+      const res = await apiFetch('/api/upload', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error('Upload failed')
+    } catch (err) {
+      console.error('Upload error:', err)
+      setDocs(prev => prev.map(d =>
+        d.id === id ? { ...d, file: null, status: d.required ? 'Missing' : 'Not Required' } : d
+      ))
+    }
+  }
+
+  const handleRemove = (id) => {
+    setDocs(prev => prev.map(d =>
+      d.id === id ? { ...d, file: null, status: d.required ? 'Missing' : 'Not Required' } : d
+    ))
+  }
+
+  const handleDrop = (id, e) => {
+    e.preventDefault()
+    setDragOver(null)
+    const file = e.dataTransfer.files[0]
+    if (file) handleUpload(id, file)
+  }
+
+  const getStatusClass = (status) => {
+    if (status === 'Uploaded') return 'badge-uploaded'
+    if (status === 'Missing') return 'badge-missing'
+    return 'badge-not-required'
+  }
+
   if (loading) {
     return (
       <div className="av-container">
         <div className="av-loading">Loading your application...</div>
+      </div>
+    )
+  }
+
+  if (loadError) {
+    return (
+      <div className="av-container">
+        <div className="av-empty">
+          <h2>Couldn't Load Your Details</h2>
+          <p>Check your connection and try again.</p>
+          <button className="av-btn-primary" onClick={loadApplicantDetails}>Retry</button>
+        </div>
       </div>
     )
   }
@@ -100,6 +182,9 @@ function ApplicationView() {
 
   const status = application.application_status || 'Pending'
   const displayed = displayStatus(status, application.ml_status)
+  const uploaded = docs.filter(d => d.status === 'Uploaded').length
+  const missing = docs.filter(d => d.status === 'Missing').length
+  const totalRequired = docs.filter(d => d.required).length
 
   return (
     <div className="av-container">
@@ -107,7 +192,7 @@ function ApplicationView() {
       {/* Header */}
       <div className="av-header">
         <div>
-          <h2 className="av-title">My Application</h2>
+          <h2 className="av-title">Applicant Details</h2>
           <p className="av-sub">
             Application ID: <span className="av-id">
               #SP-{String(application.id).padStart(4, '0')}
@@ -264,25 +349,87 @@ function ApplicationView() {
 
       {/* Documents */}
       <div className="av-card">
-        <h3 className="av-card-title">Submitted Documents</h3>
-        {documents.length === 0 ? (
-          <p style={{ color: '#888', fontSize: '14px' }}>No documents uploaded yet.</p>
-        ) : (
-          <div className="av-docs">
-            {documents.map((doc, i) => (
-              <div key={i} className="av-doc-row">
-                <span className="av-doc-name">{doc.document_name}</span>
-                <span className={`badge ${
-                  doc.status === 'Uploaded' ? 'badge-green' :
-                  doc.status === 'Not Required' ? 'badge-gray' : 'badge-red'
-                }`}>
-                  {doc.status === 'Uploaded' ? 'Uploaded' :
-                   doc.status === 'Not Required' ? '— Not Required' : 'Missing'}
-                </span>
-              </div>
-            ))}
+        <h3 className="av-card-title">Documents</h3>
+
+        <div className="doc-stats">
+          <div className="doc-stat green"><div><h3>{uploaded}</h3><p>Uploaded</p></div></div>
+          <div className="doc-stat red"><div><h3>{missing}</h3><p>Missing</p></div></div>
+          <div className="doc-stat purple"><div><h3>{totalRequired}</h3><p>Total Required</p></div></div>
+          <div className="doc-stat blue">
+            <div>
+              <h3>{totalRequired > 0 ? Math.round((uploaded / totalRequired) * 100) : 0}%</h3>
+              <p>Completion</p>
+            </div>
           </div>
-        )}
+        </div>
+
+        <div className="doc-progress-track">
+          <div className="doc-progress-fill"
+            style={{ width: `${totalRequired > 0 ? (uploaded / totalRequired) * 100 : 0}%` }} />
+        </div>
+
+        <p className="doc-list-sub">Accepted formats: PDF, JPG, PNG — Max size: 5MB per file</p>
+
+        <div className="doc-list">
+          {docs.map(doc => (
+            <div
+              key={doc.id}
+              className={`doc-item ${dragOver === doc.id ? 'drag-over' : ''}`}
+              onDragOver={e => { e.preventDefault(); setDragOver(doc.id) }}
+              onDragLeave={() => setDragOver(null)}
+              onDrop={e => handleDrop(doc.id, e)}>
+
+              <div className="doc-info">
+                <div>
+                  <p className="doc-name">
+                    {doc.document_name}
+                    {doc.required && <span className="required-star"> *</span>}
+                  </p>
+                  {doc.file && <p className="doc-filename">{doc.file.name}</p>}
+                  {doc.status === 'Uploaded' && !doc.file && (
+                    <p className="doc-filename">Previously uploaded</p>
+                  )}
+                  {doc.status === 'Missing' && (
+                    <p className="doc-hint">Drag & drop or click Upload</p>
+                  )}
+                  {doc.status === 'Not Required' && (
+                    <p className="doc-hint">Only required for specific applicants</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="doc-actions">
+                <span className={`badge ${getStatusClass(doc.status)}`}>
+                  {doc.status}
+                </span>
+                {doc.status === 'Uploaded' ? (
+                  <button className="btn-remove" onClick={() => handleRemove(doc.id)}>
+                    Remove
+                  </button>
+                ) : (
+                  <div>
+                    <button className="btn-upload"
+                      onClick={() => document.getElementById(`doc-${doc.id}`).click()}>
+                      Upload
+                    </button>
+                    <input
+                      type="file"
+                      id={`doc-${doc.id}`}
+                      style={{ display: 'none' }}
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={e => handleUpload(doc.id, e.target.files[0])}
+                    />
+                  </div>
+                )}
+              </div>
+
+            </div>
+          ))}
+        </div>
+
+        <div className="doc-note">
+          <p>Fields marked with <strong>*</strong> are required. Make sure all required documents are uploaded.</p>
+        </div>
       </div>
 
       {/* Footer */}
@@ -292,12 +439,6 @@ function ApplicationView() {
           onClick={() => navigate('/student/dashboard')}>
           ← Back to Dashboard
         </button>
-        {status === 'Incomplete' && (
-          <button className="av-btn-primary"
-            onClick={() => navigate('/student/documents')}>
-            Upload Missing Documents
-          </button>
-        )}
         {status !== 'Withdrawn' && (
           <button className="av-btn-danger" onClick={handleWithdraw} disabled={withdrawing}>
             {withdrawing ? 'Withdrawing…' : 'Withdraw Application'}
@@ -309,4 +450,4 @@ function ApplicationView() {
   )
 }
 
-export default ApplicationView
+export default ApplicantDetails

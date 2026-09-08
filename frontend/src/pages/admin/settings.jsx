@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, setSession, logout } from '../../api'
+import FormBuilder from './FormBuilder'
 import './settings.css'
 
 const ALL_TABS = ['Profile', 'Security', 'System', 'Team']
@@ -297,6 +298,8 @@ function SystemTab() {
           </button>
         </div>
       </div>
+
+      <FormBuilder />
     </div>
   )
 }
