@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: ecoscholar-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB_NAME
+        value: ecoscholars
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: FRONTEND_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        value: noreply@escholar.site
+      - key: SMTP_FROM_NAME
+        value: EcoScholar
