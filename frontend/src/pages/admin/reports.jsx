@@ -204,7 +204,7 @@ function Reports() {
           <h2 className="page-title">Reports</h2>
           <p className="page-sub">Analytics overview for scholarship applications</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
           {cycles.length > 0 && (
             <select
               className="cycle-select"
@@ -340,6 +340,7 @@ function Reports() {
       <div className="table-card">
         <h3>Applicants by application type</h3>
         <p className="chart-sub">Outcome breakdown per application type</p>
+        <div className="table-scroll">
         <table className="reports-table">
           <thead>
             <tr>
@@ -383,6 +384,7 @@ function Reports() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
     </div>

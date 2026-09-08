@@ -235,6 +235,39 @@
   white-space: nowrap;
 }
 
+/* ── SESSION / LOGOUT ── */
+.btn-danger-outline {
+  padding: 8px 14px;
+  background: white;
+  color: #ef4444;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-danger-outline:hover {
+  background: #fee2e2;
+}
+
+.btn-danger {
+  padding: 8px 14px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-danger:hover {
+  background: #dc2626;
+}
+
 /* ── STATUS GRID ── */
 .status-grid {
   display: grid;

@@ -155,6 +155,7 @@ function Ranking() {
               <h3>Within Scholarship Slots (Top {slots})</h3>
               <span className="badge badge-green">{withinSlots.length} scholars</span>
             </div>
+            <div className="table-scroll">
             <table className="ranking-table">
               <thead>
                 <tr>
@@ -221,6 +222,7 @@ function Ranking() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
 
           {/* Waitlisted Table */}
@@ -232,6 +234,7 @@ function Ranking() {
                   {waitlisted.length} waitlisted
                 </span>
               </div>
+              <div className="table-scroll">
               <table className="ranking-table">
                 <thead>
                   <tr>
@@ -280,6 +283,7 @@ function Ranking() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </>

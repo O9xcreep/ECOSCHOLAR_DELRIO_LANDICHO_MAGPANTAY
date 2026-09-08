@@ -227,6 +227,7 @@ function Applications() {
             <button className="btn-retry" onClick={fetchApplications}>Retry</button>
           </div>
         ) : (
+          <div className="table-scroll">
           <table className="app-table">
             <thead>
               <tr>
@@ -341,6 +342,7 @@ function Applications() {
               )}
             </tbody>
           </table>
+          </div>
         )}
 
         {/* Pagination */}

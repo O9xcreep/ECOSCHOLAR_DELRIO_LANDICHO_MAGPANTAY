@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
-import { apiFetch, getUser, setSession } from '../../api'
+import { useNavigate } from 'react-router-dom'
+import { apiFetch, getUser, setSession, logout } from '../../api'
 import './StudentSettings.css'
 
 const TABS = ['Profile', 'Security']
 
 // ── PROFILE TAB ──
 function ProfileTab() {
+  const navigate = useNavigate()
   const user = getUser() || {}
   const [editing, setEditing] = useState(null)
   const [formData, setFormData] = useState({
@@ -16,6 +18,7 @@ function ProfileTab() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [applicationStatus, setApplicationStatus] = useState(null)
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   useEffect(() => {
     apiFetch('/api/profile')
@@ -45,6 +48,11 @@ function ProfileTab() {
   }
 
   const fieldToApiKey = { fullName: 'full_name', contactNumber: 'contactNumber', address: 'address' }
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login')
+  }
 
   const handleSave = async (key) => {
     setError('')
@@ -140,6 +148,29 @@ function ProfileTab() {
             <span className="status-label">Application Status</span>
             <span className="badge badge-yellow">{applicationStatus || 'Loading...'}</span>
           </div>
+        </div>
+      </div>
+
+      {/* Session */}
+      <div className="settings-card">
+        <h4 className="card-label">Session</h4>
+        <div className="info-field full">
+          <label>Sign out</label>
+          <p className="field-value" style={{ fontWeight: 400, marginBottom: '10px' }}>
+            You are logged in as <strong>{user.email || 'unknown'}</strong>.
+            Logging out will end this session everywhere it's used.
+          </p>
+          {!showLogoutConfirm ? (
+            <button className="btn-danger-outline" onClick={() => setShowLogoutConfirm(true)}>
+              Logout
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <span style={{ fontSize: '13px', color: '#6B7280' }}>Are you sure?</span>
+              <button className="btn-danger" onClick={handleLogout}>Yes, Logout</button>
+              <button className="btn-cancel-edit" onClick={() => setShowLogoutConfirm(false)}>Cancel</button>
+            </div>
+          )}
         </div>
       </div>
 

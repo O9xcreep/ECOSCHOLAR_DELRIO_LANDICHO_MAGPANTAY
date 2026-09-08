@@ -160,6 +160,15 @@
   overflow: hidden;
 }
 
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-table {
+  min-width: 640px;
+}
+
 .app-table {
   width: 100%;
   border-collapse: collapse;
