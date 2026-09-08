@@ -37,7 +37,7 @@ class TestCreateAdmin:
 
     def test_created_admin_has_no_usable_starting_password(self, client, auth_headers):
         """A manually created admin must not get a caller-chosen password - access is
-        only granted through the emailed set-password link, same as approved requests."""
+        only granted by verifying the emailed one-time code and setting a real one."""
         client.post('/api/admins', headers=auth_headers(),
                     json={'full_name': 'New Admin', 'email': 'nopassword@test.com'})
         res = client.post('/api/login', json={'email': 'nopassword@test.com', 'password': 'guessed-password'})
@@ -110,3 +110,82 @@ class TestResendInvite:
 
         res = client.post(f'/api/admins/{pending_id}/resend-invite', headers=headers)
         assert res.status_code == 200
+
+
+def get_setup_otp_code(db, email):
+    return db.otps.find_one({'email': email, 'purpose': 'admin_setup'})['code']
+
+
+class TestVerifyAdminSetupOtp:
+    def test_correct_code_sets_password_and_logs_in(self, client, db, auth_headers):
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'New Admin', 'email': 'setup@test.com'})
+        code = get_setup_otp_code(db, 'setup@test.com')
+
+        res = client.post('/api/admins/verify-setup-otp',
+                           json={'email': 'setup@test.com', 'code': code, 'new_password': 'MyChosenPass123'})
+        assert res.status_code == 200
+        body = res.get_json()
+        assert 'token' in body
+
+        assert db.users.find_one({'email': 'setup@test.com'})['password_set'] is True
+        relogin = client.post('/api/login', json={'email': 'setup@test.com', 'password': 'MyChosenPass123'})
+        assert relogin.status_code == 200
+
+    def test_wrong_code_rejected(self, client, auth_headers):
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'New Admin', 'email': 'setup2@test.com'})
+        res = client.post('/api/admins/verify-setup-otp',
+                           json={'email': 'setup2@test.com', 'code': '000000', 'new_password': 'MyChosenPass123'})
+        assert res.status_code == 400
+
+    def test_short_password_rejected(self, client, db, auth_headers):
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'New Admin', 'email': 'setup3@test.com'})
+        code = get_setup_otp_code(db, 'setup3@test.com')
+        res = client.post('/api/admins/verify-setup-otp',
+                           json={'email': 'setup3@test.com', 'code': code, 'new_password': 'short'})
+        assert res.status_code == 400
+
+    def test_missing_fields_rejected(self, client):
+        res = client.post('/api/admins/verify-setup-otp', json={'email': 'setup4@test.com'})
+        assert res.status_code == 400
+
+    def test_cannot_be_used_against_an_already_activated_admin(self, client, db, auth_headers):
+        """Otherwise this endpoint would double as an unauthenticated password
+        reset for anyone who can guess a valid code window - forgot-password
+        (which requires clicking a link mailed to that address) covers that.
+        Bypasses resend-invite's own "already activated" guard by inserting the
+        OTP directly, to isolate this endpoint's own check."""
+        from datetime import datetime, timedelta
+        auth_headers()  # admin@test.com, already has password_set True
+        db.otps.insert_one({
+            'email': 'admin@test.com', 'purpose': 'admin_setup', 'code': '123456', 'attempts': 0,
+            'created_at': datetime.utcnow(), 'expires_at': datetime.utcnow() + timedelta(minutes=10),
+        })
+
+        res = client.post('/api/admins/verify-setup-otp',
+                           json={'email': 'admin@test.com', 'code': '123456', 'new_password': 'NewPass123'})
+        assert res.status_code == 404
+
+
+class TestResendAdminSetupOtp:
+    def test_resend_issues_a_new_working_code(self, client, db, auth_headers):
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'New Admin', 'email': 'resend-setup@test.com'})
+        old_code = get_setup_otp_code(db, 'resend-setup@test.com')
+
+        res = client.post('/api/admins/resend-setup-otp', json={'email': 'resend-setup@test.com'})
+        assert res.status_code == 200
+        new_code = get_setup_otp_code(db, 'resend-setup@test.com')
+        assert new_code != old_code
+
+        fresh = client.post('/api/admins/verify-setup-otp',
+                             json={'email': 'resend-setup@test.com', 'code': new_code, 'new_password': 'MyChosenPass123'})
+        assert fresh.status_code == 200
+
+    def test_same_response_for_activated_or_unknown_email(self, client, auth_headers):
+        auth_headers()  # admin@test.com, already activated
+        res1 = client.post('/api/admins/resend-setup-otp', json={'email': 'admin@test.com'})
+        res2 = client.post('/api/admins/resend-setup-otp', json={'email': 'no-such-account@test.com'})
+        assert res1.get_json() == res2.get_json()

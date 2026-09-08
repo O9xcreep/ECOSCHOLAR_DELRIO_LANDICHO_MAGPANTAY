@@ -575,7 +575,7 @@ function TeamTab() {
             )}
 
             <p className="info-sub" style={{ marginBottom: 0 }}>
-              They'll receive an email with a link to set their own password.
+              They'll receive an email with a verification code to set their own password at /admin-setup.
             </p>
             <div style={{ display: 'flex', gap: '10px' }}>
               <button className="btn-primary" onClick={handleCreate} disabled={creating}>

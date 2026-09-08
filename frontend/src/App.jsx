@@ -8,6 +8,7 @@ import StudentLayout from './layouts/StudentLayout'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import ApplyAdmin from './pages/ApplyAdmin'
+import AdminSetup from './pages/AdminSetup'
 import ProtectedRoute from './components/ProtectedRoute'
 import { getUser } from './api'
 
@@ -39,6 +40,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/apply-admin" element={<ApplyAdmin />} />
+        <Route path="/admin-setup" element={<AdminSetup />} />
 
         {/* Student */}
         <Route path="/student" element={<ProtectedRoute role="student"><StudentLayout /></ProtectedRoute>}>

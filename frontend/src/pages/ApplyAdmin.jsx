@@ -2,9 +2,10 @@ import { useState, useCallback, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { API_BASE_URL } from '../api'
 
-// Not linked from the public Login page - LGU officials are given this URL
-// directly (e.g. by an existing admin during onboarding), rather than it
-// being discoverable by anyone who lands on /login.
+// Reached only after verifying a one-time code sent to the applicant's email
+// (see the "Apply for admin access" modal on the login page) - the token in
+// the URL proves that verification already happened, it isn't itself a secret
+// link mailed out.
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
 
@@ -279,7 +280,7 @@ const ADDRESS_CITIES = [
 ]
 
 const EMPTY_ADMIN_REQUEST = {
-  fullName: '', office: '', municipality: '', contactNumber: '', message: '',
+  fullName: '', password: '', confirmPassword: '', office: '', municipality: '', contactNumber: '', message: '',
 }
 
 function ApplyAdmin() {
@@ -311,9 +312,12 @@ function ApplyAdmin() {
 
   const handleSubmit = useCallback(async () => {
     setError('')
-    const { fullName, office, municipality, contactNumber } = data
+    const { fullName, password, confirmPassword, office, municipality, contactNumber } = data
 
     if (!fullName.trim())      { setError('Full name is required'); return }
+    if (!password)             { setError('Password is required'); return }
+    if (password.length < 8)  { setError('Password must be at least 8 characters'); return }
+    if (password !== confirmPassword) { setError('Passwords do not match'); return }
     if (!office.trim())        { setError('Office / position is required'); return }
     if (!municipality)         { setError('Municipality is required'); return }
     if (!contactNumber.trim()) { setError('Contact number is required'); return }
@@ -328,6 +332,7 @@ function ApplyAdmin() {
         body: JSON.stringify({
           token,
           full_name: fullName.trim(),
+          password,
           office: office.trim(),
           municipality,
           contact_number: contactNumber.trim(),
@@ -383,8 +388,8 @@ function ApplyAdmin() {
               </div>
             ) : tokenStatus === 'invalid' ? (
               <div className="lp-success-box">
-                <h2>Link Invalid</h2>
-                <p>{tokenError} Ask the admin who invited you to resend the "Apply for Admin" link from the sign-up page.</p>
+                <h2>Session Invalid</h2>
+                <p>{tokenError} Go back to the sign-up page and use "Apply for admin access" to verify your email again.</p>
                 <Link className="lp-btn" to="/login" style={{ textDecoration: 'none', display: 'flex' }}>
                   Back to Sign In
                 </Link>
@@ -394,8 +399,8 @@ function ApplyAdmin() {
                 <h2>Request Submitted</h2>
                 <p>
                   Thanks — an existing EcoScholar admin will verify your details.
-                  If approved, you'll receive an email at <strong>{verifiedEmail}</strong> with
-                  a link to set your password.
+                  If approved, you can sign in right away at <strong>{verifiedEmail}</strong> with
+                  the password you just set.
                 </p>
                 <Link className="lp-btn" to="/login" style={{ textDecoration: 'none', display: 'flex' }}>
                   Back to Sign In
@@ -419,6 +424,35 @@ function ApplyAdmin() {
                     onChange={e => { setData(p => ({ ...p, fullName: e.target.value })); setError('') }}
                     onKeyDown={handleKeyDown}
                   />
+                </div>
+
+                <div className="lp-field">
+                  <label>Password</label>
+                  <input
+                    className="lp-input"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={data.password}
+                    autoComplete="new-password"
+                    onChange={e => { setData(p => ({ ...p, password: e.target.value })); setError('') }}
+                    onKeyDown={handleKeyDown}
+                  />
+                </div>
+
+                <div className="lp-field">
+                  <label>Confirm Password</label>
+                  <input
+                    className="lp-input"
+                    type="password"
+                    placeholder="Re-enter your password"
+                    value={data.confirmPassword}
+                    autoComplete="new-password"
+                    onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setError('') }}
+                    onKeyDown={handleKeyDown}
+                  />
+                  {data.confirmPassword && data.confirmPassword !== data.password && (
+                    <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
+                  )}
                 </div>
 
                 <div className="lp-field">

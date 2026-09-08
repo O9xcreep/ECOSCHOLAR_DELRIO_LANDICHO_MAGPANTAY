@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Admin account requests: email-verification start step, token-gated
-submission, and admin approve/reject review."""
+"""Admin account requests: OTP-verified start step, token-gated submission
+(with a password chosen upfront), and admin approve/reject review."""
 
 APPLICANT_EMAIL = 'juan@lgu.gov.ph'
 
 FORM_FIELDS = {
     'full_name': 'Juan Dela Cruz',
+    'password': 'ApplicantPass123',
     'office': 'Municipal Social Welfare and Development Office',
     'municipality': 'Liliw',
     'contact_number': '09123456789',
@@ -14,8 +15,15 @@ FORM_FIELDS = {
 
 
 def make_apply_token(email=APPLICANT_EMAIL):
+    """Test shortcut for endpoints that need an already-verified session token,
+    without going through the real start -> OTP -> verify-start-otp round trip
+    (that round trip itself is covered by TestStartAdminRequest below)."""
     import app as app_module
     return app_module._admin_apply_serializer.dumps({'email': email})
+
+
+def get_otp_code(db, email):
+    return db.otps.find_one({'email': email, 'purpose': 'admin_apply'})['code']
 
 
 class TestStartAdminRequest:
@@ -39,6 +47,35 @@ class TestStartAdminRequest:
         res2 = client.post('/api/admin-requests/start', json={'email': 'brand-new@test.com'})
         assert res1.status_code == res2.status_code == 200
         assert res1.get_json() == res2.get_json()
+
+
+class TestVerifyStartOtp:
+    def test_correct_code_returns_a_session_token(self, client, db):
+        client.post('/api/admin-requests/start', json={'email': APPLICANT_EMAIL})
+        code = get_otp_code(db, APPLICANT_EMAIL)
+
+        res = client.post('/api/admin-requests/verify-start-otp', json={'email': APPLICANT_EMAIL, 'code': code})
+        assert res.status_code == 200
+        assert 'token' in res.get_json()
+
+    def test_token_from_otp_verifies_to_the_right_email(self, client, db):
+        import app as app_module
+        client.post('/api/admin-requests/start', json={'email': APPLICANT_EMAIL})
+        code = get_otp_code(db, APPLICANT_EMAIL)
+        token = client.post('/api/admin-requests/verify-start-otp', json={'email': APPLICANT_EMAIL, 'code': code}).get_json()['token']
+
+        res = client.get(f'/api/admin-requests/verify-token?token={token}')
+        assert res.status_code == 200
+        assert res.get_json()['email'] == APPLICANT_EMAIL
+
+    def test_wrong_code_rejected(self, client):
+        client.post('/api/admin-requests/start', json={'email': APPLICANT_EMAIL})
+        res = client.post('/api/admin-requests/verify-start-otp', json={'email': APPLICANT_EMAIL, 'code': '000000'})
+        assert res.status_code == 400
+
+    def test_missing_fields_rejected(self, client):
+        res = client.post('/api/admin-requests/verify-start-otp', json={'email': APPLICANT_EMAIL})
+        assert res.status_code == 400
 
 
 class TestVerifyAdminApplyToken:
@@ -65,6 +102,8 @@ class TestSubmitAdminRequest:
         stored = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         assert stored is not None
         assert stored['status'] == 'pending'
+        assert 'password_hash' in stored
+        assert stored['password_hash'] != FORM_FIELDS['password']  # never stored in plaintext
 
     def test_missing_token_rejected(self, client):
         res = client.post('/api/admin-requests', json=FORM_FIELDS)
@@ -77,6 +116,11 @@ class TestSubmitAdminRequest:
     def test_missing_fields_rejected(self, client):
         token = make_apply_token()
         res = client.post('/api/admin-requests', json={'token': token})
+        assert res.status_code == 400
+
+    def test_short_password_rejected(self, client):
+        token = make_apply_token()
+        res = client.post('/api/admin-requests', json={**FORM_FIELDS, 'token': token, 'password': 'short'})
         assert res.status_code == 400
 
     def test_email_comes_from_token_not_client(self, client, db):
@@ -162,9 +206,21 @@ class TestApproveAdminRequest:
         res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=lgu_headers, json={'role': 'admin'})
         assert res.status_code == 403
 
-    def test_approved_admin_has_no_usable_starting_password(self, client, db, auth_headers):
-        """Approval must never leave a guessable/known password on the account -
-        access is only granted through the emailed set-password link."""
+    def test_approved_admin_can_log_in_with_the_password_they_chose(self, client, db, auth_headers):
+        """Unlike a directly-added admin (who gets a random placeholder password and
+        an emailed set-password link), an approved applicant already proved their
+        email and chose their own password when submitting - it should just work."""
+        client.post('/api/admin-requests', json={**FORM_FIELDS, 'token': make_apply_token()})
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
+
+        res = client.post('/api/login', json={'email': APPLICANT_EMAIL, 'password': FORM_FIELDS['password']})
+        assert res.status_code == 200
+
+        created = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert created['password_set'] is True
+
+    def test_wrong_password_still_rejected(self, client, db, auth_headers):
         client.post('/api/admin-requests', json={**FORM_FIELDS, 'token': make_apply_token()})
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())

@@ -46,10 +46,10 @@ RESET_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-reset')
 
 # Proves the applicant actually controls the email address before they ever see the
-# admin-request form - otherwise anyone could submit a request impersonating someone
-# else's inbox. Longer-lived than the reset token since filling out office/municipality
-# details takes more than the few minutes a password reset does.
-ADMIN_APPLY_TOKEN_MAX_AGE = 60 * 60 * 24  # 24 hours
+# admin-request form - issued only after they type the correct OTP sent to that
+# address, so (unlike the old click-a-link version) this is used within the same
+# sitting rather than "whenever they next check email" - a shorter window is safer.
+ADMIN_APPLY_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _admin_apply_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-admin-apply')
 
 # Email-verification OTP for new student registrations. A short numeric code
@@ -406,35 +406,52 @@ def get_db():
 def generate_otp_code():
     return ''.join(secrets.choice('0123456789') for _ in range(OTP_LENGTH))
 
-def create_and_send_otp(email, full_name):
-    """(Re)issues a registration verification code - any previous unused code for
-    this email is discarded, so only the most recently sent one ever works."""
+OTP_COPY = {
+    "register": {
+        "subject": "Verify your EcoScholar account",
+        "intro": "Enter this on the sign-up page to finish creating your account.",
+    },
+    "admin_apply": {
+        "subject": "Continue your EcoScholar admin application",
+        "intro": "Enter this on the admin application page to continue.",
+    },
+    "admin_setup": {
+        "subject": "Set up your EcoScholar admin account",
+        "intro": "Enter this code, along with a new password, on the admin setup page to activate your account.",
+    },
+}
+
+def create_and_send_otp(email, purpose, full_name=''):
+    """(Re)issues a verification code for the given purpose - any previous unused
+    code for this email+purpose is discarded, so only the most recently sent one
+    ever works. `purpose` is one of OTP_COPY's keys (register, admin_apply)."""
     db = get_db()
-    db.otps.delete_many({"email": email, "purpose": "register"})
+    db.otps.delete_many({"email": email, "purpose": purpose})
     code = generate_otp_code()
     db.otps.insert_one({
         "email": email,
-        "purpose": "register",
+        "purpose": purpose,
         "code": code,
         "attempts": 0,
         "created_at": datetime.utcnow(),
         "expires_at": datetime.utcnow() + timedelta(seconds=OTP_MAX_AGE),
     })
+    copy = OTP_COPY[purpose]
     html = f"""
         <p>Hi {full_name},</p>
         <p>Your EcoScholar verification code is:</p>
         <p style="font-size:28px;font-weight:700;letter-spacing:4px;color:#5C35D4;">{code}</p>
-        <p>Enter this on the sign-up page to finish creating your account. It expires in 10 minutes.</p>
-        <p>If you didn't try to create an account, you can safely ignore this email.</p>
+        <p>{copy['intro']} It expires in 10 minutes.</p>
+        <p>If you didn't request this, you can safely ignore this email.</p>
     """
-    send_email_async(email, 'Verify your EcoScholar account', html)
+    send_email_async(email, copy['subject'], html)
 
-def verify_otp(email, code):
+def verify_otp(email, purpose, code):
     """Returns (ok, error_message). Consumes the code on success; on a wrong
     guess it counts against the attempt limit without consuming the code, so a
     typo doesn't cost the user their one shot."""
     db = get_db()
-    otp = db.otps.find_one({"email": email, "purpose": "register"})
+    otp = db.otps.find_one({"email": email, "purpose": purpose})
     if not otp or otp["expires_at"] < datetime.utcnow():
         return False, "This code has expired. Please request a new one."
     if otp["attempts"] >= OTP_MAX_ATTEMPTS:
@@ -815,7 +832,7 @@ def register():
             "privacy_consent": True,
             **profile_data,
         })
-        create_and_send_otp(email, full_name)
+        create_and_send_otp(email, 'register', full_name)
 
         return jsonify({
             "message": "Enter the verification code sent to your email to finish creating your account.",
@@ -836,7 +853,7 @@ def verify_register_otp():
     if not email or not code:
         return jsonify({"error": "Email and code are required"}), 400
 
-    ok, error = verify_otp(email, code)
+    ok, error = verify_otp(email, 'register', code)
     if not ok:
         return jsonify({"error": error}), 400
 
@@ -865,7 +882,7 @@ def resend_register_otp():
     db = get_db()
     user = db.users.find_one({"email": email})
     if user and not user.get('email_verified', True):
-        create_and_send_otp(email, user['full_name'])
+        create_and_send_otp(email, 'register', user['full_name'])
     return jsonify(generic)
 
 # ── AUTH: GET PROFILE (for pre-filling the application form) ──
@@ -2385,8 +2402,6 @@ def create_admin_account():
     admin_doc = create_admin_with_setup_email(
         full_name=full_name,
         email=email,
-        heading=f"Welcome, {full_name}!",
-        intro="An existing EcoScholar admin has created an account for you. Set your password to get started.",
         role=role,
         permissions=permissions,
     )
@@ -2436,12 +2451,62 @@ def resend_admin_invite(admin_id):
     if admin.get("password_set", True):
         return jsonify({"error": "This admin has already set their password"}), 400
 
-    send_admin_setup_email(
-        admin["_id"], admin["email"],
-        heading=f"Hi {admin['full_name']}, here's your new link",
-        intro="Here's a fresh link to set your EcoScholar admin password - your previous one may have expired.",
-    )
+    create_and_send_otp(admin["email"], 'admin_setup', admin['full_name'])
     return jsonify({"message": "Invite resent"})
+
+# Public (no auth) - the invited person isn't logged in yet. Only usable against
+# an account that's still password_set=False, so it can't be used to reset an
+# already-active admin's password (that's what forgot-password is for).
+@app.route('/api/admins/verify-setup-otp', methods=['POST'])
+@limiter.limit("10 per minute")
+def verify_admin_setup_otp():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    code = data.get('code') or ''
+    new_password = data.get('new_password') or ''
+    if not email or not code or not new_password:
+        return jsonify({"error": "Email, code, and new password are required"}), 400
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+    ok, error = verify_otp(email, 'admin_setup', code)
+    if not ok:
+        return jsonify({"error": error}), 400
+
+    db = get_db()
+    user = db.users.find_one({"email": email, "role": {"$in": ["admin", "lgu_member"]}, "password_set": False})
+    if not user:
+        return jsonify({"error": "Account not found"}), 404
+
+    db.users.update_one({"_id": user["_id"]}, {"$set": {
+        "password": generate_password_hash(new_password),
+        "password_set": True,
+    }})
+    user_payload = {"id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role']}
+    if user['role'] == 'lgu_member':
+        user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
+    return jsonify({
+        "message": "Password set. Your account is ready.",
+        "user": user_payload,
+        "token": issue_token(user_payload)
+    })
+
+@app.route('/api/admins/resend-setup-otp', methods=['POST'])
+@limiter.limit("5 per minute")
+def resend_admin_setup_otp():
+    """Public self-service resend for an invited team member who didn't get (or
+    lost) their code - same anti-enumeration shape as the other resend endpoints."""
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    generic = {"message": "If that email has a pending invite, a new code has been sent."}
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    db = get_db()
+    user = db.users.find_one({"email": email, "role": {"$in": ["admin", "lgu_member"]}, "password_set": False})
+    if user:
+        create_and_send_otp(email, 'admin_setup', user['full_name'])
+    return jsonify(generic)
 
 @app.route('/api/admins/<admin_id>', methods=['DELETE'])
 @require_permission('can_manage_members')
@@ -2466,11 +2531,13 @@ def delete_admin_account(admin_id):
     db.users.delete_one({"_id": admin_oid})
     return jsonify({"message": "Admin account removed"})
 
-def create_admin_with_setup_email(full_name, email, heading, intro, office='', municipality='', role='admin', permissions=None):
+def create_admin_with_setup_email(full_name, email, office='', municipality='', role='admin', permissions=None):
     """Inserts a new admin/LGU-member user with no usable starting password and emails
-    them a time-limited link to set one - used both when an admin-access request is
-    approved and when an existing admin adds a colleague directly, so nobody (not even
-    the admin who created the account) ever knows another team member's password."""
+    them a one-time code to set one - used when an existing admin adds a colleague
+    directly, so nobody (not even the admin who created the account) ever knows
+    another team member's password. (An approved public application is different -
+    see create_admin_from_approved_request - the applicant already chose and proved
+    their own password before an admin ever reviews it.)"""
     db = get_db()
     placeholder_password = generate_password_hash(secrets.token_urlsafe(32))
     doc = {
@@ -2489,12 +2556,35 @@ def create_admin_with_setup_email(full_name, email, heading, intro, office='', m
         doc["permissions"] = permissions or {p: False for p in ADMIN_PERMISSIONS}
     result = db.users.insert_one(doc)
 
-    send_admin_setup_email(result.inserted_id, email, heading, intro)
+    create_and_send_otp(email, 'admin_setup', full_name)
     return db.users.find_one({"_id": result.inserted_id})
 
-def send_admin_setup_email(user_id, email, heading, intro):
-    token = _reset_serializer.dumps({"id": str(user_id)})
-    setup_link = f"{FRONTEND_URL}/reset-password?token={token}"
+def create_admin_from_approved_request(req, role, permissions):
+    """Inserts a new admin/LGU-member user using the password the applicant already
+    chose (and proved their email for) when submitting their request - unlike
+    create_admin_with_setup_email, no placeholder password or set-password email is
+    needed here since they picked a real one upfront."""
+    db = get_db()
+    doc = {
+        "full_name": req["full_name"],
+        "email": req["email"],
+        "password": req["password_hash"],
+        "password_set": True,
+        "role": role,
+        "status": "active",
+        "office": req.get("office", ""),
+        "municipality": req.get("municipality", ""),
+        "created_at": datetime.utcnow(),
+        "privacy_consent": True,
+    }
+    if role == 'lgu_member':
+        doc["permissions"] = permissions or {p: False for p in ADMIN_PERMISSIONS}
+    result = db.users.insert_one(doc)
+
+    office_line = req.get('office') or ''
+    if req.get('municipality'):
+        office_line = f"{office_line} &middot; {req['municipality']}" if office_line else req['municipality']
+    login_link = f"{FRONTEND_URL}/login"
     html = f"""
         <div style="background:#F3F0FF;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
           <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
@@ -2502,17 +2592,16 @@ def send_admin_setup_email(user_id, email, heading, intro):
               <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">EcoScholar</h1>
             </div>
             <div style="padding:32px;">
-              <h2 style="margin:0 0 12px;color:#1A1A2E;font-size:19px;">{heading}</h2>
-              <p style="margin:0 0 8px;color:#374151;font-size:15px;line-height:1.6;">{intro}</p>
-              <div style="text-align:center;margin:28px 0;">
-                <a href="{setup_link}" style="display:inline-block;background:#5C35D4;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 32px;border-radius:12px;">Set Your Password</a>
-              </div>
-              <p style="margin:0 0 8px;color:#6B7280;font-size:13px;line-height:1.5;">
-                This link expires in 30 minutes for your security. If it expires, use
-                "Forgot password" on the sign-in page to get a new one - your account already exists.
+              <h2 style="margin:0 0 12px;color:#1A1A2E;font-size:19px;">You're approved, {req['full_name']}!</h2>
+              <p style="margin:0 0 8px;color:#374151;font-size:15px;line-height:1.6;">
+                Your admin account request{f" ({office_line})" if office_line else ""} has been approved.
+                You can sign in now with the password you set when applying.
               </p>
+              <div style="text-align:center;margin:28px 0;">
+                <a href="{login_link}" style="display:inline-block;background:#5C35D4;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 32px;border-radius:12px;">Sign In</a>
+              </div>
               <p style="margin:16px 0 0;color:#6B7280;font-size:13px;">
-                If you weren't expecting this, you can safely ignore this email.
+                If you didn't request admin access, please contact your system administrator.
               </p>
             </div>
           </div>
@@ -2521,7 +2610,8 @@ def send_admin_setup_email(user_id, email, heading, intro):
           </p>
         </div>
     """
-    send_email_async(email, "Set up your EcoScholar admin account", html)
+    send_email_async(req["email"], "You're approved as an EcoScholar admin", html)
+    return db.users.find_one({"_id": result.inserted_id})
 
 def serialize_admin_request(r):
     return {
@@ -2539,12 +2629,16 @@ def serialize_admin_request(r):
 
 # ── ADMIN ACCOUNT REQUESTS (LGU officials applying for admin access) ──
 # Two-step so nobody can submit a request impersonating someone else's inbox:
-# 1) POST /start with just an email - emails a time-limited link, never confirms
+# 1) POST /start with just an email - emails a one-time code, never confirms
 #    whether that email already has an account or a pending request either way.
-# 2) The emailed link carries a token proving that email was actually reachable;
-#    only then does the full form (office, municipality, etc.) become fillable,
-#    and the request is stored under the token's email, not a client-supplied one.
-# A submission still never creates the account directly - it only queues a
+# 2) POST /verify-start-otp with that code exchanges it for a short-lived token
+#    proving the email was actually reachable; only then does the full form
+#    (password, office, municipality, etc.) become fillable, and the request is
+#    stored under the token's email, not a client-supplied one.
+# The applicant's password is collected upfront here (unlike an admin added
+# directly by an existing admin, who still gets an emailed set-password link,
+# since in that case the adder doesn't know the new member's password) - a
+# submission still never creates the account directly, it only queues a
 # request that an existing admin must approve, since admin accounts can see
 # every applicant's PII and control disbursement decisions.
 @app.route('/api/admin-requests/start', methods=['POST'])
@@ -2553,25 +2647,32 @@ def start_admin_request():
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
 
-    generic = {"message": "If that address can apply for admin access, a link has been sent to it."}
+    generic = {"message": "If that address can apply for admin access, a verification code has been sent to it."}
     if not email or not re.match(r'^\S+@\S+\.\S+$', email):
         return jsonify({"error": "Enter a valid email address"}), 400
 
     try:
-        token = _admin_apply_serializer.dumps({"email": email})
-        apply_link = f"{FRONTEND_URL}/apply-admin?token={token}"
-        html = f"""
-            <p>Hi,</p>
-            <p>Someone requested to apply for EcoScholar admin access using this email address.
-            Click below to continue - this link expires in 24 hours.</p>
-            <p><a href="{apply_link}">Continue your admin application</a></p>
-            <p>If you didn't request this, you can safely ignore this email.</p>
-        """
-        send_email_async(email, 'Continue your EcoScholar admin application', html)
+        create_and_send_otp(email, 'admin_apply')
     except Exception:
         if DEBUG:
             raise
     return jsonify(generic)
+
+@app.route('/api/admin-requests/verify-start-otp', methods=['POST'])
+@limiter.limit("10 per minute")
+def verify_admin_apply_start_otp():
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    code = data.get('code') or ''
+    if not email or not code:
+        return jsonify({"error": "Email and code are required"}), 400
+
+    ok, error = verify_otp(email, 'admin_apply', code)
+    if not ok:
+        return jsonify({"error": error}), 400
+
+    token = _admin_apply_serializer.dumps({"email": email})
+    return jsonify({"token": token})
 
 @app.route('/api/admin-requests/verify-token', methods=['GET'])
 @limiter.limit("20 per minute")
@@ -2580,9 +2681,9 @@ def verify_admin_apply_token():
     try:
         payload = _admin_apply_serializer.loads(token, max_age=ADMIN_APPLY_TOKEN_MAX_AGE)
     except SignatureExpired:
-        return jsonify({"error": "This link has expired. Please request a new one."}), 400
+        return jsonify({"error": "This link has expired. Please verify your email again."}), 400
     except BadSignature:
-        return jsonify({"error": "This link is invalid."}), 400
+        return jsonify({"error": "This session is invalid."}), 400
     return jsonify({"email": payload.get('email', '')})
 
 @app.route('/api/admin-requests', methods=['POST'])
@@ -2591,6 +2692,7 @@ def submit_admin_request():
     data = request.get_json() or {}
     token = data.get('token') or ''
     full_name = (data.get('full_name') or '').strip()
+    password = data.get('password') or ''
     office = (data.get('office') or '').strip()
     municipality = (data.get('municipality') or '').strip()
     contact_number = (data.get('contact_number') or '').strip()
@@ -2599,13 +2701,15 @@ def submit_admin_request():
     try:
         payload = _admin_apply_serializer.loads(token, max_age=ADMIN_APPLY_TOKEN_MAX_AGE)
     except SignatureExpired:
-        return jsonify({"error": "This link has expired. Please request a new one."}), 400
+        return jsonify({"error": "This session has expired. Please verify your email again."}), 400
     except BadSignature:
-        return jsonify({"error": "This link is invalid."}), 400
+        return jsonify({"error": "This session is invalid."}), 400
     email = (payload.get('email') or '').strip().lower()
 
-    if not full_name or not email or not office or not municipality or not contact_number:
-        return jsonify({"error": "Full name, office, municipality, and contact number are required"}), 400
+    if not full_name or not email or not office or not municipality or not contact_number or not password:
+        return jsonify({"error": "Full name, password, office, municipality, and contact number are required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
 
     db = get_db()
     if db.users.find_one({"email": email}):
@@ -2616,6 +2720,7 @@ def submit_admin_request():
     db.admin_requests.insert_one({
         "full_name": full_name,
         "email": email,
+        "password_hash": generate_password_hash(password),
         "office": office,
         "municipality": municipality,
         "contact_number": contact_number,
@@ -2657,20 +2762,7 @@ def approve_admin_request(request_id):
     if err:
         return err
 
-    office_line = req.get('office') or ''
-    if req.get('municipality'):
-        office_line = f"{office_line} &middot; {req['municipality']}" if office_line else req['municipality']
-
-    admin_doc = create_admin_with_setup_email(
-        full_name=req["full_name"],
-        email=req["email"],
-        heading=f"You're approved, {req['full_name']}!",
-        intro=f"Your admin account request{f' ({office_line})' if office_line else ''} has been approved. Set your password to activate your account.",
-        office=req.get("office", ""),
-        municipality=req.get("municipality", ""),
-        role=role,
-        permissions=permissions,
-    )
+    admin_doc = create_admin_from_approved_request(req, role, permissions)
 
     db.admin_requests.update_one({"_id": request_oid}, {"$set": {
         "status": "approved",

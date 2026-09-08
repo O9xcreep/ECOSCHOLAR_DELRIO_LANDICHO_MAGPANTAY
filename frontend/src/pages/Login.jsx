@@ -651,14 +651,16 @@ function Login() {
   const [forgotSent, setForgotSent] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
 
-  // ── APPLY FOR ADMIN (start step - just verifies the email, the full
-  // application form lives on the separate /apply-admin page reached via
-  // the emailed link) ──
+  // ── APPLY FOR ADMIN (email -> OTP code -> redirected to /apply-admin with a
+  // verified session token; the full application form, including password,
+  // lives on that separate page) ──
   const [showApplyAdmin, setShowApplyAdmin] = useState(false)
+  const [applyAdminStep, setApplyAdminStep] = useState('email') // 'email' | 'otp'
   const [applyAdminEmail, setApplyAdminEmail] = useState('')
   const [applyAdminError, setApplyAdminError] = useState('')
-  const [applyAdminSent, setApplyAdminSent] = useState(false)
   const [applyAdminLoading, setApplyAdminLoading] = useState(false)
+  const [applyAdminCode, setApplyAdminCode] = useState('')
+  const [applyAdminResendMessage, setApplyAdminResendMessage] = useState('')
 
  const switchTab = (t) => {
   setTab(t)
@@ -851,7 +853,7 @@ function Login() {
     setForgotLoading(false)
   }, [forgotEmail])
 
-  // ── APPLY FOR ADMIN HANDLER (start step) ──
+  // ── APPLY FOR ADMIN: SEND CODE (step 1) ──
   const handleApplyAdminStart = useCallback(async () => {
     setApplyAdminError('')
     if (!applyAdminEmail.trim())                  { setApplyAdminError('Email is required'); return }
@@ -864,14 +866,65 @@ function Login() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase() })
       })
-      // Same anti-enumeration shape as forgot-password - always show the sent
-      // state regardless of whether this email already has an account/request.
-      setApplyAdminSent(true)
+      // Same anti-enumeration shape as forgot-password - always move to the code
+      // step regardless of whether this email already has an account/request.
+      setApplyAdminStep('otp')
     } catch {
       setApplyAdminError('Cannot connect to server. Please try again.')
     }
     setApplyAdminLoading(false)
   }, [applyAdminEmail])
+
+  // ── APPLY FOR ADMIN: VERIFY CODE (step 2) ──
+  const handleVerifyApplyAdminOtp = useCallback(async () => {
+    setApplyAdminError('')
+    if (!applyAdminCode.trim()) { setApplyAdminError('Enter the code from your email'); return }
+
+    setApplyAdminLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin-requests/verify-start-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase(), code: applyAdminCode.trim() })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setApplyAdminError(data.error || 'Verification failed. Please try again.')
+        return
+      }
+      navigate(`/apply-admin?token=${encodeURIComponent(data.token)}`)
+    } catch {
+      setApplyAdminError('Cannot connect to server. Please try again.')
+    } finally {
+      setApplyAdminLoading(false)
+    }
+  }, [applyAdminEmail, applyAdminCode, navigate])
+
+  const handleResendApplyAdminOtp = useCallback(async () => {
+    setApplyAdminResendMessage('')
+    setApplyAdminLoading(true)
+    try {
+      await fetch(`${API_BASE_URL}/api/admin-requests/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase() })
+      })
+      setApplyAdminResendMessage('A new code has been sent to your email.')
+    } catch {
+      setApplyAdminResendMessage('Cannot connect to server. Please try again.')
+    } finally {
+      setApplyAdminLoading(false)
+    }
+  }, [applyAdminEmail])
+
+  const closeApplyAdminModal = () => {
+    setShowApplyAdmin(false)
+    setApplyAdminStep('email')
+    setApplyAdminEmail('')
+    setApplyAdminCode('')
+    setApplyAdminError('')
+    setApplyAdminResendMessage('')
+  }
 
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter') return
@@ -1474,12 +1527,12 @@ function Login() {
 
         {/* APPLY FOR ADMIN MODAL (start step) */}
         {showApplyAdmin && (
-          <div className="lp-overlay" onClick={() => { setShowApplyAdmin(false); setApplyAdminSent(false); setApplyAdminEmail(''); setApplyAdminError('') }}>
+          <div className="lp-overlay" onClick={closeApplyAdminModal}>
             <div className="lp-modal" onClick={e => e.stopPropagation()}>
-              {!applyAdminSent ? (
+              {applyAdminStep === 'email' ? (
                 <>
                   <h3>Apply for Admin Access</h3>
-                  <p>Enter your official email. We'll send you a link to continue your application - this confirms it's really you before you fill anything in.</p>
+                  <p>Enter your official email. We'll send you a verification code to confirm it's really you before you fill anything in.</p>
 
                   {applyAdminError && <div className="lp-alert error" style={{ marginBottom: '14px' }}>{applyAdminError}</div>}
 
@@ -1497,22 +1550,53 @@ function Login() {
                   </div>
 
                   <div className="lp-modal-btns">
-                    <button className="lp-btn-cancel" onClick={() => { setShowApplyAdmin(false); setApplyAdminEmail(''); setApplyAdminError('') }}>
+                    <button className="lp-btn-cancel" onClick={closeApplyAdminModal}>
                       Cancel
                     </button>
                     <button className="lp-btn-send" onClick={handleApplyAdminStart} disabled={applyAdminLoading}>
-                      {applyAdminLoading ? 'Sending…' : 'Send Link'}
+                      {applyAdminLoading ? 'Sending…' : 'Send Code'}
                     </button>
                   </div>
                 </>
               ) : (
-                <div style={{ textAlign: 'center' }}>
-                  <h3 style={{ marginBottom: '8px' }}>Check Your Email</h3>
-                  <p>If <strong>{applyAdminEmail}</strong> can apply for admin access, a link to continue is on its way.</p>
-                  <button className="lp-btn" style={{ marginTop: '8px' }} onClick={() => { setShowApplyAdmin(false); setApplyAdminSent(false); setApplyAdminEmail('') }}>
-                    Done
-                  </button>
-                </div>
+                <>
+                  <h3>Enter Verification Code</h3>
+                  <p>If <strong>{applyAdminEmail}</strong> can apply for admin access, a 6-digit code is on its way. Enter it below to continue.</p>
+
+                  {applyAdminError && <div className="lp-alert error" style={{ marginBottom: '14px' }}>{applyAdminError}</div>}
+
+                  <div className="lp-field">
+                    <label>Verification Code</label>
+                    <input
+                      className="lp-input"
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="123456"
+                      value={applyAdminCode}
+                      onChange={e => { setApplyAdminCode(e.target.value.replace(/\D/g, '')); setApplyAdminError('') }}
+                      onKeyDown={e => e.key === 'Enter' && handleVerifyApplyAdminOtp()}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="lp-modal-btns">
+                    <button className="lp-btn-cancel" onClick={closeApplyAdminModal}>
+                      Cancel
+                    </button>
+                    <button className="lp-btn-send" onClick={handleVerifyApplyAdminOtp} disabled={applyAdminLoading}>
+                      {applyAdminLoading ? 'Verifying…' : 'Verify & Continue'}
+                    </button>
+                  </div>
+
+                  <p style={{ marginTop: '14px', textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                    Didn't get it?{' '}
+                    <button className="lp-link" type="button" onClick={handleResendApplyAdminOtp} disabled={applyAdminLoading}>
+                      Resend code
+                    </button>
+                  </p>
+                  {applyAdminResendMessage && <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>{applyAdminResendMessage}</p>}
+                </>
               )}
             </div>
           </div>
