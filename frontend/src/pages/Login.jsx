@@ -9,10 +9,9 @@ const css = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --brand:       #5C35D4;
-    --brand-light: #7B5CE5;
-    --brand-dark:  #3D1FA8;
-    --accent:      #F5A623;
+    --brand:       #3d6fa3;
+    --brand-light: #6fa0d4;
+    --brand-dark:  #2c5580;
     --danger:      #E53E3E;
     --success:     #38A169;
     --text-primary:   #1A1A2E;
@@ -23,7 +22,7 @@ const css = `
     --radius:      12px;
     --shadow-sm:   0 1px 3px rgba(0,0,0,.08);
     --shadow-md:   0 4px 20px rgba(0,0,0,.10);
-    --shadow-lg:   0 10px 40px rgba(92,53,212,.18);
+    --shadow-lg:   0 10px 40px rgba(61,111,163,.18);
     --transition:  .2s cubic-bezier(.4,0,.2,1);
   }
 
@@ -33,13 +32,13 @@ const css = `
   .lp-page {
     display: flex;
     min-height: 100vh;
-    background: #F3F0FF;
+    background: #eaf0f7;
   }
 
   /* ── LEFT PANEL ── */
   .lp-left {
     flex: 0 0 420px;
-    background: linear-gradient(145deg, var(--brand-dark) 0%, var(--brand) 50%, #8B5CF6 100%);
+    background: linear-gradient(145deg, var(--brand-dark) 0%, var(--brand) 50%, #5f8fc4 100%);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -156,7 +155,7 @@ const css = `
   /* ── TABS ── */
   .lp-tabs {
     display: flex;
-    background: #F3F0FF;
+    background: #eaf0f7;
     border-radius: 10px;
     padding: 4px;
     margin-bottom: 28px;
@@ -312,7 +311,7 @@ const css = `
 
   .lp-input:focus {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(92,53,212,.12);
+    box-shadow: 0 0 0 3px rgba(61,111,163,.12);
     background: #fff;
   }
 
@@ -377,14 +376,14 @@ const css = `
     cursor: pointer;
     transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
     letter-spacing: .02em;
-    box-shadow: 0 4px 14px rgba(92,53,212,.35);
+    box-shadow: 0 4px 14px rgba(61,111,163,.35);
     display: flex; align-items: center; justify-content: center; gap: 8px;
   }
 
   .lp-btn:hover:not(:disabled) {
     opacity: .92;
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(92,53,212,.4);
+    box-shadow: 0 6px 20px rgba(61,111,163,.4);
   }
 
   .lp-btn:active:not(:disabled) { transform: translateY(0); }
@@ -510,7 +509,7 @@ const css = `
     .lp-left { display: none; }
     .lp-mobile-logo { display: flex; }
     .lp-card { padding: 28px 24px; box-shadow: none; border-radius: 16px; }
-    .lp-right { padding: 24px 16px; background: #F3F0FF; align-items: flex-start; padding-top: 40px; }
+    .lp-right { padding: 24px 16px; background: #eaf0f7; align-items: flex-start; padding-top: 40px; }
   }
 `
 
@@ -951,7 +950,7 @@ function Login() {
             </div>
             <h1 className="lp-name">EcoScholar</h1>
             <p className="lp-tagline">
-              Centralized Scholarship Allocation &amp; Automated Disbursement System
+              Centralized Scholarship Allocation System
             </p>
           </div>
           <div className="lp-quote">

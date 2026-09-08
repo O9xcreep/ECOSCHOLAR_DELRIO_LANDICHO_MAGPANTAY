@@ -11,7 +11,7 @@ const css = `
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #F3F0FF;
+    background: #eaf0f7;
     font-family: 'DM Sans', sans-serif;
     padding: 20px;
   }
@@ -21,7 +21,7 @@ const css = `
     background: #FFFFFF;
     border-radius: 16px;
     padding: 40px 36px;
-    box-shadow: 0 10px 40px rgba(92,53,212,.18);
+    box-shadow: 0 10px 40px rgba(61,111,163,.18);
   }
   .rp-title { font-size: 22px; font-weight: 700; color: #1A1A2E; margin-bottom: 8px; }
   .rp-sub { font-size: 14px; color: #6B7280; margin-bottom: 24px; line-height: 1.5; }
@@ -36,7 +36,7 @@ const css = `
     background: #F9FAFB;
     outline: none;
   }
-  .rp-input:focus { border-color: #5C35D4; }
+  .rp-input:focus { border-color: #3d6fa3; }
   .rp-alert {
     padding: 10px 14px;
     border-radius: 8px;
@@ -47,7 +47,7 @@ const css = `
   .rp-btn {
     width: 100%;
     padding: 13px;
-    background: #5C35D4;
+    background: #3d6fa3;
     color: #fff;
     border: none;
     border-radius: 10px;
@@ -56,8 +56,8 @@ const css = `
     cursor: pointer;
   }
   .rp-btn:disabled { opacity: .6; cursor: default; }
-  .rp-btn:hover:not(:disabled) { background: #3D1FA8; }
-  .rp-link { display: block; text-align: center; margin-top: 18px; font-size: 13px; color: #5C35D4; text-decoration: none; font-weight: 600; background: none; border: none; cursor: pointer; }
+  .rp-btn:hover:not(:disabled) { background: #2c5580; }
+  .rp-link { display: block; text-align: center; margin-top: 18px; font-size: 13px; color: #3d6fa3; text-decoration: none; font-weight: 600; background: none; border: none; cursor: pointer; }
 `
 
 function AdminSetup() {

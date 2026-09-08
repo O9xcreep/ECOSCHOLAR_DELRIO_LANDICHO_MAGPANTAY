@@ -30,7 +30,7 @@
 }
 
 .appid {
-  color: #7c3aed;
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -62,7 +62,7 @@
   flex-shrink: 0;
 }
 
-.sd-stat-icon.purple { background: #ede9fe; }
+.sd-stat-icon.purple { background: var(--accent-light); }
 .sd-stat-icon.yellow { background: #fef3c7; }
 .sd-stat-icon.green  { background: #d1fae5; }
 .sd-stat-icon.red    { background: #fee2e2; }
@@ -145,7 +145,7 @@
   flex-shrink: 0;
 }
 
-.sd-step-circle.done    { background: #7c3aed; color: white; }
+.sd-step-circle.done    { background: var(--accent); color: white; }
 .sd-step-circle.current { background: #2563eb; color: white; }
 
 .sd-step-label {
@@ -154,7 +154,7 @@
   white-space: nowrap;
 }
 
-.sd-step-label.done    { color: #7c3aed; font-weight: 600; }
+.sd-step-label.done    { color: var(--accent); font-weight: 600; }
 .sd-step-label.current { color: #2563eb; font-weight: 600; }
 
 .sd-step-line {
@@ -164,7 +164,7 @@
   min-width: 30px;
 }
 
-.sd-step-line.done { background: #7c3aed; }
+.sd-step-line.done { background: var(--accent); }
 
 /* ── PROGRESS ── */
 .sd-progress-text {
@@ -189,7 +189,7 @@
 
 .sd-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #7c3aed, #2563eb);
+  background: linear-gradient(90deg, var(--accent), #2563eb);
   border-radius: 20px;
   display: flex;
   align-items: center;
@@ -218,8 +218,8 @@
 .btn-upload-missing {
   padding: 10px;
   background: none;
-  color: #7c3aed;
-  border: 1px dashed #7c3aed;
+  color: var(--accent);
+  border: 1px dashed var(--accent);
   border-radius: 10px;
   font-size: 13px;
   font-weight: 600;
@@ -228,7 +228,7 @@
 }
 
 .btn-upload-missing:hover {
-  background: #ede9fe;
+  background: var(--accent-light);
 }
 
 /* ── DOCS ── */

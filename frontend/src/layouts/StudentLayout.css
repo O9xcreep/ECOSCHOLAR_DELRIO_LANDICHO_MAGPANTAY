@@ -8,14 +8,14 @@
 .student-container {
   display: flex;
   min-height: 100vh;
-  background: #f5f7fa;
+  background: var(--bg);
 }
 
 /* ── SIDEBAR ── */
 .student-sidebar {
   width: 220px;
   min-height: 100vh;
-  background: #1e1b4b;
+  background: var(--header-bg);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -68,11 +68,11 @@
 }
 
 .nav-item.active {
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
 }
 
-.nav-icon { font-size: 18px; }
+.nav-icon { flex-shrink: 0; }
 
 /* ── SIDEBAR BOTTOM ── */
 .sidebar-bottom {
@@ -93,6 +93,7 @@
 .student-main-wrapper {
   margin-left: 220px;
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
@@ -115,7 +116,7 @@
 .topbar-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1e1b4b;
+  color: var(--header-bg);
 }
 
 .topbar-right {
@@ -184,28 +185,92 @@
   flex: 1;
 }
 
-/* ── RESPONSIVE ── */
-@media (max-width: 768px) {
-  .student-sidebar {
-    width: 70px;
-  }
+/* ── MOBILE HEADER (hidden on desktop) ── */
+.mobile-header {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--header-bg);
+  color: white;
+  padding: 14px 18px;
+  position: sticky;
+  top: 0;
+  z-index: 99;
+}
 
-  .logo-text,
-  .nav-item span:last-child {
+.mobile-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.mobile-header .nb-btn {
+  background: rgba(255,255,255,0.14);
+  border-color: rgba(255,255,255,0.2);
+  color: white;
+}
+
+.mobile-header .nb-btn:hover {
+  background: rgba(255,255,255,0.22);
+}
+
+/* ── BOTTOM NAV (mobile, hidden on desktop) ── */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: white;
+  border-top: 1px solid #e5e7eb;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  z-index: 99;
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 2px;
+  text-decoration: none;
+  color: #888;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.bottom-nav-item.active {
+  color: var(--accent-dark);
+}
+
+/* ── RESPONSIVE ── */
+@media (max-width: 860px) {
+  .student-sidebar {
     display: none;
   }
 
   .student-main-wrapper {
-    margin-left: 70px;
+    margin-left: 0;
   }
 
-  .sidebar-logo {
-    justify-content: center;
-    padding: 24px 10px;
+  .student-topbar {
+    display: none;
   }
 
-  .nav-item {
-    justify-content: center;
-    padding: 12px;
+  .mobile-header {
+    display: flex;
+  }
+
+  .bottom-nav {
+    display: flex;
+  }
+
+  .student-main-content {
+    padding: 16px 16px calc(84px + env(safe-area-inset-bottom, 0px));
   }
 }

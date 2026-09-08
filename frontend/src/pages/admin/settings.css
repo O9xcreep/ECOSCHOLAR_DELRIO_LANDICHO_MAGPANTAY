@@ -47,14 +47,14 @@
 }
 
 .settings-tab:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .settings-tab.active {
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 /* ── TAB CONTENT ── */
@@ -131,7 +131,7 @@
   width: 50px;
   height: 50px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   display: flex;
   align-items: center;
@@ -143,8 +143,8 @@
 /* ── BUTTONS ── */
 .btn-primary {
   padding: 8px 16px;
-  background: #ede9fe;
-  color: #7c3aed;
+  background: var(--accent-light);
+  color: var(--accent);
   border: none;
   border-radius: 8px;
   font-size: 13px;
@@ -155,7 +155,7 @@
 }
 
 .btn-primary:hover {
-  background: #ddd6fe;
+  background: var(--accent-light);
 }
 
 .btn-change {
@@ -171,7 +171,7 @@
 .btn-edit {
   padding: 5px 12px;
   background: none;
-  color: #7c3aed;
+  color: var(--accent);
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 12px;
@@ -246,7 +246,7 @@
 }
 
 input:checked + .slider {
-  background: #7c3aed;
+  background: var(--accent);
 }
 
 input:checked + .slider:before {
@@ -375,7 +375,7 @@ input:checked + .slider:before {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   display: flex;
   align-items: center;
@@ -398,7 +398,7 @@ input:checked + .slider:before {
 
 .btn-invite {
   padding: 10px 20px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -408,7 +408,7 @@ input:checked + .slider:before {
 }
 
 .btn-invite:hover {
-  background: #6d28d9;
+  background: var(--accent-dark);
 }
 
 /* ── PASSWORD FORM ── */
@@ -437,7 +437,7 @@ input:checked + .slider:before {
 }
 
 .password-field input:focus {
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 .security-error {
@@ -472,7 +472,7 @@ input:checked + .slider:before {
 .badge-green  { background: #d1fae5; color: #065f46; }
 .badge-yellow { background: #fef3c7; color: #92400e; }
 .badge-blue   { background: #dbeafe; color: #1d4ed8; }
-.badge-purple { background: #ede9fe; color: #6d28d9; }
+.badge-purple { background: var(--accent-light); color: var(--accent-dark); }
 .badge-gray   { background: #f3f4f6; color: #6b7280; }
 
 /* ── RESPONSIVE ── */

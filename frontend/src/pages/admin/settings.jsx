@@ -907,7 +907,7 @@ function TeamTab() {
                   <div>
                     <span className="info-value">
                       {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
-                      <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? '#EDE9FE' : '#E0F2FE', color: isAdminSeat ? '#5B21B6' : '#075985' }}>
+                      <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? '#dbe7f3' : '#E0F2FE', color: isAdminSeat ? '#2c5580' : '#075985' }}>
                         {isAdminSeat ? 'Admin' : 'LGU Member'}
                       </span>
                       {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}

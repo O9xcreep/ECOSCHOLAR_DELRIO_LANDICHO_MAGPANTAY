@@ -76,8 +76,8 @@
 .fb-model-tag {
   font-size: 10.5px;
   font-weight: 600;
-  color: #7c3aed;
-  background: #ede9fe;
+  color: var(--accent);
+  background: var(--accent-light);
   padding: 3px 8px;
   border-radius: 20px;
   white-space: nowrap;
@@ -184,8 +184,8 @@
 .fb-btn-add {
   width: 100%;
   padding: 12px;
-  background: #ede9fe;
-  color: #7c3aed;
+  background: var(--accent-light);
+  color: var(--accent);
   border: none;
   border-radius: 8px;
   font-size: 13.5px;
@@ -193,7 +193,7 @@
   cursor: pointer;
 }
 
-.fb-btn-add:hover:not(:disabled) { background: #ddd6fe; }
+.fb-btn-add:hover:not(:disabled) { background: var(--accent-light); }
 .fb-btn-add:disabled { opacity: .6; cursor: not-allowed; }
 
 .fb-error {
@@ -237,7 +237,7 @@
 
 .fb-form-field input:focus,
 .fb-form-field select:focus {
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 .fb-hint {

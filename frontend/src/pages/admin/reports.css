@@ -25,7 +25,7 @@
 
 .btn-export {
   padding: 10px 20px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 10px;
@@ -36,7 +36,7 @@
 }
 
 .btn-export:hover {
-  background: #6d28d9;
+  background: var(--accent-dark);
 }
 
 .cycle-select {
@@ -67,7 +67,7 @@
   border-left: 4px solid transparent;
 }
 
-.stat-purple { border-left-color: #7c3aed; }
+.stat-purple { border-left-color: var(--accent); }
 .stat-green  { border-left-color: #10b981; }
 .stat-yellow { border-left-color: #f59e0b; }
 .stat-red    { border-left-color: #ef4444; }

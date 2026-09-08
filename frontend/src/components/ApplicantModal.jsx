@@ -10,7 +10,7 @@ const ID_DOC_LABEL = 'School ID'
 
 const MOCK_BREAKDOWN = [
   { label: 'GPA Score', value: 95, color: '#10b981' },
-  { label: 'Income Score', value: 88, color: '#7c3aed' },
+  { label: 'Income Score', value: 88, color: '#0891b2' },
   { label: 'Family Size Score', value: 80, color: '#2563eb' },
   { label: 'Location Score', value: 72, color: '#f59e0b' },
 ]

@@ -26,7 +26,7 @@
 }
 
 .av-id {
-  color: #7c3aed;
+  color: var(--accent);
   font-weight: 700;
 }
 
@@ -115,7 +115,7 @@
 }
 
 .av-gwa {
-  color: #7c3aed !important;
+  color: var(--accent) !important;
   font-weight: 700 !important;
   font-size: 16px !important;
 }
@@ -131,7 +131,7 @@
 
 .av-btn-primary {
   padding: 11px 24px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 10px;
@@ -141,7 +141,7 @@
   transition: background 0.2s;
 }
 
-.av-btn-primary:hover { background: #6d28d9; }
+.av-btn-primary:hover { background: var(--accent-dark); }
 
 .av-btn-secondary {
   padding: 11px 20px;
@@ -156,8 +156,8 @@
 }
 
 .av-btn-secondary:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .av-btn-danger {
@@ -230,7 +230,7 @@
 .badge-red    { background: #fee2e2; color: #991b1b; }
 .badge-blue   { background: #dbeafe; color: #1d4ed8; }
 .badge-yellow { background: #fef3c7; color: #92400e; }
-.badge-purple { background: #ede9fe; color: #6d28d9; }
+.badge-purple { background: var(--accent-light); color: var(--accent-dark); }
 .badge-gray   { background: #f3f4f6; color: #6b7280; }
 .badge-uploaded     { background: #d1fae5; color: #065f46; }
 .badge-missing      { background: #fee2e2; color: #991b1b; }
@@ -255,7 +255,7 @@
 
 .doc-stat.green  { border-left-color: #10b981; }
 .doc-stat.red    { border-left-color: #ef4444; }
-.doc-stat.purple { border-left-color: #7c3aed; }
+.doc-stat.purple { border-left-color: var(--accent); }
 .doc-stat.blue   { border-left-color: #2563eb; }
 
 .doc-stat h3 {
@@ -279,7 +279,7 @@
 
 .doc-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #7c3aed, #2563eb);
+  background: linear-gradient(90deg, var(--accent), #2563eb);
   border-radius: 20px;
   transition: width 0.4s ease;
 }
@@ -322,8 +322,8 @@
 }
 
 .doc-item.drag-over {
-  border-color: #7c3aed;
-  background: #f5f3ff;
+  border-color: var(--accent);
+  background: var(--accent-light);
 }
 
 .doc-info {
@@ -345,7 +345,7 @@
 
 .doc-filename {
   font-size: 12px;
-  color: #7c3aed;
+  color: var(--accent);
   margin-top: 3px;
 }
 
@@ -364,7 +364,7 @@
 
 .btn-upload {
   padding: 8px 16px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -375,7 +375,7 @@
   white-space: nowrap;
 }
 
-.btn-upload:hover { background: #6d28d9; }
+.btn-upload:hover { background: var(--accent-dark); }
 
 .btn-remove {
   padding: 8px 16px;

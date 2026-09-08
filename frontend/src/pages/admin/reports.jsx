@@ -13,7 +13,7 @@ const STATUS_COLORS = {
   'Rejected': '#ef4444',
   'Newly Submitted': '#2563eb',
   'Pending Verification': '#f59e0b',
-  'Not Yet Reviewed': '#a78bfa',
+  'Not Yet Reviewed': '#0891b2',
   'Incomplete': '#ef4444',
 }
 
@@ -313,7 +313,7 @@ function Reports() {
               <XAxis dataKey="range" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
               <Tooltip />
-              <Bar dataKey="count" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" fill="var(--accent)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

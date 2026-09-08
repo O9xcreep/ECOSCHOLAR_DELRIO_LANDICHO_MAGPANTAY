@@ -241,7 +241,7 @@ def build_score_breakdown(applicant):
 
     return [
         {"label": "GWA Score", "value": gpa_s, "color": "#10b981"},
-        {"label": "Income Need Score", "value": inc_s, "color": "#7c3aed"},
+        {"label": "Income Need Score", "value": inc_s, "color": "#0891b2"},
         {"label": "Family Size Score", "value": fam_s, "color": "#2563eb"},
         {"label": "Parental Education Need", "value": edu_s, "color": "#f59e0b"},
         {"label": "Housing Need Score", "value": house_s, "color": "#ec4899"},
@@ -542,7 +542,7 @@ def create_and_send_otp(email, purpose, full_name=''):
     html = f"""
         <p>Hi {full_name},</p>
         <p>Your EcoScholar verification code is:</p>
-        <p style="font-size:28px;font-weight:700;letter-spacing:4px;color:#5C35D4;">{code}</p>
+        <p style="font-size:28px;font-weight:700;letter-spacing:4px;color:#2c5580;">{code}</p>
         <p>{copy['intro']} It expires in 10 minutes.</p>
         <p>If you didn't request this, you can safely ignore this email.</p>
     """
@@ -2899,9 +2899,9 @@ def create_admin_from_approved_request(req, role, permissions):
         office_line = f"{office_line} &middot; {req['municipality']}" if office_line else req['municipality']
     login_link = f"{FRONTEND_URL}/login"
     html = f"""
-        <div style="background:#F3F0FF;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
+        <div style="background:#EAF0F7;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
           <div style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">
-            <div style="background:linear-gradient(135deg,#3D1FA8,#5C35D4);padding:28px 32px;text-align:center;">
+            <div style="background:linear-gradient(135deg,#16233d,#2c5580);padding:28px 32px;text-align:center;">
               <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">EcoScholar</h1>
             </div>
             <div style="padding:32px;">
@@ -2911,7 +2911,7 @@ def create_admin_from_approved_request(req, role, permissions):
                 You can sign in now with the password you set when applying.
               </p>
               <div style="text-align:center;margin:28px 0;">
-                <a href="{login_link}" style="display:inline-block;background:#5C35D4;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 32px;border-radius:12px;">Sign In</a>
+                <a href="{login_link}" style="display:inline-block;background:#2c5580;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:13px 32px;border-radius:12px;">Sign In</a>
               </div>
               <p style="margin:16px 0 0;color:#6B7280;font-size:13px;">
                 If you didn't request admin access, please contact your system administrator.
@@ -2919,7 +2919,7 @@ def create_admin_from_approved_request(req, role, permissions):
             </div>
           </div>
           <p style="text-align:center;color:#9CA3AF;font-size:12px;margin-top:20px;">
-            EcoScholar &middot; Centralized Scholarship Allocation &amp; Automated Disbursement System
+            EcoScholar &middot; Centralized Scholarship Allocation System
           </p>
         </div>
     """

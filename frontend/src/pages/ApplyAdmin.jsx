@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { API_BASE_URL } from '../api'
+import { GraduationCapIcon } from '../components/NavIcons'
 
 // Reached only after verifying a one-time code sent to the applicant's email
 // (see the "Apply for admin access" modal on the login page) - the token in
@@ -12,9 +13,9 @@ const css = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --brand:       #5C35D4;
-    --brand-light: #7B5CE5;
-    --brand-dark:  #3D1FA8;
+    --brand:       #3d6fa3;
+    --brand-light: #6fa0d4;
+    --brand-dark:  #2c5580;
     --danger:      #E53E3E;
     --text-primary:   #1A1A2E;
     --text-secondary: #6B7280;
@@ -22,7 +23,7 @@ const css = `
     --bg-card:     #FFFFFF;
     --bg-input:    #F9FAFB;
     --radius:      12px;
-    --shadow-lg:   0 10px 40px rgba(92,53,212,.18);
+    --shadow-lg:   0 10px 40px rgba(61,111,163,.18);
     --transition:  .2s cubic-bezier(.4,0,.2,1);
   }
 
@@ -31,12 +32,12 @@ const css = `
   .lp-page {
     display: flex;
     min-height: 100vh;
-    background: #F3F0FF;
+    background: #eaf0f7;
   }
 
   .lp-left {
     flex: 0 0 420px;
-    background: linear-gradient(145deg, var(--brand-dark) 0%, var(--brand) 50%, #8B5CF6 100%);
+    background: linear-gradient(145deg, var(--brand-dark) 0%, var(--brand) 50%, #5f8fc4 100%);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -69,6 +70,18 @@ const css = `
   }
 
   .lp-brand { position: relative; z-index: 1; text-align: center; }
+
+  .lp-logo-ring {
+    width: 80px; height: 80px;
+    border-radius: 24px;
+    background: rgba(255,255,255,.15);
+    backdrop-filter: blur(12px);
+    border: 1.5px solid rgba(255,255,255,.25);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+    color: #fff;
+    box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  }
 
   .lp-name {
     font-family: 'Playfair Display', serif;
@@ -197,7 +210,7 @@ const css = `
 
   .lp-input:focus {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(92,53,212,.12);
+    box-shadow: 0 0 0 3px rgba(61,111,163,.12);
     background: #fff;
   }
 
@@ -225,14 +238,14 @@ const css = `
     cursor: pointer;
     transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
     letter-spacing: .02em;
-    box-shadow: 0 4px 14px rgba(92,53,212,.35);
+    box-shadow: 0 4px 14px rgba(61,111,163,.35);
     display: flex; align-items: center; justify-content: center; gap: 8px;
   }
 
   .lp-btn:hover:not(:disabled) {
     opacity: .92;
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(92,53,212,.4);
+    box-shadow: 0 6px 20px rgba(61,111,163,.4);
   }
 
   .lp-btn:active:not(:disabled) { transform: translateY(0); }
@@ -269,7 +282,7 @@ const css = `
     .lp-left { display: none; }
     .lp-mobile-logo { display: flex; }
     .lp-card { padding: 28px 24px; box-shadow: none; border-radius: 16px; }
-    .lp-right { padding: 24px 16px; background: #F3F0FF; align-items: flex-start; padding-top: 40px; }
+    .lp-right { padding: 24px 16px; background: #eaf0f7; align-items: flex-start; padding-top: 40px; }
   }
 `
 
@@ -366,9 +379,12 @@ function ApplyAdmin() {
           <div className="lp-blob b2" />
           <div className="lp-blob b3" />
           <div className="lp-brand">
+            <div className="lp-logo-ring">
+              <GraduationCapIcon width={40} height={40} />
+            </div>
             <h1 className="lp-name">EcoScholar</h1>
             <p className="lp-tagline">
-              Centralized Scholarship Allocation &amp; Automated Disbursement System
+              Centralized Scholarship Allocation System
             </p>
           </div>
           <div className="lp-quote">
@@ -379,6 +395,7 @@ function ApplyAdmin() {
         <div className="lp-right">
           <div className="lp-card">
             <div className="lp-mobile-logo">
+              <GraduationCapIcon width={24} height={24} />
               <span>EcoScholar</span>
             </div>
 

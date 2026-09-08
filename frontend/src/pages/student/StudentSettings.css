@@ -46,14 +46,14 @@
 }
 
 .settings-tab:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .settings-tab.active {
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 /* ── TAB CONTENT ── */
@@ -94,7 +94,7 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   display: flex;
   align-items: center;
@@ -112,7 +112,7 @@
 
 .profile-role {
   font-size: 13px;
-  color: #7c3aed;
+  color: var(--accent);
   font-weight: 500;
 }
 
@@ -123,7 +123,7 @@
 }
 
 .profile-id span {
-  color: #7c3aed;
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -186,7 +186,7 @@
 .btn-edit {
   padding: 5px 12px;
   background: none;
-  color: #7c3aed;
+  color: var(--accent);
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   font-size: 12px;
@@ -205,7 +205,7 @@
 .edit-input {
   flex: 1;
   padding: 9px 12px;
-  border: 1px solid #7c3aed;
+  border: 1px solid var(--accent);
   border-radius: 8px;
   font-size: 14px;
   outline: none;
@@ -214,7 +214,7 @@
 
 .btn-save {
   padding: 8px 14px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -298,7 +298,7 @@
 }
 
 .password-wrapper input:focus {
-  border-color: #7c3aed;
+  border-color: var(--accent);
   background: white;
 }
 
@@ -481,7 +481,7 @@
   transition: 0.3s;
 }
 
-input:checked + .slider { background: #7c3aed; }
+input:checked + .slider { background: var(--accent); }
 
 input:checked + .slider:before {
   transform: translateX(20px);
@@ -490,7 +490,7 @@ input:checked + .slider:before {
 /* ── BUTTONS ── */
 .btn-primary {
   padding: 10px 20px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -501,7 +501,7 @@ input:checked + .slider:before {
   transition: background 0.2s;
 }
 
-.btn-primary:hover { background: #6d28d9; }
+.btn-primary:hover { background: var(--accent-dark); }
 
 /* ── BADGES ── */
 .badge {

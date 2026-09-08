@@ -45,7 +45,7 @@
   width: 54px;
   height: 54px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   display: flex;
   align-items: center;
@@ -63,7 +63,7 @@
 
 .modal-course {
   font-size: 13px;
-  color: #7c3aed;
+  color: var(--accent);
   font-weight: 500;
   margin-top: 2px;
 }
@@ -259,7 +259,7 @@
 }
 
 .gwa-value {
-  color: #7c3aed !important;
+  color: var(--accent) !important;
   font-weight: 700 !important;
   font-size: 16px !important;
 }
@@ -389,7 +389,7 @@
 
 .remarks-field textarea:focus {
   outline: none;
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 .btn-close-modal {
@@ -416,7 +416,7 @@
 
 .btn-approve-modal {
   padding: 10px 24px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -425,7 +425,7 @@
   cursor: pointer;
 }
 
-.btn-approve-modal:hover { background: #6d28d9; }
+.btn-approve-modal:hover { background: var(--accent-dark); }
 .btn-reject-modal:hover  { background: #fecaca; }
 
 /* ── BADGES ── */
@@ -480,8 +480,8 @@
 
 .btn-verify-doc {
   padding: 6px 12px;
-  background: #ede9fe;
-  color: #7c3aed;
+  background: var(--accent-light);
+  color: var(--accent);
   border: none;
   border-radius: 6px;
   font-size: 12px;
@@ -497,15 +497,15 @@
 }
 
 .btn-verify-doc:hover {
-  background: #ddd6fe;
+  background: var(--accent-light);
 }
 
 .ocr-loading {
   text-align: center;
   padding: 16px;
-  color: #7c3aed;
+  color: var(--accent);
   font-size: 14px;
-  background: #f5f3ff;
+  background: var(--accent-light);
   border-radius: 10px;
   margin-top: 12px;
 }
@@ -699,6 +699,6 @@
 
 .audit-remarks {
   font-size: 12px;
-  color: #7c3aed;
+  color: var(--accent);
   font-style: italic;
 }

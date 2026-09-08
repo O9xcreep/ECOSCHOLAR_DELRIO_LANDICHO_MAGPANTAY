@@ -51,12 +51,12 @@
 }
 
 .slots-input:focus {
-  border-color: #7c3aed;
+  border-color: var(--accent);
 }
 
 .btn-refresh {
   padding: 9px 18px;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -65,7 +65,7 @@
   cursor: pointer;
 }
 
-.btn-refresh:hover { background: #6d28d9; }
+.btn-refresh:hover { background: var(--accent-dark); }
 
 .btn-save-limit {
   padding: 8px 14px;
@@ -113,7 +113,7 @@
   border-left: 4px solid transparent;
 }
 
-.rank-stat.purple { border-left-color: #7c3aed; }
+.rank-stat.purple { border-left-color: var(--accent); }
 .rank-stat.green  { border-left-color: #10b981; }
 .rank-stat.yellow { border-left-color: #f59e0b; }
 .rank-stat.blue   { border-left-color: #2563eb; }
@@ -135,8 +135,8 @@
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  background: #f5f3ff;
-  border: 1px solid #ddd6fe;
+  background: var(--accent-light);
+  border: 1px solid var(--accent-light);
   border-radius: 12px;
   padding: 14px 18px;
   font-size: 13px;
@@ -204,7 +204,7 @@
 .rank-badge {
   font-size: 16px;
   font-weight: 700;
-  color: #7c3aed;
+  color: var(--accent);
 }
 
 .rank-badge.top-3 { font-size: 20px; }
@@ -225,7 +225,7 @@
 
 .rank-course {
   font-size: 12px !important;
-  color: #7c3aed !important;
+  color: var(--accent) !important;
 }
 
 .rank-gwa {
@@ -283,7 +283,7 @@
   text-align: center;
   padding: 60px;
   font-size: 16px;
-  color: #7c3aed;
+  color: var(--accent);
   background: white;
   border-radius: 14px;
 }

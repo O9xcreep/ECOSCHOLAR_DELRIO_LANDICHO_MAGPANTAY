@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { getUser, logout } from '../api'
 import NotificationBell from '../components/NotificationBell'
-import { GraduationCapIcon } from '../components/NavIcons'
+import { GraduationCapIcon, HomeIcon, ApplicationsIcon, GuidelinesIcon, SettingsIcon } from '../components/NavIcons'
 import './StudentLayout.css'
 
 function StudentLayout() {
@@ -15,10 +15,17 @@ function StudentLayout() {
     navigate('/login')
   }
 
+  const navItems = [
+    { to: '/student/dashboard', label: 'Dashboard', Icon: HomeIcon },
+    { to: '/student/applicant-details', label: 'Applicant Details', Icon: ApplicationsIcon },
+    { to: '/student/guidelines', label: 'Guidelines', Icon: GuidelinesIcon },
+    { to: '/student/settings', label: 'Settings', Icon: SettingsIcon },
+  ]
+
   return (
     <div className="student-container">
 
-      {/* SIDEBAR */}
+      {/* SIDEBAR (desktop) */}
       <aside className="student-sidebar">
         <div className="sidebar-logo">
           <GraduationCapIcon />
@@ -26,22 +33,12 @@ function StudentLayout() {
         </div>
 
         <nav className="sidebar-nav">
-          <NavLink to="/student/dashboard"
-            className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Dashboard</span>
-          </NavLink>
-          <NavLink to="/student/applicant-details"
-            className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Applicant Details</span>
-          </NavLink>
-          <NavLink to="/student/guidelines"
-            className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Guidelines</span>
-          </NavLink>
-          <NavLink to="/student/settings"
-            className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
-            <span>Settings</span>
-          </NavLink>
+          {navItems.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}>
+              <Icon className="nav-icon" />
+              <span>{label}</span>
+            </NavLink>
+          ))}
         </nav>
 
       </aside>
@@ -49,7 +46,16 @@ function StudentLayout() {
       {/* MAIN */}
       <div className="student-main-wrapper">
 
-        {/* TOPBAR */}
+        {/* MOBILE HEADER */}
+        <header className="mobile-header">
+          <div className="mobile-header-brand">
+            <GraduationCapIcon />
+            <span>EcoScholar</span>
+          </div>
+          <NotificationBell />
+        </header>
+
+        {/* TOPBAR (desktop) */}
         <header className="student-topbar">
           <div className="topbar-left">
             <h1 className="topbar-title">EcoScholar</h1>
@@ -71,6 +77,16 @@ function StudentLayout() {
         <main className="student-main-content">
           <Outlet />
         </main>
+
+        {/* BOTTOM NAV (mobile) */}
+        <nav className="bottom-nav">
+          {navItems.map(({ to, label, Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) => isActive ? 'bottom-nav-item active' : 'bottom-nav-item'}>
+              <Icon />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
       </div>
     </div>

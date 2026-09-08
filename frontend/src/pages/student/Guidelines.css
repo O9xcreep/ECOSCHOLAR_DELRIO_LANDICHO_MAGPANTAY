@@ -76,7 +76,7 @@
   content: '●';
   position: absolute;
   left: 0;
-  color: #7c3aed;
+  color: var(--accent);
   font-size: 10px;
   top: 4px;
 }
@@ -134,7 +134,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
   color: white;
   display: flex;
   align-items: center;

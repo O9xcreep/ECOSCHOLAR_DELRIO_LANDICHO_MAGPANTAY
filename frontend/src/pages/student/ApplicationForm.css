@@ -394,8 +394,8 @@
 }
 
 .privacy-consent-box:has(.privacy-checkbox:checked) {
-  border-color: #7c3aed;
-  background: #f5f3ff;
+  border-color: var(--accent);
+  background: var(--accent-light);
 }
 
 .privacy-consent-inner {
@@ -409,7 +409,7 @@
   height: 18px;
   flex-shrink: 0;
   margin-top: 2px;
-  accent-color: #7c3aed;
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -433,7 +433,7 @@
 }
 
 .privacy-text strong {
-  color: #7c3aed;
+  color: var(--accent);
 }
 /* ── RADIO GROUP ── */
 .radio-group {
@@ -458,12 +458,12 @@
 }
 
 .radio-option:hover {
-  border-color: #7c3aed;
-  background: #f5f3ff;
+  border-color: var(--accent);
+  background: var(--accent-light);
 }
 
 .radio-option input[type="radio"] {
-  accent-color: #7c3aed;
+  accent-color: var(--accent);
   width: 16px;
   height: 16px;
   flex-shrink: 0;
@@ -471,8 +471,8 @@
 }
 
 .radio-option:has(input:checked) {
-  border-color: #7c3aed;
-  background: #f5f3ff;
+  border-color: var(--accent);
+  background: var(--accent-light);
   color: #1e293b;
   font-weight: 500;
 }
@@ -506,9 +506,9 @@
 }
 
 .autofill-banner.loading {
-  background: #ede9fe;
-  color: #6d28d9;
-  border: 1px solid #ddd6fe;
+  background: var(--accent-light);
+  color: var(--accent-dark);
+  border: 1px solid var(--accent-light);
 }
 
 .autofill-banner.success {
