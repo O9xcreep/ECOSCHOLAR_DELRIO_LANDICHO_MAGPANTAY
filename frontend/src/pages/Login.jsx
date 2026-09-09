@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
+import loginBg from '../assets/login-bg.jpg'
 
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
@@ -32,13 +33,15 @@ const css = `
   .lp-page {
     display: flex;
     min-height: 100vh;
-    background: #eaf0f7;
+    background: #eaf0f7 url(${loginBg}) center/cover no-repeat;
   }
 
   /* ── LEFT PANEL ── */
   .lp-left {
     flex: 0 0 420px;
-    background: linear-gradient(145deg, var(--brand-dark) 0%, var(--brand) 50%, #5f8fc4 100%);
+    background: linear-gradient(145deg, rgba(22,35,61,.72) 0%, rgba(61,111,163,.72) 50%, rgba(95,143,196,.68) 100%);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -126,7 +129,10 @@ const css = `
   }
 
   .lp-card {
-    background: var(--bg-card);
+    background: rgba(255,255,255,.86);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,.5);
     border-radius: 20px;
     padding: 40px 44px;
     width: 100%;
@@ -509,7 +515,7 @@ const css = `
     .lp-left { display: none; }
     .lp-mobile-logo { display: flex; }
     .lp-card { padding: 28px 24px; box-shadow: none; border-radius: 16px; }
-    .lp-right { padding: 24px 16px; background: #eaf0f7; align-items: flex-start; padding-top: 40px; }
+    .lp-right { padding: 24px 16px; background: rgba(234,240,247,.55); align-items: flex-start; padding-top: 40px; }
   }
 `
 
