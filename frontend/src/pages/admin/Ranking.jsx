@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, displayStatus } from '../../api'
+import { UsersIcon, CheckCircleIcon, ClockIcon, LayersIcon } from '../../components/NavIcons'
 import './Ranking.css'
 
 function Ranking() {
@@ -114,20 +115,32 @@ function Ranking() {
       {/* Stats */}
       <div className="ranking-stats">
         <div className="rank-stat purple">
-          <h3>{ranked.length}</h3>
-          <p>Total Applicants</p>
+          <div className="rank-stat-icon"><UsersIcon /></div>
+          <div>
+            <h3>{ranked.length}</h3>
+            <p>Total Applicants</p>
+          </div>
         </div>
         <div className="rank-stat green">
-          <h3>{withinSlots.length}</h3>
-          <p>Within Slots</p>
+          <div className="rank-stat-icon"><CheckCircleIcon /></div>
+          <div>
+            <h3>{withinSlots.length}</h3>
+            <p>Within Slots</p>
+          </div>
         </div>
         <div className="rank-stat yellow">
-          <h3>{waitlisted.length}</h3>
-          <p>Waitlisted</p>
+          <div className="rank-stat-icon"><ClockIcon /></div>
+          <div>
+            <h3>{waitlisted.length}</h3>
+            <p>Waitlisted</p>
+          </div>
         </div>
         <div className="rank-stat blue">
-          <h3>{slots}</h3>
-          <p>Available Slots</p>
+          <div className="rank-stat-icon"><LayersIcon /></div>
+          <div>
+            <h3>{slots}</h3>
+            <p>Available Slots</p>
+          </div>
         </div>
       </div>
 

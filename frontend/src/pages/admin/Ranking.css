@@ -106,28 +106,54 @@
 }
 
 .rank-stat {
-  background: white;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   border-radius: 14px;
-  padding: 18px 20px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-  border-left: 4px solid transparent;
+  padding: 16px 18px;
+  min-width: 0;
+  transition: transform .15s ease, box-shadow .15s ease;
 }
 
-.rank-stat.purple { border-left-color: var(--accent); }
-.rank-stat.green  { border-left-color: #10b981; }
-.rank-stat.yellow { border-left-color: #f59e0b; }
-.rank-stat.blue   { border-left-color: #2563eb; }
+.rank-stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(28,42,58,.08);
+}
+
+.rank-stat-icon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rank-stat.purple { background: var(--accent-light, #dbe7f3); }
+.rank-stat.purple .rank-stat-icon { background: rgba(61,111,163,.18); color: var(--accent); }
+
+.rank-stat.green  { background: var(--success-bg, #d9f3e6); }
+.rank-stat.green .rank-stat-icon  { background: rgba(15,157,100,.18); color: var(--success, #0f9d64); }
+
+.rank-stat.yellow { background: var(--warning-bg, #faedd2); }
+.rank-stat.yellow .rank-stat-icon { background: rgba(181,121,10,.18); color: var(--warning, #b5790a); }
+
+.rank-stat.blue   { background: #dbeafe; }
+.rank-stat.blue .rank-stat-icon   { background: rgba(37,99,235,.18); color: #2563eb; }
 
 .rank-stat h3 {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
+  font-variant-numeric: proportional-nums;
   color: #1e293b;
+  line-height: 1.1;
 }
 
 .rank-stat p {
   font-size: 13px;
-  color: #888;
-  margin-top: 4px;
+  color: #6b7a8d;
+  margin-top: 2px;
 }
 
 /* ── ML NOTE ── */

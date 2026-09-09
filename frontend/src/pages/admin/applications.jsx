@@ -1,7 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, displayStatus } from '../../api'
+import { InboxIcon, ClockIcon, AlertCircleIcon } from '../../components/NavIcons'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
+
+const STAT_TAB_ICONS = {
+  'Newly Submitted': InboxIcon,
+  'Pending Verification': ClockIcon,
+  'Incomplete': AlertCircleIcon,
+}
 
 // Still being worked through the review pipeline - these are the ones bulk
 // actions and the per-row Verify button apply to. Approved/Rejected/Withdrawn
@@ -441,13 +448,19 @@ function Applications() {
 
       {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">
-        {TAB_GROUPS[0].tabs.map(tab => (
-          <div key={tab.key}
-            className={`app-stat-card stat-${tab.key.replace(/\s/g, '-').toLowerCase()}`}>
-            <h3>{tabCounts[tab.key] ?? '—'}</h3>
-            <p>{tab.label}</p>
-          </div>
-        ))}
+        {TAB_GROUPS[0].tabs.map(tab => {
+          const Icon = STAT_TAB_ICONS[tab.key]
+          return (
+            <div key={tab.key}
+              className={`app-stat-card stat-${tab.key.replace(/\s/g, '-').toLowerCase()}`}>
+              {Icon && <div className="app-stat-icon"><Icon /></div>}
+              <div>
+                <h3>{tabCounts[tab.key] ?? '—'}</h3>
+                <p>{tab.label}</p>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
       {/* Header */}
