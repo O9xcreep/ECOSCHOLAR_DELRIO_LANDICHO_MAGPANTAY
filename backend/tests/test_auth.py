@@ -2,6 +2,8 @@
 """Register / login / forgot-password / reset-password / change-password."""
 from werkzeug.security import check_password_hash
 
+import app as app_module
+
 VALID_PROFILE = {
     'dob': '2003-05-14', 'gender': 'Male', 'religion': 'Roman Catholic',
     'citizenship': 'Filipino', 'contactNumber': '09171234567',
@@ -13,8 +15,21 @@ VALID_PROFILE = {
 }
 
 
+def default_join_code():
+    """Reaches app_module's own db handle directly (the same object the `db`
+    fixture returns) so register_payload() stays a plain helper any test can
+    call without threading a `db` fixture through every signature."""
+    db = app_module._mongo_db
+    org_id = app_module.get_default_organization_id(db)
+    return db.organizations.find_one({"_id": org_id})["join_code"]
+
+
 def register_payload(email='juan@test.com', **overrides):
-    payload = {'full_name': 'Juan Dela Cruz', 'email': email, 'password': 'ValidPass123', **VALID_PROFILE}
+    payload = {
+        'full_name': 'Juan Dela Cruz', 'email': email, 'password': 'ValidPass123',
+        'join_code': default_join_code(),
+        **VALID_PROFILE,
+    }
     payload.update(overrides)
     return payload
 

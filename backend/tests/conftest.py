@@ -85,8 +85,15 @@ def make_user(db):
     """Inserts a user directly (bypassing /api/register) and returns its
     email/password/id, for tests that need a pre-existing account. `permissions`
     only matters for role='lgu_member' - pass e.g. {'can_manage_members': True}
-    to grant specific scoped access; omitted keys default to False."""
-    def _make(email='user@test.com', password='TestPass123', role='student', full_name='Test User', permissions=None):
+    to grant specific scoped access; omitted keys default to False.
+
+    Tagged with the auto-created default organization by default (matching
+    every real account post multi-tenancy Phase A) - pass organization_id
+    explicitly to put a user in a *different* org for cross-tenant isolation
+    tests, or organization_id=False for the rare case of a legacy account
+    that predates any org tagging at all."""
+    def _make(email='user@test.com', password='TestPass123', role='student', full_name='Test User',
+              permissions=None, organization_id=...):
         doc = {
             'full_name': full_name,
             'email': email,
@@ -101,8 +108,15 @@ def make_user(db):
                 'can_manage_members': bool((permissions or {}).get('can_manage_members')),
                 'can_reset_program': bool((permissions or {}).get('can_reset_program')),
             }
+        if organization_id is False:
+            pass  # deliberately untagged, for legacy-account edge cases
+        elif organization_id is not ...:
+            doc['organization_id'] = organization_id
+        else:
+            doc['organization_id'] = app_module.get_default_organization_id(db)
         user_id = db.users.insert_one(doc).inserted_id
-        return {'id': user_id, 'email': email, 'password': password, 'role': role}
+        return {'id': user_id, 'email': email, 'password': password, 'role': role,
+                'organization_id': doc.get('organization_id')}
     return _make
 
 

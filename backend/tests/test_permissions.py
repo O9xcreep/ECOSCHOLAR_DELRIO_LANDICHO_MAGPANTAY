@@ -2,6 +2,7 @@
 """LGU-member roles/permissions model: require_permission gating, and the
 PUT /api/admins/<id>/permissions endpoint that edits an existing member's
 role/permissions."""
+import app as app_module
 
 
 class TestRequirePermissionGating:
@@ -184,15 +185,16 @@ class TestAdminSeatTransfer:
         holder (found via role='lgu_admin' lookup) can transfer - a stale/duplicate
         one can't. (Normal flows never create a second one.)"""
         from werkzeug.security import generate_password_hash
+        org_id = app_module.get_default_organization_id(db)
         db.users.insert_one({'full_name': 'Real Admin', 'email': 'realadmin@test.com',
                               'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
-                              'status': 'active', 'privacy_consent': True})
+                              'status': 'active', 'privacy_consent': True, 'organization_id': org_id})
         db.users.insert_one({'full_name': 'Stale Admin', 'email': 'staleadmin@test.com',
                               'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
-                              'status': 'active', 'privacy_consent': True})
+                              'status': 'active', 'privacy_consent': True, 'organization_id': org_id})
         target = db.users.insert_one({'full_name': 'Target', 'email': 'target2@test.com',
                                        'password': generate_password_hash('TestPass123'), 'role': 'lgu_member',
-                                       'status': 'active', 'privacy_consent': True,
+                                       'status': 'active', 'privacy_consent': True, 'organization_id': org_id,
                                        'permissions': {'can_manage_members': True, 'can_review_applicants': False, 'can_reset_program': False}}).inserted_id
 
         res = client.post('/api/login', json={'email': 'staleadmin@test.com', 'password': 'TestPass123'})

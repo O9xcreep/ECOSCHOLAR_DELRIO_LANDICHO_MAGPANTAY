@@ -346,6 +346,7 @@ def do_program_reset(db, performed_by, new_label=None):
             "closed_at": now,
             "started_by": None,
             "closed_by": performed_by,
+            "organization_id": get_default_organization_id(db),
         }).inserted_id
         db.applicants.update_many({"cycle_id": None}, {"$set": {"cycle_id": cycle0_id}})
 
@@ -356,6 +357,7 @@ def do_program_reset(db, performed_by, new_label=None):
         "closed_at": None,
         "started_by": performed_by,
         "closed_by": None,
+        "organization_id": get_default_organization_id(db),
     }
     new_cycle_id = db.program_cycles.insert_one(new_cycle).inserted_id
 
@@ -501,9 +503,72 @@ _fs = gridfs.GridFS(_mongo_db)
 _mongo_db.revoked_tokens.create_index("expires_at", expireAfterSeconds=0)
 # Registration email-verification codes - same absolute-expiry TTL pattern.
 _mongo_db.otps.create_index("expires_at", expireAfterSeconds=0)
+# Multi-tenancy, Phase A: join_code is how a future admin/student ends up in the
+# right LGU's space (Phase B) - reserve its uniqueness now even though only one
+# organization exists yet.
+_mongo_db.organizations.create_index("join_code", unique=True)
 
 def get_db():
     return _mongo_db
+
+def generate_join_code():
+    return ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(8))
+
+# ── ORGANIZATIONS (multi-tenancy, Phase A) ──
+# Every per-tenant collection is being tagged with organization_id as it's
+# written, ahead of any query actually filtering on it (that's Phase C) - so
+# that once Phase B's join-code flow and Phase C's read-side scoping land,
+# there's no second backfill pass needed for data created in between. Exactly
+# one organization exists until Phase B ships; this bootstraps it the first
+# time anything asks, rather than requiring a separate provisioning step.
+def get_default_organization_id(db):
+    org = db.organizations.find_one({})
+    if org:
+        return org["_id"]
+    result = db.organizations.insert_one({
+        "name": "Default Organization",
+        "join_code": generate_join_code(),
+        "status": "active",
+        "created_at": datetime.utcnow(),
+        "founding_admin_request_id": None,
+    })
+    return result.inserted_id
+
+def generate_unique_join_code(db):
+    """8 chars from a 33-symbol alphabet is ~1.6x10^11 possibilities - a
+    collision on any single attempt is vanishingly unlikely, but check anyway
+    since join_code is uniquely indexed and a founding request must not fail
+    the whole submission on a fluke collision."""
+    for _ in range(10):
+        code = generate_join_code()
+        if not db.organizations.find_one({"join_code": code}):
+            return code
+    raise RuntimeError("Could not generate a unique join code")
+
+def find_active_organization_by_code(db, code):
+    code = (code or '').strip().upper()
+    if not code:
+        return None
+    return db.organizations.find_one({"join_code": code, "status": "active"})
+
+def serialize_organization(org):
+    return {
+        "id": str(org["_id"]),
+        "name": org.get("name", ""),
+        "status": org.get("status", "pending"),
+    }
+
+# Public (no auth) - lets the registration and admin-apply pages preview which
+# LGU a code belongs to before the applicant fills in anything else. Only ever
+# reveals the organization's display name, never anything else about it.
+@app.route('/api/organizations/lookup', methods=['GET'])
+@limiter.limit("20 per minute")
+def lookup_organization():
+    code = request.args.get('code') or ''
+    org = find_active_organization_by_code(get_db(), code)
+    if not org:
+        return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 404
+    return jsonify({"organization": serialize_organization(org)})
 
 def generate_otp_code():
     return ''.join(secrets.choice('0123456789') for _ in range(OTP_LENGTH))
@@ -588,6 +653,12 @@ def issue_token(user):
         "id": user["id"],
         "email": user["email"],
         "role": user["role"],
+        # Multi-tenancy, Phase A: carried as a plain identity claim (like id/
+        # email/role above), not trusted for anything security-sensitive on
+        # its own - Phase C's org-scoped routes should re-verify it fresh
+        # from db.users per request, the same way has_permission() already
+        # re-reads permissions fresh so revocation takes effect immediately.
+        "organization_id": user.get("organization_id"),
     })
 
 def verify_token(token):
@@ -657,6 +728,15 @@ def is_full_access_role(role):
     admin-tier user", so lgu_admin never has to be added to a comparison twice."""
     return role in ('admin', 'lgu_admin')
 
+def current_organization_oid():
+    """The requesting user's own organization as a real ObjectId, ready to
+    drop straight into a query filter - None for a Super Admin (platform-
+    level, not tied to any one LGU) or a legacy account predating Phase A's
+    backfill. Multi-tenancy, Phase B: the /api/admins/* team-management
+    surface all needs this now that a second organization can actually exist
+    - without it, one LGU's admins could list/edit/demote another LGU's."""
+    return oid(g.current_user.get('organization_id'))
+
 def has_permission(permission):
     """Same check require_permission enforces as a decorator, exposed as a plain
     function for routes that need to OR it with another condition (e.g. "reviewer
@@ -680,6 +760,19 @@ def require_permission(permission):
             return f(*args, **kwargs)
         return wrapper
     return decorator
+
+# Lets a logged-in admin/member see their own organization's join code, to
+# share it with whoever they want to invite next - the only place this code
+# is otherwise generated is behind the scenes at org-creation time.
+@app.route('/api/organizations/mine', methods=['GET'])
+@require_permission('can_manage_members')
+def get_my_organization():
+    db = get_db()
+    org_id = current_organization_oid()
+    org = db.organizations.find_one({"_id": org_id}) if org_id else None
+    if not org:
+        return jsonify({"error": "No organization found for your account"}), 404
+    return jsonify({"organization": {**serialize_organization(org), "join_code": org.get("join_code", "")}})
 
 @app.errorhandler(413)
 def too_large(e):
@@ -792,6 +885,7 @@ def create_notification(db, user_id, applicant, message, notif_type='status_upda
         "message": message,
         "type": notif_type,
         "is_read": False,
+        "organization_id": get_default_organization_id(db),
         "created_at": datetime.utcnow(),
     })
 
@@ -851,7 +945,8 @@ def login():
             "id": str(user['_id']),
             "full_name": user['full_name'],
             "email": user['email'],
-            "role": user['role']
+            "role": user['role'],
+            "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
         }
         # Informational only (drives which nav items the frontend shows) - every
         # endpoint re-checks permissions fresh from the database regardless, so a
@@ -900,9 +995,16 @@ def register():
     full_name = data.get("full_name", "").strip()
     email     = data.get("email", "").strip().lower()
     password  = data.get("password", "").strip()
+    join_code = (data.get("join_code") or "").strip().upper()
 
     if not full_name or not email or not password:
         return jsonify({"error": "All fields are required"}), 400
+
+    if not join_code:
+        return jsonify({"error": "An LGU join code is required"}), 400
+    organization = find_active_organization_by_code(get_db(), join_code)
+    if not organization:
+        return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 400
 
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
@@ -954,6 +1056,7 @@ def register():
             "created_at": datetime.utcnow(),
             "privacy_consent": True,
             **profile_data,
+            "organization_id": organization["_id"],
         })
         create_and_send_otp(email, 'register', full_name)
 
@@ -986,7 +1089,10 @@ def verify_register_otp():
     if not user:
         return jsonify({"error": "Account not found"}), 404
 
-    user_payload = {"id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role']}
+    user_payload = {
+        "id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role'],
+        "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
+    }
     return jsonify({
         "message": "Email verified. Your account is ready.",
         "user": user_payload,
@@ -1382,6 +1488,7 @@ def submit_application():
                     "reason": duplicate_reason,
                     "flagged_at": datetime.utcnow(),
                     "resolved": False,
+                    "organization_id": get_default_organization_id(db),
                 })
             except Exception:
                 pass
@@ -1483,6 +1590,7 @@ def submit_application():
             "documents": [],
             "audit_trail": [],
             "extra_fields": extra_fields_to_store,
+            "organization_id": get_default_organization_id(db),
         }
 
         result = db.applicants.insert_one(applicant_doc)
@@ -1921,6 +2029,7 @@ def upload_document():
                         "document_name": document_name,
                         "flagged_at": now,
                         "resolved": False,
+                        "organization_id": get_default_organization_id(db),
                     })
                 except Exception:
                     pass
@@ -1958,6 +2067,7 @@ def upload_document():
                             "similarity_distance": best_distance,
                             "flagged_at": now,
                             "resolved": False,
+                            "organization_id": get_default_organization_id(db),
                         })
                 except Exception:
                     pass
@@ -2521,6 +2631,7 @@ def create_form_field():
         "section": section,
         "order": db.form_fields.count_documents({"section": section}),
         "created_at": datetime.utcnow(),
+        "organization_id": get_default_organization_id(db),
     }
     result = db.form_fields.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -2671,8 +2782,9 @@ def get_doc_requirements_collection(db):
     (and fresh ones) start with the same documents the form always had."""
     if db.document_requirements.count_documents({}) == 0:
         now = datetime.utcnow()
+        org_id = get_default_organization_id(db)
         db.document_requirements.insert_many([
-            {**d, "enabled": True, "order": i, "created_at": now}
+            {**d, "enabled": True, "order": i, "created_at": now, "organization_id": org_id}
             for i, d in enumerate(DEFAULT_DOC_REQUIREMENTS)
         ])
     elif db.document_requirements.count_documents({"label": SELFIE_DOC_LABEL}) == 0:
@@ -2683,6 +2795,7 @@ def get_doc_requirements_collection(db):
             "enabled": True,
             "order": db.document_requirements.count_documents({}),
             "created_at": datetime.utcnow(),
+            "organization_id": get_default_organization_id(db),
         })
     return db.document_requirements
 
@@ -2714,6 +2827,7 @@ def create_doc_requirement():
         "enabled": True,
         "order": coll.count_documents({}),
         "created_at": datetime.utcnow(),
+        "organization_id": get_default_organization_id(db),
     }
     result = coll.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -2877,7 +2991,9 @@ def serialize_admin(u):
 @require_permission('can_manage_members')
 def list_admins():
     db = get_db()
-    admins = list(db.users.find({"role": {"$in": ["lgu_admin", "lgu_member"]}}).sort("created_at", 1))
+    admins = list(db.users.find(
+        {"role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": current_organization_oid()}
+    ).sort("created_at", 1))
     return jsonify({"admins": [serialize_admin(a) for a in admins]})
 
 @app.route('/api/admins', methods=['POST'])
@@ -2904,6 +3020,7 @@ def create_admin_account():
         email=email,
         role='lgu_member',
         permissions=permissions,
+        organization_id=current_organization_oid(),
     )
     return jsonify({"admin": serialize_admin(admin_doc)}), 201
 
@@ -2920,7 +3037,7 @@ def update_admin_permissions(admin_id):
         return jsonify({"error": "You can't change your own permissions"}), 400
 
     db = get_db()
-    target = db.users.find_one({"_id": admin_oid, "role": "lgu_member"})
+    target = db.users.find_one({"_id": admin_oid, "role": "lgu_member", "organization_id": current_organization_oid()})
     if not target:
         return jsonify({"error": "LGU member not found (use Pass Admin Role to change who holds the Admin seat)"}), 404
 
@@ -2948,12 +3065,13 @@ def transfer_admin_role(admin_id):
         return jsonify({"error": "You already hold the Admin seat"}), 400
 
     db = get_db()
-    target = db.users.find_one({"_id": target_oid, "role": "lgu_member"})
+    org_id = current_organization_oid()
+    target = db.users.find_one({"_id": target_oid, "role": "lgu_member", "organization_id": org_id})
     if not target:
         return jsonify({"error": "Target must be an existing LGU member"}), 404
 
     requester_role = g.current_user.get('role')
-    current_admin = db.users.find_one({"role": "lgu_admin"})
+    current_admin = db.users.find_one({"role": "lgu_admin", "organization_id": org_id})
     if requester_role == 'lgu_member':
         return jsonify({"error": "Only the current Admin (or Super Admin) can pass on the Admin seat"}), 403
     if requester_role == 'lgu_admin' and (not current_admin or str(current_admin['_id']) != g.current_user['id']):
@@ -2977,7 +3095,7 @@ def resend_admin_invite(admin_id):
         return jsonify({"error": "Invalid admin id"}), 400
 
     db = get_db()
-    admin = db.users.find_one({"_id": admin_oid, "role": {"$in": ["lgu_admin", "lgu_member"]}})
+    admin = db.users.find_one({"_id": admin_oid, "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": current_organization_oid()})
     if not admin:
         return jsonify({"error": "Admin account not found"}), 404
     if admin.get("password_set", True):
@@ -3014,7 +3132,7 @@ def delete_admin_account(admin_id):
         return jsonify({"error": "You can't remove your own account"}), 400
 
     db = get_db()
-    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["lgu_admin", "lgu_member"]}})
+    target = db.users.find_one({"_id": admin_oid, "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": current_organization_oid()})
     if not target:
         return jsonify({"error": "Admin account not found"}), 404
     if target.get('role') == 'lgu_admin':
@@ -3023,7 +3141,7 @@ def delete_admin_account(admin_id):
     db.users.delete_one({"_id": admin_oid})
     return jsonify({"message": "Admin account removed"})
 
-def create_admin_with_setup_email(full_name, email, office='', municipality='', role='lgu_member', permissions=None):
+def create_admin_with_setup_email(full_name, email, office='', municipality='', role='lgu_member', permissions=None, organization_id=None):
     """Inserts a new admin/LGU-member user with no usable starting password and emails
     them a one-time code to set one - used when an existing admin adds a colleague
     directly, so nobody (not even the admin who created the account) ever knows
@@ -3046,6 +3164,7 @@ def create_admin_with_setup_email(full_name, email, office='', municipality='', 
     }
     if role == 'lgu_member':
         doc["permissions"] = permissions or {p: False for p in ADMIN_PERMISSIONS}
+    doc["organization_id"] = organization_id or get_default_organization_id(db)
     result = db.users.insert_one(doc)
 
     create_and_send_otp(email, 'admin_setup', full_name)
@@ -3071,6 +3190,7 @@ def create_admin_from_approved_request(req, role, permissions):
     }
     if role == 'lgu_member':
         doc["permissions"] = permissions or {p: False for p in ADMIN_PERMISSIONS}
+    doc["organization_id"] = req.get("organization_id") or get_default_organization_id(db)
     result = db.users.insert_one(doc)
 
     office_line = req.get('office') or ''
@@ -3105,8 +3225,12 @@ def create_admin_from_approved_request(req, role, permissions):
     send_email_async(req["email"], "You're approved as an EcoScholar admin", html)
     return db.users.find_one({"_id": result.inserted_id})
 
-def serialize_admin_request(r):
+def serialize_admin_request(r, db=None):
     first_approval = r.get("first_approval")
+    org_name = None
+    if db is not None and r.get("organization_id"):
+        org = db.organizations.find_one({"_id": r["organization_id"]})
+        org_name = org.get("name") if org else None
     return {
         "id": str(r["_id"]),
         "full_name": r.get("full_name", ""),
@@ -3123,6 +3247,11 @@ def serialize_admin_request(r):
             "admin_id": first_approval["admin_id"],
             "admin_name": first_approval["admin_name"],
         } if first_approval else None,
+        # "Founding" requests bootstrap a brand-new organization and are only
+        # ever reviewed by the platform Super Admin, not by any LGU's own
+        # admins - see list/approve/reject below.
+        "is_founding": bool(r.get("is_founding")),
+        "organization_name": org_name,
     }
 
 # ── ADMIN ACCOUNT REQUESTS (LGU officials applying for admin access) ──
@@ -3262,7 +3391,10 @@ def complete_admin_invite_setup():
         "password": generate_password_hash(new_password),
         "password_set": True,
     }})
-    user_payload = {"id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role']}
+    user_payload = {
+        "id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role'],
+        "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
+    }
     if user['role'] == 'lgu_member':
         user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
     return jsonify({
@@ -3306,18 +3438,46 @@ def submit_admin_request():
     if not allowed_file(file.filename):
         return jsonify({"error": f"File must be one of: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
 
+    # "Create" bootstraps a brand-new LGU (reviewed by the platform Super
+    # Admin, since no peer admins exist yet to review it); "join" attaches to
+    # an LGU that already exists, via the code its own admins share out. Same
+    # profile form and same document requirement either way - only where the
+    # request lands for review differs (see list/approve/reject below).
+    org_mode = (request.form.get('org_mode') or 'join').strip().lower()
+    if org_mode not in ('join', 'create'):
+        return jsonify({"error": "org_mode must be 'join' or 'create'"}), 400
+
     db = get_db()
     if db.users.find_one({"email": email}):
         return jsonify({"error": "An account with this email already exists"}), 409
     if db.admin_requests.find_one({"email": email, "status": {"$in": ["pending", "pending_second_approval"]}}):
         return jsonify({"error": "A request for this email is already pending review"}), 409
 
+    is_founding = org_mode == 'create'
+    if is_founding:
+        org_name = (request.form.get('org_name') or '').strip()
+        if not org_name:
+            return jsonify({"error": "Organization name is required"}), 400
+        organization_id = db.organizations.insert_one({
+            "name": org_name,
+            "join_code": generate_unique_join_code(db),
+            "status": "pending",
+            "created_at": datetime.utcnow(),
+            "founding_admin_request_id": None,
+        }).inserted_id
+    else:
+        join_code = (request.form.get('join_code') or '').strip().upper()
+        organization = find_active_organization_by_code(db, join_code)
+        if not organization:
+            return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 400
+        organization_id = organization["_id"]
+
     filename = secure_filename(file.filename)
     unique_filename = f"admin-request_{email}_{filename}"
     file_bytes = file.read()
     gridfs_id = _fs.put(file_bytes, filename=unique_filename, content_type=safe_mime_for(unique_filename))
 
-    db.admin_requests.insert_one({
+    result = db.admin_requests.insert_one({
         "full_name": full_name,
         "email": email,
         "password_hash": generate_password_hash(password),
@@ -3338,7 +3498,13 @@ def submit_admin_request():
         "created_at": datetime.utcnow(),
         "reviewed_at": None,
         "reviewed_by": None,
+        "organization_id": organization_id,
+        "is_founding": is_founding,
     })
+
+    if is_founding:
+        db.organizations.update_one({"_id": organization_id}, {"$set": {"founding_admin_request_id": result.inserted_id}})
+
     return jsonify({"message": "Your request has been submitted for review. An existing admin will verify your details."}), 201
 
 # Admin-only - lets a reviewer see the applicant's uploaded ID/proof-of-employment
@@ -3387,8 +3553,25 @@ def list_admin_requests():
         query = {"status": status}
     else:
         query = {}
+
+    # An LGU's own admins only ever see their own organization's regular
+    # requests - never another LGU's, and never a founding request (no peer
+    # team exists yet to review those). The platform Super Admin additionally
+    # sees every founding request, on top of its own organization's regular
+    # ones - today, with only one LGU, Super Admin already doubles as that
+    # LGU's reviewer, so this preserves that rather than narrowing it.
+    org_id = current_organization_oid()
+    if g.current_user.get('role') == 'admin':
+        query["$or"] = [
+            {"is_founding": True},
+            {"is_founding": {"$ne": True}, "organization_id": org_id},
+        ]
+    else:
+        query["is_founding"] = {"$ne": True}
+        query["organization_id"] = org_id
+
     requests_ = list(db.admin_requests.find(query).sort("created_at", -1))
-    return jsonify({"requests": [serialize_admin_request(r) for r in requests_]})
+    return jsonify({"requests": [serialize_admin_request(r, db) for r in requests_]})
 
 # Granting can_manage_members is the one privilege-escalation risk in this whole
 # flow - it lets the new account approve/add further admins - so it alone
@@ -3406,6 +3589,14 @@ def approve_admin_request(request_id):
     req = db.admin_requests.find_one({"_id": request_oid})
     if not req:
         return jsonify({"error": "Request not found"}), 404
+
+    is_founding = bool(req.get("is_founding"))
+    if is_founding:
+        if g.current_user.get('role') != 'admin':
+            return jsonify({"error": "Only the platform Super Admin can approve a new organization"}), 403
+    elif req.get("organization_id") != current_organization_oid():
+        return jsonify({"error": "This request belongs to a different organization"}), 403
+
     if req.get("status") not in ("pending", "pending_second_approval"):
         return jsonify({"error": "This request has already been reviewed"}), 400
     if db.users.find_one({"email": req["email"]}):
@@ -3414,6 +3605,19 @@ def approve_admin_request(request_id):
     now = datetime.utcnow()
     current_admin_id = g.current_user['id']
     current_admin_name = g.current_user.get('email', 'Admin')
+
+    if is_founding:
+        # No peer review is possible for a brand-new organization - the Super
+        # Admin's own review already served as the vetting step, so the
+        # founding account is created directly as the org's lgu_admin (full
+        # access), skipping the two-person can_manage_members gate below
+        # entirely (there's no "second admin" to give it).
+        admin_doc = create_admin_from_approved_request(req, 'lgu_admin', None)
+        db.organizations.update_one({"_id": req["organization_id"]}, {"$set": {"status": "active"}})
+        db.admin_requests.update_one({"_id": request_oid}, {"$set": {
+            "status": "approved", "reviewed_at": now, "reviewed_by": current_admin_id,
+        }})
+        return jsonify({"message": "Organization approved", "admin": serialize_admin(admin_doc)}), 201
 
     # Second approval: finalize using the permissions the FIRST admin already
     # granted, recorded on first_approval - the second admin is confirming
@@ -3466,6 +3670,17 @@ def reject_admin_request(request_id):
         return jsonify({"error": "Invalid request id"}), 400
 
     db = get_db()
+    req = db.admin_requests.find_one({"_id": request_oid})
+    if not req:
+        return jsonify({"error": "Request not found or already reviewed"}), 404
+
+    is_founding = bool(req.get("is_founding"))
+    if is_founding:
+        if g.current_user.get('role') != 'admin':
+            return jsonify({"error": "Only the platform Super Admin can reject a new organization"}), 403
+    elif req.get("organization_id") != current_organization_oid():
+        return jsonify({"error": "This request belongs to a different organization"}), 403
+
     result = db.admin_requests.update_one(
         {"_id": request_oid, "status": {"$in": ["pending", "pending_second_approval"]}},
         {"$set": {"status": "rejected", "reviewed_at": datetime.utcnow(), "reviewed_by": g.current_user['id']}}

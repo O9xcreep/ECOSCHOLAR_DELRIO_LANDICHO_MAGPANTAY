@@ -2,8 +2,13 @@
 """Admin account requests: OTP-verified start step, token-gated submission
 (with a password and a valid ID/proof-of-employment document chosen upfront),
 and admin approve/reject review - including two-person approval for grants
-that include can_manage_members."""
+that include can_manage_members. Most tests here default to "join" mode
+against the auto-created default organization (multi-tenancy Phase A/B) -
+see test_organizations.py for the create-a-new-org ("founding") flow itself
+and the org-scoped review behavior."""
 import io
+
+import app as app_module
 
 APPLICANT_EMAIL = 'juan@lgu.gov.ph'
 
@@ -21,7 +26,6 @@ def make_apply_token(email=APPLICANT_EMAIL):
     """Test shortcut for endpoints that need an already-verified session token,
     without going through the real start -> OTP -> verify-start-otp round trip
     (that round trip itself is covered by TestStartAdminRequest below)."""
-    import app as app_module
     return app_module._admin_apply_serializer.dumps({'email': email})
 
 
@@ -29,12 +33,18 @@ def get_otp_code(db, email):
     return db.otps.find_one({'email': email, 'purpose': 'admin_apply'})['code']
 
 
-def submit_request(client, token=None, include_file=True, filename='proof.pdf', **overrides):
+def submit_request(client, db, token=None, include_file=True, filename='proof.pdf', join_code=None, **overrides):
     """multipart/form-data submission - the real shape the endpoint expects
-    now that a document upload is required alongside the plain form fields."""
+    now that a document upload and an org join code are both required
+    alongside the plain form fields. Defaults to "join" mode against the
+    auto-created default organization, unless the caller passes org_mode
+    explicitly (e.g. org_mode='create')."""
     if token is None:
         token = make_apply_token()
-    fields = {**FORM_FIELDS, 'token': token, **overrides}
+    if join_code is None and overrides.get('org_mode') != 'create':
+        default_org = db.organizations.find_one({"_id": app_module.get_default_organization_id(db)})
+        join_code = default_org['join_code']
+    fields = {**FORM_FIELDS, 'token': token, 'join_code': join_code or '', **overrides}
     data = {k: str(v) for k, v in fields.items()}
     if include_file:
         data['file'] = (io.BytesIO(b'%PDF-1.4 fake proof of employment'), filename)
@@ -110,7 +120,7 @@ class TestVerifyAdminApplyToken:
 
 class TestSubmitAdminRequest:
     def test_submit_success(self, client, db):
-        res = submit_request(client)
+        res = submit_request(client, db)
         assert res.status_code == 201
         stored = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         assert stored is not None
@@ -125,8 +135,8 @@ class TestSubmitAdminRequest:
         })
         assert res.status_code == 400
 
-    def test_invalid_token_rejected(self, client):
-        res = submit_request(client, token='garbage')
+    def test_invalid_token_rejected(self, client, db):
+        res = submit_request(client, db, token='garbage')
         assert res.status_code == 400
 
     def test_missing_fields_rejected(self, client):
@@ -134,45 +144,45 @@ class TestSubmitAdminRequest:
         res = client.post('/api/admin-requests', data={'token': token, 'file': (io.BytesIO(b'fake'), 'proof.pdf')})
         assert res.status_code == 400
 
-    def test_short_password_rejected(self, client):
-        res = submit_request(client, password='short')
+    def test_short_password_rejected(self, client, db):
+        res = submit_request(client, db, password='short')
         assert res.status_code == 400
 
     def test_email_comes_from_token_not_client(self, client, db):
         """A client-supplied email field must never override the verified one
         baked into the token - otherwise the whole point of the token is moot."""
         token = make_apply_token(email=APPLICANT_EMAIL)
-        res = submit_request(client, token=token, email='attacker@test.com')
+        res = submit_request(client, db, token=token, email='attacker@test.com')
         assert res.status_code == 201
         assert db.admin_requests.find_one({'email': 'attacker@test.com'}) is None
         assert db.admin_requests.find_one({'email': APPLICANT_EMAIL}) is not None
 
-    def test_duplicate_pending_request_rejected(self, client):
-        submit_request(client)
-        res = submit_request(client, token=make_apply_token())
+    def test_duplicate_pending_request_rejected(self, client, db):
+        submit_request(client, db)
+        res = submit_request(client, db, token=make_apply_token())
         assert res.status_code == 409
 
-    def test_existing_user_email_rejected(self, client, make_user):
+    def test_existing_user_email_rejected(self, client, db, make_user):
         make_user(email=APPLICANT_EMAIL, role='admin')
-        res = submit_request(client)
+        res = submit_request(client, db)
         assert res.status_code == 409
 
     def test_does_not_create_a_user_account(self, client, db):
-        submit_request(client)
+        submit_request(client, db)
         assert db.users.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_missing_file_rejected(self, client, db):
-        res = submit_request(client, include_file=False)
+        res = submit_request(client, db, include_file=False)
         assert res.status_code == 400
         assert db.admin_requests.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_disallowed_file_extension_rejected(self, client, db):
-        res = submit_request(client, filename='proof.exe')
+        res = submit_request(client, db, filename='proof.exe')
         assert res.status_code == 400
         assert db.admin_requests.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_stores_proof_of_employment_in_gridfs(self, client, db):
-        res = submit_request(client, filename='id-card.png')
+        res = submit_request(client, db, filename='id-card.png')
         assert res.status_code == 201
         stored = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         assert stored['proof_of_employment']['gridfs_id'] is not None
@@ -184,28 +194,28 @@ class TestListAdminRequests:
         res = client.get('/api/admin-requests', headers=auth_headers('student'))
         assert res.status_code == 403
 
-    def test_lists_submitted_requests(self, client, auth_headers):
-        submit_request(client)
+    def test_lists_submitted_requests(self, client, db, auth_headers):
+        submit_request(client, db)
         res = client.get('/api/admin-requests', headers=auth_headers())
         assert res.status_code == 200
         emails = [r['email'] for r in res.get_json()['requests']]
         assert APPLICANT_EMAIL in emails
 
-    def test_lists_include_proof_of_employment_filename(self, client, auth_headers):
-        submit_request(client, filename='appointment-letter.pdf')
+    def test_lists_include_proof_of_employment_filename(self, client, db, auth_headers):
+        submit_request(client, db, filename='appointment-letter.pdf')
         res = client.get('/api/admin-requests?status=pending', headers=auth_headers())
         req = next(r for r in res.get_json()['requests'] if r['email'] == APPLICANT_EMAIL)
         assert req['proof_of_employment_filename'] == 'appointment-letter.pdf'
 
-    def test_filters_by_status(self, client, auth_headers):
-        submit_request(client)
+    def test_filters_by_status(self, client, db, auth_headers):
+        submit_request(client, db)
         res = client.get('/api/admin-requests?status=rejected', headers=auth_headers())
         assert res.get_json()['requests'] == []
 
 
 class TestViewProofOfEmployment:
     def test_requires_can_manage_members(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         res = client.get(f'/api/admin-requests/{req["_id"]}/proof-of-employment', headers=auth_headers('student'))
         assert res.status_code == 403
@@ -214,7 +224,7 @@ class TestViewProofOfEmployment:
         """Fake GridFS (see conftest.py) never actually stores/serves bytes, so
         success here means "past the permission check, 404 on the file itself
         from _fs.get()" - not 403 or a request-not-found 404."""
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         res = client.get(f'/api/admin-requests/{req["_id"]}/proof-of-employment', headers=auth_headers())
         assert res.status_code == 404
@@ -231,7 +241,7 @@ class TestViewProofOfEmployment:
 
 class TestApproveAdminRequest:
     def test_approve_creates_admin_account(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
         res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
@@ -248,7 +258,7 @@ class TestApproveAdminRequest:
         assert updated_req['status'] == 'approved'
 
     def test_can_approve_with_specific_permissions(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
         res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers(),
@@ -260,7 +270,7 @@ class TestApproveAdminRequest:
     def test_a_role_field_in_the_body_is_ignored(self, client, db, auth_headers):
         """Approving always creates a plain lgu_member - the Admin seat can only be
         reached afterward via POST /api/admins/<id>/transfer-admin."""
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         lgu_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
 
@@ -273,7 +283,7 @@ class TestApproveAdminRequest:
         """Unlike a directly-added admin (who gets a random placeholder password and
         an emailed set-password link), an approved applicant already proved their
         email and chose their own password when submitting - it should just work."""
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
 
@@ -284,7 +294,7 @@ class TestApproveAdminRequest:
         assert created['password_set'] is True
 
     def test_wrong_password_still_rejected(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
 
@@ -292,13 +302,13 @@ class TestApproveAdminRequest:
         assert res.status_code == 401
 
     def test_requires_admin_role(self, client, auth_headers, db):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers('student'))
         assert res.status_code == 403
 
     def test_cannot_approve_twice(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers = auth_headers()
         client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=headers)
@@ -316,7 +326,7 @@ class TestTwoPersonApprovalForManageMembers:
     needs two DIFFERENT existing admins to sign off before the account exists."""
 
     def test_granting_can_manage_members_does_not_create_account_on_first_approval(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers = auth_headers()
 
@@ -331,7 +341,7 @@ class TestTwoPersonApprovalForManageMembers:
         assert updated['first_approval']['permissions_granted']['can_manage_members'] is True
 
     def test_second_different_admin_finalizes_it(self, client, db, make_user):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
         admin1 = make_user(email='admin1@test.com', role='admin')
@@ -354,7 +364,7 @@ class TestTwoPersonApprovalForManageMembers:
         assert updated['second_approval']['admin_id'] == str(admin2['id'])
 
     def test_same_admin_cannot_give_both_approvals(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers = auth_headers()
 
@@ -366,7 +376,7 @@ class TestTwoPersonApprovalForManageMembers:
         assert db.users.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_rejecting_a_pending_second_approval_request_works(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers = auth_headers()
 
@@ -381,7 +391,7 @@ class TestTwoPersonApprovalForManageMembers:
     def test_permissions_without_can_manage_members_still_need_only_one_approval(self, client, db, auth_headers):
         """Regression check: the common case (review-only access) must not be
         slowed down by the two-person rule."""
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
         res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers(),
@@ -392,7 +402,7 @@ class TestTwoPersonApprovalForManageMembers:
 
 class TestRejectAdminRequest:
     def test_reject_marks_status_without_creating_account(self, client, db, auth_headers):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
         res = client.post(f'/api/admin-requests/{req["_id"]}/reject', headers=auth_headers())
@@ -401,7 +411,7 @@ class TestRejectAdminRequest:
         assert db.users.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_requires_admin_role(self, client, auth_headers, db):
-        submit_request(client)
+        submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         res = client.post(f'/api/admin-requests/{req["_id"]}/reject', headers=auth_headers('student'))
         assert res.status_code == 403

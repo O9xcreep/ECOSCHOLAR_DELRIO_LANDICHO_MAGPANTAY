@@ -294,6 +294,7 @@ const ADDRESS_CITIES = [
 
 const EMPTY_ADMIN_REQUEST = {
   fullName: '', password: '', confirmPassword: '', office: '', municipality: '', contactNumber: '', message: '',
+  orgMode: 'join', joinCode: '', orgName: '',
 }
 
 function ApplyAdmin() {
@@ -316,6 +317,31 @@ function ApplyAdmin() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
+  const [joinCodeChecking, setJoinCodeChecking] = useState(false)
+  const [joinCodeError, setJoinCodeError] = useState('')
+
+  const handleJoinCodeBlur = useCallback(async () => {
+    const code = data.joinCode.trim().toUpperCase()
+    setJoinCodeOrgName('')
+    setJoinCodeError('')
+    if (!code) return
+
+    setJoinCodeChecking(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/organizations/lookup?code=${encodeURIComponent(code)}`)
+      const result = await res.json()
+      if (!res.ok) {
+        setJoinCodeError(result.error || "That join code isn't valid. Check it with your LGU and try again.")
+        return
+      }
+      setJoinCodeOrgName(result.organization.name)
+    } catch {
+      setJoinCodeError('Cannot connect to server. Please try again.')
+    } finally {
+      setJoinCodeChecking(false)
+    }
+  }, [data.joinCode])
 
   useEffect(() => {
     if (!token) return
@@ -371,6 +397,11 @@ function ApplyAdmin() {
     if (!contactNumber.trim()) { setError('Contact number is required'); return }
     else if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, '')))
       { setError('Enter a valid PH number (e.g. 09123456789)'); return }
+    if (data.orgMode === 'create') {
+      if (!data.orgName.trim()) { setError('Organization name is required'); return }
+    } else {
+      if (!data.joinCode.trim()) { setError('An LGU join code is required'); return }
+    }
     if (!proofFile) { setError('Upload a valid ID or proof-of-employment document'); return }
 
     setLoading(true)
@@ -384,6 +415,12 @@ function ApplyAdmin() {
       formData.append('contact_number', contactNumber.trim())
       formData.append('message', data.message.trim())
       formData.append('file', proofFile)
+      formData.append('org_mode', data.orgMode)
+      if (data.orgMode === 'create') {
+        formData.append('org_name', data.orgName.trim())
+      } else {
+        formData.append('join_code', data.joinCode.trim().toUpperCase())
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/admin-requests`, {
         method: 'POST',
@@ -511,6 +548,72 @@ function ApplyAdmin() {
                 <p className="lp-sub">Applying as <strong>{verifiedEmail}</strong></p>
 
                 {error && <div className="lp-alert error">{error}</div>}
+
+                <div className="lp-field">
+                  <label>Your LGU</label>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                    <button
+                      type="button"
+                      className="lp-btn"
+                      style={{
+                        flex: 1, background: data.orgMode === 'join' ? undefined : '#F3F4F6',
+                        color: data.orgMode === 'join' ? undefined : 'var(--text-secondary)',
+                        boxShadow: data.orgMode === 'join' ? undefined : 'none',
+                      }}
+                      onClick={() => { setData(p => ({ ...p, orgMode: 'join' })); setError('') }}
+                    >
+                      Join with a code
+                    </button>
+                    <button
+                      type="button"
+                      className="lp-btn"
+                      style={{
+                        flex: 1, background: data.orgMode === 'create' ? undefined : '#F3F4F6',
+                        color: data.orgMode === 'create' ? undefined : 'var(--text-secondary)',
+                        boxShadow: data.orgMode === 'create' ? undefined : 'none',
+                      }}
+                      onClick={() => { setData(p => ({ ...p, orgMode: 'create' })); setError('') }}
+                    >
+                      Create a new LGU
+                    </button>
+                  </div>
+
+                  {data.orgMode === 'join' ? (
+                    <>
+                      <input
+                        className="lp-input"
+                        type="text"
+                        placeholder="e.g. ABC123"
+                        value={data.joinCode}
+                        onChange={e => { setData(p => ({ ...p, joinCode: e.target.value })); setError(''); setJoinCodeOrgName(''); setJoinCodeError('') }}
+                        onBlur={handleJoinCodeBlur}
+                        onKeyDown={handleKeyDown}
+                      />
+                      {joinCodeChecking && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Checking code…</p>}
+                      {!joinCodeChecking && joinCodeOrgName && (
+                        <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>Joining {joinCodeOrgName}</p>
+                      )}
+                      {!joinCodeChecking && joinCodeError && (
+                        <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>{joinCodeError}</p>
+                      )}
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Ask your LGU's admin for this code.</p>
+                    </>
+                  ) : (
+                    <>
+                      <input
+                        className="lp-input"
+                        type="text"
+                        placeholder="Your LGU's name"
+                        value={data.orgName}
+                        onChange={e => { setData(p => ({ ...p, orgName: e.target.value })); setError('') }}
+                        onKeyDown={handleKeyDown}
+                      />
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        No peer admins exist yet for a brand-new LGU, so this request is reviewed by the platform's Super Admin instead. Once approved, you'll get a join code to share with your team.
+                      </p>
+                    </>
+                  )}
+                </div>
 
                 <div className="lp-field">
                   <label>Full Name</label>

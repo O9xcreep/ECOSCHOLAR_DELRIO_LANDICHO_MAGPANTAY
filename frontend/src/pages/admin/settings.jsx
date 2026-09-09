@@ -742,6 +742,23 @@ function AdminRequestsSection({ onApproved }) {
     }
   }
 
+  const handleFoundingApproval = async (req) => {
+    if (!window.confirm(`Approve "${req.organization_name}" as a new organization and create ${req.full_name} (${req.email}) as its Admin?`)) return
+    setActionError('')
+    setActioningId(req.id)
+    try {
+      const res = await apiFetch(`/api/admin-requests/${req.id}/approve`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
+      setRequests(prev => prev.filter(r => r.id !== req.id))
+      onApproved?.(data.admin)
+    } catch {
+      setActionError('Cannot connect to server. Please try again.')
+    } finally {
+      setActioningId(null)
+    }
+  }
+
   const handleSecondApproval = async (req) => {
     if (!window.confirm(`Give the second approval for ${req.full_name} (${req.email})? This confirms the same admin-tier grant ${req.first_approval?.admin_name || 'the first admin'} already approved.`)) return
     setActionError('')
@@ -800,6 +817,12 @@ function AdminRequestsSection({ onApproved }) {
           const isSecondApprover = awaitingSecond && req.first_approval?.admin_id !== currentUser.id
           return (
           <div key={req.id} style={{ border: '1px solid #F0F0F0', borderRadius: '12px', padding: '16px 18px' }}>
+            {req.is_founding && (
+              <div className="security-error" style={{ background: '#EFF6FF', color: '#1E40AF', marginBottom: '12px' }}>
+                New Organization Request — <strong>{req.organization_name}</strong> has no team yet, so this is
+                reviewed here as the platform Super Admin rather than by a peer admin.
+              </div>
+            )}
             <div className="settings-row" style={{ marginBottom: '10px' }}>
               <div className="info-item">
                 <span className="info-label">Full Name</span>
@@ -850,7 +873,16 @@ function AdminRequestsSection({ onApproved }) {
               </div>
             )}
 
-            {awaitingSecond ? (
+            {req.is_founding ? (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn-primary" onClick={() => handleFoundingApproval(req)} disabled={actioningId === req.id}>
+                  {actioningId === req.id ? 'Working...' : 'Approve New Organization'}
+                </button>
+                <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
+                  Reject
+                </button>
+              </div>
+            ) : awaitingSecond ? (
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn-primary" onClick={() => handleSecondApproval(req)}
                   disabled={actioningId === req.id || !isSecondApprover}
@@ -920,6 +952,53 @@ const EMPTY_TEAM_FORM = {
 }
 
 // ── TEAM TAB ──
+function JoinCodeCard() {
+  const [org, setOrg] = useState(null)
+  const [loadError, setLoadError] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    apiFetch('/api/organizations/mine')
+      .then(async res => {
+        if (!res.ok) { setLoadError(true); return }
+        const data = await res.json()
+        setOrg(data.organization)
+      })
+      .catch(() => setLoadError(true))
+  }, [])
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(org.join_code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard access can be denied - the code is still shown on screen either way.
+    }
+  }
+
+  if (loadError || !org) return null
+
+  return (
+    <div className="settings-card" style={{ marginBottom: '20px' }}>
+      <h4 className="card-label" style={{ marginBottom: '4px' }}>Your LGU's Join Code</h4>
+      <p className="info-sub" style={{ marginBottom: '14px' }}>
+        Share this with anyone who needs to register a student account or apply for admin access
+        under <strong>{org.name}</strong> - they'll enter it before filling out the rest of their form.
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <span style={{
+          fontFamily: 'monospace', fontSize: '20px', fontWeight: 700, letterSpacing: '2px',
+          background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: '8px', padding: '8px 16px',
+        }}>
+          {org.join_code}
+        </span>
+        <button className="btn-change" onClick={handleCopy}>{copied ? 'Copied!' : 'Copy'}</button>
+      </div>
+    </div>
+  )
+}
+
 function TeamTab() {
   const currentUser = getUser() || {}
   const canPassAdminRole = isFullAccess(currentUser)
@@ -1051,6 +1130,7 @@ function TeamTab() {
 
   return (
     <div className="tab-content">
+      <JoinCodeCard />
       <AdminRequestsSection onApproved={(admin) => admin && setAdmins(prev => [...prev, admin])} />
       <div className="settings-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>

@@ -558,6 +558,7 @@ const ADDRESS_CITIES = [
 ]
 
 const EMPTY_REG_DATA = {
+  join_code: '',
   lastName: '', firstName: '', middleName: '', email: '', password: '', confirm_password: '',
   dob: '', gender: '', religion: '', citizenship: 'Filipino', contactNumber: '',
   street: '', city: '',
@@ -637,6 +638,9 @@ function Login() {
   const [regError, setRegError] = useState('')
   const [regLoading, setRegLoading] = useState(false)
   const [privacyConsent, setPrivacyConsent] = useState(false)
+  const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
+  const [joinCodeChecking, setJoinCodeChecking] = useState(false)
+  const [joinCodeError, setJoinCodeError] = useState('')
 
   // ── REGISTER: EMAIL VERIFICATION (step 3) ──
   const [regOtpCode, setRegOtpCode] = useState('')
@@ -708,11 +712,35 @@ function Login() {
     }
   }, [loginData, navigate])
 
+  // ── REGISTER: LOOK UP LGU JOIN CODE ──
+  const handleJoinCodeBlur = useCallback(async () => {
+    const code = regData.join_code.trim().toUpperCase()
+    setJoinCodeOrgName('')
+    setJoinCodeError('')
+    if (!code) return
+
+    setJoinCodeChecking(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/organizations/lookup?code=${encodeURIComponent(code)}`)
+      const data = await res.json()
+      if (!res.ok) {
+        setJoinCodeError(data.error || "That join code isn't valid. Check it with your LGU and try again.")
+        return
+      }
+      setJoinCodeOrgName(data.organization.name)
+    } catch {
+      setJoinCodeError('Cannot connect to server. Please try again.')
+    } finally {
+      setJoinCodeChecking(false)
+    }
+  }, [regData.join_code])
+
   // ── REGISTER STEP 1 -> STEP 2 ──
   const handleRegNext = useCallback(() => {
     setRegError('')
-    const { lastName, firstName, email, password, confirm_password } = regData
+    const { lastName, firstName, email, password, confirm_password, join_code } = regData
 
+    if (!join_code.trim())                    { setRegError('An LGU join code is required'); return }
     if (!lastName.trim())                     { setRegError('Last name is required'); return }
     if (!firstName.trim())                    { setRegError('First name is required'); return }
     if (!email.trim())                        { setRegError('Email is required'); return }
@@ -751,6 +779,7 @@ function Login() {
           full_name,
           email: regData.email.trim().toLowerCase(),
           password: regData.password,
+          join_code: regData.join_code.trim().toUpperCase(),
           dob: regData.dob,
           gender: regData.gender,
           religion: regData.religion,
@@ -1077,6 +1106,27 @@ function Login() {
                     <p className="lp-step-indicator">Step 1 of 2 — Account</p>
 
                     {regError && <div className="lp-alert error">{regError}</div>}
+
+                    <div className="lp-field">
+                      <label>LGU Join Code</label>
+                      <input
+                        className="lp-input"
+                        type="text"
+                        placeholder="e.g. ABC123"
+                        value={regData.join_code}
+                        onChange={e => { setRegData(p => ({ ...p, join_code: e.target.value })); setRegError(''); setJoinCodeOrgName(''); setJoinCodeError('') }}
+                        onBlur={handleJoinCodeBlur}
+                        onKeyDown={handleKeyDown}
+                      />
+                      {joinCodeChecking && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Checking code…</p>}
+                      {!joinCodeChecking && joinCodeOrgName && (
+                        <p style={{ fontSize: '12px', color: 'var(--success, #16a34a)', marginTop: '4px' }}>Joining {joinCodeOrgName}</p>
+                      )}
+                      {!joinCodeChecking && joinCodeError && (
+                        <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>{joinCodeError}</p>
+                      )}
+                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Ask your LGU's admin for this code.</p>
+                    </div>
 
                     <div className="lp-form-grid-2">
                       <div className="lp-field">
