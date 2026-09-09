@@ -102,7 +102,7 @@
 /* ── TOPBAR ── */
 .student-topbar {
   height: 64px;
-  background: white;
+  background: #16233d;
   border-bottom: 1px solid #e5e7eb;
   display: flex;
   align-items: center;
