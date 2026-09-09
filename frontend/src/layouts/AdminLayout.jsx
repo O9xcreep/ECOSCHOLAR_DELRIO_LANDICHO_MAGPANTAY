@@ -19,7 +19,6 @@ function AdminLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getUser() || {}
-  const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'A'
 
   const canReview = isFullAccess(user) || !!user.permissions?.can_review_applicants
   const roleLabel = user.role === 'admin' ? 'Super Admin' : user.role === 'lgu_admin' ? 'Admin' : 'LGU Member'
@@ -76,7 +75,6 @@ function AdminLayout() {
           <div className="topbar-right">
             <NotificationBell />
             <div className="admin-profile">
-              <div className="admin-avatar">{initial}</div>
               <div>
                 <p className="admin-name">{user.full_name || 'Admin'}</p>
                 <p className="admin-role">{roleLabel}</p>

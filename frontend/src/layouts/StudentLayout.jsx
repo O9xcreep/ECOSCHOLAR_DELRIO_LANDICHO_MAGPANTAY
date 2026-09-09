@@ -20,8 +20,6 @@ function StudentLayout() {
   const location = useLocation()
   const user = getUser() || {}
 
-  const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'S'
-
   const handleLogout = async () => {
     await logout()
     navigate('/login')
@@ -75,7 +73,6 @@ function StudentLayout() {
           <div className="topbar-right">
             <NotificationBell />
             <div className="student-profile">
-              <div className="student-avatar">{initial}</div>
               <div>
                 <p className="student-name">{user.full_name || 'Student'}</p>
                 <p className="student-role">Applicant</p>
