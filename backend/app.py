@@ -61,37 +61,72 @@ OTP_MAX_AGE = 10 * 60  # 10 minutes
 OTP_MAX_ATTEMPTS = 5
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
-# Sent via Resend's HTTP API (not raw SMTP) because Render's free-tier web
-# services block outbound traffic to SMTP ports 25/465/587 - the HTTP API
-# only needs normal outbound HTTPS (443), which is never blocked.
+# Sent via an HTTP API (not raw SMTP) because Render's free-tier web services
+# block outbound traffic to SMTP ports 25/465/587 - an HTTP API only needs
+# normal outbound HTTPS (443), which is never blocked.
+#
+# EMAIL_PROVIDER picks which one - "resend" (default) or "mailjet". This is a
+# temporary switch: Resend's free tier has a sending limit, so ops can flip to
+# Mailjet without a code change while that resets, then flip back by just
+# changing the env var. Both providers share the same SMTP_FROM_EMAIL/NAME.
+EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'resend').strip().lower()
 RESEND_API_KEY = os.getenv('RESEND_API_KEY', '')
+MAILJET_API_KEY = os.getenv('MAILJET_API_KEY', '')
+MAILJET_API_SECRET = os.getenv('MAILJET_API_SECRET', '')
 SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'EcoScholar')
 SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '')
 
+def _send_email_via_resend(to_email, subject, html_body):
+    resp = requests.post(
+        'https://api.resend.com/emails',
+        headers={'Authorization': f'Bearer {RESEND_API_KEY}'},
+        json={
+            'from': f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>',
+            'to': [to_email],
+            'subject': subject,
+            'html': html_body,
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+
+def _send_email_via_mailjet(to_email, subject, html_body):
+    resp = requests.post(
+        'https://api.mailjet.com/v3.1/send',
+        auth=(MAILJET_API_KEY, MAILJET_API_SECRET),
+        json={
+            'Messages': [{
+                'From': {'Email': SMTP_FROM_EMAIL, 'Name': SMTP_FROM_NAME},
+                'To': [{'Email': to_email}],
+                'Subject': subject,
+                'HTMLPart': html_body,
+            }]
+        },
+        timeout=10,
+    )
+    resp.raise_for_status()
+
 def send_email(to_email, subject, html_body):
-    """Best-effort email send via the Resend HTTP API. Returns True/False and
-    never raises - callers must not let a failed send change what's shown to
-    the requester, since that would leak whether an email address exists in
-    the system."""
-    if not RESEND_API_KEY or not SMTP_FROM_EMAIL:
-        app.logger.warning('Email not sent (RESEND_API_KEY/SMTP_FROM_EMAIL not configured): %s', subject)
-        return False
+    """Best-effort email send via whichever provider EMAIL_PROVIDER selects.
+    Returns True/False and never raises - callers must not let a failed send
+    change what's shown to the requester, since that would leak whether an
+    email address exists in the system."""
+    if EMAIL_PROVIDER == 'mailjet':
+        if not MAILJET_API_KEY or not MAILJET_API_SECRET or not SMTP_FROM_EMAIL:
+            app.logger.warning('Email not sent (MAILJET_API_KEY/MAILJET_API_SECRET/SMTP_FROM_EMAIL not configured): %s', subject)
+            return False
+        sender = _send_email_via_mailjet
+    else:
+        if not RESEND_API_KEY or not SMTP_FROM_EMAIL:
+            app.logger.warning('Email not sent (RESEND_API_KEY/SMTP_FROM_EMAIL not configured): %s', subject)
+            return False
+        sender = _send_email_via_resend
+
     try:
-        resp = requests.post(
-            'https://api.resend.com/emails',
-            headers={'Authorization': f'Bearer {RESEND_API_KEY}'},
-            json={
-                'from': f'{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>',
-                'to': [to_email],
-                'subject': subject,
-                'html': html_body,
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
+        sender(to_email, subject, html_body)
         return True
     except Exception as e:
-        app.logger.error('Email send failed: %s', str(e))
+        app.logger.error('Email send failed (%s): %s', EMAIL_PROVIDER, str(e))
         return False
 
 def send_email_async(to_email, subject, html_body):
