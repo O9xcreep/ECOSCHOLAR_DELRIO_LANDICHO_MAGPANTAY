@@ -64,17 +64,31 @@ button:active:not(:disabled) {
  * Dashboard.jsx/applications.jsx/etc). Only page titles/subtitles sit
  * directly on the photo (everything else is on a card), so those get a soft
  * white text-shadow below as a legibility safety net regardless of how busy
- * the underlying photo is. */
+ * the underlying photo is.
+ *
+ * background-attachment: fixed is load-bearing, not decorative: with the
+ * default "scroll" attachment, `cover` sizes the image against the
+ * element's own (scrollable) box - and that box grows as tall as its
+ * content (e.g. a long applicants table), so a busy page forces the image
+ * to upscale far past its native resolution and turns visibly soft/blocky.
+ * "fixed" sizes `cover` against the viewport instead, which stays constant
+ * no matter how much content is on the page. */
 .page-bg {
   padding: 24px;
   border-radius: 18px;
   background:
     linear-gradient(rgba(234,240,247,.5), rgba(234,240,247,.5)),
     var(--page-bg-image) center top / cover no-repeat;
+  background-attachment: local, fixed;
 }
 
 @media (max-width: 768px) {
-  .page-bg { padding: 14px; }
+  .page-bg {
+    padding: 14px;
+    /* "fixed" is unreliable on mobile browsers (notably iOS Safari) and the
+     * quality loss it fixes barely shows on a short, narrow viewport anyway. */
+    background-attachment: local, scroll;
+  }
 }
 
 .page-title, .dash-title, .sd-title, .av-title,
