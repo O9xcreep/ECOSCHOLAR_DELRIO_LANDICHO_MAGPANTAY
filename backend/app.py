@@ -3686,7 +3686,16 @@ def approve_admin_request(request_id):
     raw = data.get('permissions') or {}
     permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
 
-    if permissions.get('can_manage_members'):
+    # The two-person gate exists to stop a single compromised/careless LGU
+    # admin from unilaterally creating more admins for their own org. The
+    # platform Super Admin is a higher trust tier that already bypasses every
+    # other permission check in the system (including granting this exact
+    # permission directly via PUT /api/admins/<id>/permissions, with no
+    # second approval there either) - requiring a peer here would be
+    # security theater, not a real additional check, so Super Admin's single
+    # approval finalizes the account immediately just like the founding-org
+    # path above.
+    if permissions.get('can_manage_members') and g.current_user.get('role') != 'admin':
         db.admin_requests.update_one({"_id": request_oid}, {"$set": {
             "status": "pending_second_approval",
             "first_approval": {

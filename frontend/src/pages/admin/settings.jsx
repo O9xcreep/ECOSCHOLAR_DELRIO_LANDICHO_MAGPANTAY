@@ -915,8 +915,9 @@ function AdminRequestsSection({ onApproved }) {
                 </div>
                 {pendingPermissions.can_manage_members && (
                   <p className="info-sub" style={{ color: '#92400E' }}>
-                    "Manage team members" lets this account approve future admins - granting it here will need a
-                    second, different admin's confirmation before the account is actually created.
+                    {currentUser.role === 'admin'
+                      ? '"Manage team members" lets this account approve future admins - as the Super Admin, your approval alone activates it, same as everywhere else you already grant this permission.'
+                      : '"Manage team members" lets this account approve future admins - granting it here will need a second, different admin\'s confirmation before the account is actually created.'}
                   </p>
                 )}
                 <div style={{ display: 'flex', gap: '8px' }}>
