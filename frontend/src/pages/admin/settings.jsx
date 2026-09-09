@@ -623,7 +623,7 @@ function SystemTab() {
               type="text"
               className="settings-select"
               style={{ background: '#fff', width: '260px' }}
-              placeholder="e.g. 2027 Cycle 1"
+              placeholder="Enter cycle Name (2024-2025)"
               value={newCycleLabel}
               onChange={e => setNewCycleLabel(e.target.value)}
             />
