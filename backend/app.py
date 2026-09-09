@@ -552,6 +552,16 @@ def find_active_organization_by_code(db, code):
         return None
     return db.organizations.find_one({"join_code": code, "status": "active"})
 
+def get_organization_name(db, organization_id):
+    """Best-effort org name for display (e.g. the authenticated app's header/
+    sidebar) - never lets a missing/None organization_id or a lookup miss
+    turn into an error, since a legacy account predating Phase A just falls
+    back to no name shown at all."""
+    if not organization_id:
+        return None
+    org = db.organizations.find_one({"_id": organization_id})
+    return org.get("name") if org else None
+
 def serialize_organization(org):
     return {
         "id": str(org["_id"]),
@@ -948,6 +958,7 @@ def login():
             "email": user['email'],
             "role": user['role'],
             "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
+            "organization_name": get_organization_name(db, user.get('organization_id')),
         }
         # Informational only (drives which nav items the frontend shows) - every
         # endpoint re-checks permissions fresh from the database regardless, so a

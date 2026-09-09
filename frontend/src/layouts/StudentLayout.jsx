@@ -58,7 +58,7 @@ function StudentLayout() {
         {/* TOPBAR (desktop) */}
         <header className="student-topbar">
           <div className="topbar-left">
-            <h1 className="topbar-title">EcoScholar</h1>
+            <h1 className="topbar-title">{user.organization_name || 'EcoScholar'}</h1>
           </div>
           <div className="topbar-right">
             <NotificationBell />

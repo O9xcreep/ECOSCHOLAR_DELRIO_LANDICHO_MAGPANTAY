@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { apiFetch, displayStatus } from '../../api'
+import { apiFetch, displayStatus, getUser } from '../../api'
 import './Dashboard.css'
 
 const statusClass = {
@@ -197,8 +197,9 @@ useEffect(() => {
     const doc = new jsPDF()
     const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
 
+    const orgName = getUser()?.organization_name || 'EcoScholar'
     doc.setFontSize(16)
-    doc.text('EcoScholar - Applications Report', 14, 18)
+    doc.text(`${orgName} - Applications Report`, 14, 18)
     doc.setFontSize(10)
     doc.setTextColor(120)
     doc.text(`Generated ${generatedAt}`, 14, 25)

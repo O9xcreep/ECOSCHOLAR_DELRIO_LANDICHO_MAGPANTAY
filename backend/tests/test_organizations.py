@@ -108,6 +108,21 @@ class TestTokenCarriesOrganizationId:
         assert res.get_json()['user']['organization_id'] is None
 
 
+class TestOrganizationNameInPayload:
+    """Phase D: the authenticated app's header/sidebar shows the caller's own
+    LGU name instead of a hardcoded platform name - sourced from this field."""
+
+    def test_login_response_includes_organization_name(self, client, db, make_user):
+        make_user(email='orgname@test.com', password='TestPass123', role='student')
+        res = client.post('/api/login', json={'email': 'orgname@test.com', 'password': 'TestPass123'})
+        assert res.get_json()['user']['organization_name'] == 'Default Organization'
+
+    def test_login_with_no_organization_id_has_no_organization_name(self, client, make_user):
+        make_user(email='no-org-name@test.com', password='TestPass123', role='student', organization_id=False)
+        res = client.post('/api/login', json={'email': 'no-org-name@test.com', 'password': 'TestPass123'})
+        assert res.get_json()['user']['organization_name'] is None
+
+
 class TestLookupOrganization:
     def test_valid_code_returns_organization_name(self, client, db):
         org_id = app_module.get_default_organization_id(db)
