@@ -66,6 +66,11 @@ function FormBuilder() {
   const [docError, setDocError] = useState('')
   const [savingDoc, setSavingDoc] = useState(false)
 
+  // The form can only be edited before a program starts or after it ends -
+  // changing what's expected of applicants mid-program would silently
+  // invalidate submissions already in flight. See form_is_locked() in app.py.
+  const [formLocked, setFormLocked] = useState(false)
+
   const fetchDocRequirements = async () => {
     try {
       const res = await apiFetch('/api/document-requirements')
@@ -142,7 +147,18 @@ function FormBuilder() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchFields() }, [])
+  const fetchLockStatus = async () => {
+    try {
+      const res = await apiFetch('/api/settings')
+      if (!res.ok) return
+      const data = await res.json()
+      setFormLocked(!!data.current_cycle?.is_open)
+    } catch (err) {
+      console.error('Error:', err)
+    }
+  }
+
+  useEffect(() => { fetchFields(); fetchLockStatus() }, [])
 
   const toggleBuiltin = async (key) => {
     const next = hiddenBuiltins.includes(key)
@@ -226,6 +242,13 @@ function FormBuilder() {
         </div>
       </div>
 
+      {formLocked && (
+        <div className="fb-locked-banner">
+          This form is locked while a program is open. It can be edited again once
+          the current program ends.
+        </div>
+      )}
+
       {/* Built-in optional fields */}
       <div className="fb-card">
         <h3 className="fb-card-title">Optional Built-in Fields</h3>
@@ -242,6 +265,7 @@ function FormBuilder() {
                   type="checkbox"
                   checked={!hiddenBuiltins.includes(key)}
                   onChange={() => toggleBuiltin(key)}
+                  disabled={formLocked}
                 />
                 <span className="slider" />
               </label>
@@ -290,10 +314,11 @@ function FormBuilder() {
                       type="checkbox"
                       checked={field.enabled}
                       onChange={() => toggleFieldEnabled(field)}
+                      disabled={formLocked}
                     />
                     <span className="slider" />
                   </label>
-                  <button className="fb-btn-delete" onClick={() => deleteField(field)}>Delete</button>
+                  <button className="fb-btn-delete" onClick={() => deleteField(field)} disabled={formLocked}>Delete</button>
                 </div>
               ))}
             </div>
@@ -304,7 +329,7 @@ function FormBuilder() {
       {/* Add new field */}
       <div className="fb-card">
         {!showAddForm ? (
-          <button className="fb-btn-add" onClick={() => setShowAddForm(true)}>
+          <button className="fb-btn-add" onClick={() => setShowAddForm(true)} disabled={formLocked}>
             + Add Custom Field
           </button>
         ) : (
@@ -420,6 +445,7 @@ function FormBuilder() {
                     type="checkbox"
                     checked={doc.required}
                     onChange={() => toggleDocRequired(doc)}
+                    disabled={formLocked}
                   />
                   Required
                 </label>
@@ -428,17 +454,18 @@ function FormBuilder() {
                     type="checkbox"
                     checked={doc.enabled}
                     onChange={() => toggleDocEnabled(doc)}
+                    disabled={formLocked}
                   />
                   <span className="slider" />
                 </label>
-                <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)}>Delete</button>
+                <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)} disabled={formLocked}>Delete</button>
               </div>
             ))}
           </div>
         )}
 
         {!showAddDoc ? (
-          <button className="fb-btn-add fb-btn-add-doc" onClick={() => setShowAddDoc(true)}>
+          <button className="fb-btn-add fb-btn-add-doc" onClick={() => setShowAddDoc(true)} disabled={formLocked}>
             + Add Document Requirement
           </button>
         ) : (

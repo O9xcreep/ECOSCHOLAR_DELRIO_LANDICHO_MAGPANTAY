@@ -91,6 +91,13 @@ function StudentDashboard() {
 
   const stepsDone = getStepsDone()
 
+  // A withdrawn application (whether the student withdrew it themselves, or an
+  // admin requested changes) is a dead-end record - treat it like "no
+  // application" for the action button, so the student is pointed at starting
+  // a fresh one instead of "viewing" a record they can't do anything else with.
+  const isWithdrawn = application?.application_status === 'Withdrawn'
+  const needsFreshApplication = !application || isWithdrawn
+
   return (
     <div className="student-dashboard page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
       <div className="sd-header">
@@ -132,7 +139,11 @@ function StudentDashboard() {
             <div className="sd-card sd-status-card">
               <div className="sd-card-header">
                 <h3>Application Status</h3>
-                {application ? (
+                {isWithdrawn ? (
+                  <span className="badge badge-yellow">
+                    {application.admin_comment ? 'Changes Requested' : 'Withdrawn'}
+                  </span>
+                ) : application ? (
                   <span className={`badge ${STATUS_COLORS[displayStatus(application.application_status, application.ml_status)] || 'badge-yellow'}`}>
                     {displayStatus(application.application_status, application.ml_status) || 'Pending'}
                   </span>
@@ -159,7 +170,13 @@ function StudentDashboard() {
               </div>
 
               {/* Status Message */}
-              {application ? (
+              {isWithdrawn ? (
+                <p className="sd-progress-text">
+                  {application.admin_comment
+                    ? `An admin requested changes to your application: ${application.admin_comment} Please start a new application with the corrected information.`
+                    : "You withdrew this application. You can start a new one below."}
+                </p>
+              ) : application ? (
                 <>
                   <p className="sd-progress-text">
                     {application.application_status === 'Approved' &&
@@ -217,13 +234,13 @@ function StudentDashboard() {
                 </>
               )}
 
-              {(application || !currentCycle || currentCycle.is_open) && (
+              {(!needsFreshApplication || !currentCycle || currentCycle.is_open) && (
                 <button
                   className="btn-continue"
                   onClick={() => navigate(
-                    application ? '/student/applicant-details' : '/student/application'
+                    needsFreshApplication ? '/student/application' : '/student/applicant-details'
                   )}>
-                  {application ? 'View My Application →' : 'Start Application →'}
+                  {needsFreshApplication ? 'Start Application →' : 'View My Application →'}
                 </button>
               )}
             </div>

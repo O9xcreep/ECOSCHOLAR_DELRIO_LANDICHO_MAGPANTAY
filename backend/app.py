@@ -319,6 +319,15 @@ def is_cycle_open(cycle):
     deadline = cycle.get('deadline')
     return deadline is None or datetime.utcnow() <= deadline
 
+def form_is_locked(db, org_id):
+    """The application form (custom fields, document requirements, which built-in
+    fields are hidden) can only be edited before a program starts or after it ends -
+    changing what's expected of applicants mid-program would silently invalidate
+    submissions already in flight."""
+    return is_cycle_open(get_current_cycle(db, org_id))
+
+FORM_LOCKED_ERROR = "The form is locked while a program is open. It can be edited again once this program ends."
+
 def serialize_cycle(c, applicant_count=None):
     return {
         "id": str(c["_id"]),
@@ -353,7 +362,7 @@ def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None):
         # would show up as an orphaned "0 applicants" Cycle 0 record *and* a separate
         # legacy bucket in list_program_cycles(), both pointing at the same data.
         cycle0_id = db.program_cycles.insert_one({
-            "label": "Cycle 0 (before cycle tracking)",
+            "label": "Program 0 (before program tracking)",
             "started_at": None,
             "closed_at": now,
             "started_by": None,
@@ -364,7 +373,7 @@ def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None):
 
     cycle_count = db.program_cycles.count_documents({"organization_id": org_id})
     new_cycle = {
-        "label": (new_label or '').strip() or f"Cycle {cycle_count + 1}",
+        "label": (new_label or '').strip() or f"Program {cycle_count + 1}",
         "started_at": now,
         "closed_at": None,
         "deadline": deadline,
@@ -855,6 +864,7 @@ def serialize_applicant(doc):
         "reviewed_by_name": application.get('reviewed_by_name'),
         "application_type": application.get('application_type'),
         "rejection_reason": application.get('rejection_reason'),
+        "admin_comment": application.get('admin_comment'),
         "city": derive_city(doc.get('address')),
         "extra_fields": doc.get('extra_fields', {}),
         "cycle_id": str(doc['cycle_id']) if doc.get('cycle_id') else None,
@@ -1729,6 +1739,84 @@ def update_status(applicant_id):
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
+# ── REQUEST CHANGES (pre-verification: docs missing/unclear) ──
+# Distinct from Verify: this is for when an admin looks at the documents and
+# decides they're NOT ready to be scored yet - it never touches ml_score/ml_status.
+# Reuses the Withdrawn status (same mechanism a student's own withdraw uses) rather
+# than a new status value, since it needs exactly the same "student can freely
+# resubmit, exempt from duplicate-detection" behavior that already exists and is
+# tested for Withdrawn - see submit_application's duplicate checks and
+# TestReapplyAfterWithdraw. admin_comment is what tells the two apart on display.
+@app.route('/api/applications/<applicant_id>/request-changes', methods=['PUT'])
+@require_permission('can_review_applicants')
+def request_changes(applicant_id):
+    applicant_oid = oid(applicant_id)
+    if not applicant_oid:
+        return jsonify({"error": "Invalid applicant id"}), 400
+
+    data = request.get_json() or {}
+    comment = (data.get('comment') or '').strip()
+    if not comment:
+        return jsonify({"error": "A comment is required so the applicant knows what to fix."}), 400
+
+    reviewed_by = g.current_user.get('email', 'Admin')
+
+    try:
+        db = get_db()
+        now = datetime.utcnow()
+
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
+        if not applicant:
+            return jsonify({"error": "Applicant not found"}), 404
+
+        old_status = (applicant.get('application') or {}).get('status')
+        if old_status in ('Approved', 'Rejected', 'Withdrawn'):
+            return jsonify({"error": f"Can't request changes on an application that's already {old_status}."}), 400
+
+        db.applicants.update_one(
+            {"_id": applicant_oid},
+            {
+                "$set": {
+                    "application.status": "Withdrawn",
+                    "application.admin_comment": comment,
+                    "application.reviewed_at": now,
+                    "application.reviewed_by_name": reviewed_by,
+                },
+                "$push": {
+                    "audit_trail": {
+                        "action": "Changes requested",
+                        "performed_by": reviewed_by,
+                        "performed_by_role": "admin",
+                        "old_status": old_status,
+                        "new_status": "Withdrawn",
+                        "remarks": comment,
+                        "performed_at": now,
+                    }
+                }
+            }
+        )
+
+        notify_user_id = resolve_notify_user_id(db, applicant)
+        create_notification(
+            db, notify_user_id, applicant,
+            f"An admin has requested changes to your application: {comment} "
+            "Please update your documents and resubmit.",
+            'changes_requested'
+        )
+
+        return jsonify({
+            "message": "Changes requested",
+            "applicant_id": applicant_id,
+            "status": "Withdrawn",
+            "admin_comment": comment,
+        })
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
 def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     """Runs the ML eligibility decision for one applicant - shared by the
     single-applicant and bulk verify routes. Returns (result_dict,
@@ -2490,6 +2578,8 @@ def update_settings():
     data = request.get_json() or {}
     set_fields = {}
     unset_fields = {}
+    db = get_db()
+    org_id = current_organization_oid()
 
     if 'max_accepted' in data:
         max_accepted = data.get('max_accepted')
@@ -2498,6 +2588,11 @@ def update_settings():
         set_fields['max_accepted'] = max_accepted
 
     if 'hidden_builtin_fields' in data:
+        # Which built-in fields show on the form is part of "the form" itself -
+        # locked the same as custom fields/document requirements while a program
+        # is open, see form_is_locked().
+        if form_is_locked(db, org_id):
+            return jsonify({"error": FORM_LOCKED_ERROR}), 409
         hidden = data.get('hidden_builtin_fields')
         if not isinstance(hidden, list) or any(f not in HIDEABLE_BUILTIN_FIELDS for f in hidden):
             return jsonify({"error": f"hidden_builtin_fields must be a list from {list(HIDEABLE_BUILTIN_FIELDS)}"}), 400
@@ -2538,8 +2633,6 @@ def update_settings():
         return jsonify({"error": "No valid settings provided"}), 400
 
     try:
-        db = get_db()
-        org_id = current_organization_oid()
         update = {}
         if set_fields:
             update['$set'] = set_fields
@@ -2570,7 +2663,7 @@ def list_program_cycles():
     legacy_count = db.applicants.count_documents({"cycle_id": None, "organization_id": org_id})
     if legacy_count > 0:
         result.append({
-            "id": None, "label": "Before cycle tracking (legacy data)",
+            "id": None, "label": "Before program tracking (legacy data)",
             "started_at": None, "closed_at": None,
             "started_by": None, "closed_by": None,
             "is_current": len(cycles) == 0,
@@ -2709,6 +2802,8 @@ def create_form_field():
 
     db = get_db()
     org_id = current_organization_oid()
+    if form_is_locked(db, org_id):
+        return jsonify({"error": FORM_LOCKED_ERROR}), 409
     if db.form_fields.find_one({"key": key, "organization_id": org_id}):
         return jsonify({"error": "A custom field with this key already exists"}), 409
 
@@ -2754,6 +2849,8 @@ def update_form_field(field_id):
 
     db = get_db()
     org_id = current_organization_oid()
+    if form_is_locked(db, org_id):
+        return jsonify({"error": FORM_LOCKED_ERROR}), 409
     result = db.form_fields.update_one({"_id": field_oid, "organization_id": org_id}, {"$set": set_fields})
     if result.matched_count == 0:
         return jsonify({"error": "Field not found"}), 404
@@ -2769,7 +2866,10 @@ def delete_form_field(field_id):
         return jsonify({"error": "Invalid field id"}), 400
 
     db = get_db()
-    result = db.form_fields.delete_one({"_id": field_oid, "organization_id": current_organization_oid()})
+    org_id = current_organization_oid()
+    if form_is_locked(db, org_id):
+        return jsonify({"error": FORM_LOCKED_ERROR}), 409
+    result = db.form_fields.delete_one({"_id": field_oid, "organization_id": org_id})
     if result.deleted_count == 0:
         return jsonify({"error": "Field not found"}), 404
     return jsonify({"message": "Field deleted"})
@@ -2912,6 +3012,8 @@ def create_doc_requirement():
 
     db = get_db()
     org_id = current_organization_oid()
+    if form_is_locked(db, org_id):
+        return jsonify({"error": FORM_LOCKED_ERROR}), 409
     coll = get_doc_requirements_collection(db, org_id)
     if coll.find_one({"label": label, "organization_id": org_id}):
         return jsonify({"error": "A document requirement with this label already exists"}), 409
@@ -2952,6 +3054,8 @@ def update_doc_requirement(req_id):
 
     db = get_db()
     org_id = current_organization_oid()
+    if form_is_locked(db, org_id):
+        return jsonify({"error": FORM_LOCKED_ERROR}), 409
     coll = get_doc_requirements_collection(db, org_id)
     result = coll.update_one({"_id": req_oid, "organization_id": org_id}, {"$set": set_fields})
     if result.matched_count == 0:
@@ -2968,7 +3072,10 @@ def delete_doc_requirement(req_id):
         return jsonify({"error": "Invalid requirement id"}), 400
 
     db = get_db()
-    result = db.document_requirements.delete_one({"_id": req_oid, "organization_id": current_organization_oid()})
+    org_id = current_organization_oid()
+    if form_is_locked(db, org_id):
+        return jsonify({"error": FORM_LOCKED_ERROR}), 409
+    result = db.document_requirements.delete_one({"_id": req_oid, "organization_id": org_id})
     if result.deleted_count == 0:
         return jsonify({"error": "Requirement not found"}), 404
     return jsonify({"message": "Requirement deleted"})

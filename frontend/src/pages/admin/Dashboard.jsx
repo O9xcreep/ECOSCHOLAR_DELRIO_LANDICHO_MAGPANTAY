@@ -59,6 +59,7 @@ function Dashboard() {
   const [submittedPeriod, setSubmittedPeriod] = useState('monthly') // 'monthly' | 'yearly'
   const [decidedPeriod, setDecidedPeriod] = useState('monthly') // 'monthly' | 'yearly'
   const [bannerDismissed, setBannerDismissed] = useState(false)
+  const [cyclesLoaded, setCyclesLoaded] = useState(false)
 
   const handleViewFlagDoc = async (applicantId, documentName, key) => {
     if (!applicantId || !documentName) return
@@ -122,7 +123,7 @@ useEffect(() => {
 
   apiFetch('/api/program-cycles')
     .then(res => res.json())
-    .then(data => setCycles(data.cycles || []))
+    .then(data => { setCycles(data.cycles || []); setCyclesLoaded(true) })
     .catch(() => {})
 }, [])
 
@@ -139,6 +140,11 @@ useEffect(() => {
   const liveCycle = cycles.find(c => c.is_current)
   const programEnded = !!(liveCycle && liveCycle.deadline && !liveCycle.is_open)
   const bannerStorageKey = liveCycle ? `program-ended-banner-dismissed-${liveCycle.id}` : null
+
+  // No program has ever been set up for this org yet - program_cycles docs are
+  // only ever created by the Settings "Set Up Scholarship Program" action, so an
+  // empty list (once loaded) reliably means this org hasn't done that yet.
+  const noProgramYet = cyclesLoaded && cycles.length === 0
 
   useEffect(() => {
     if (bannerStorageKey) {
@@ -282,6 +288,17 @@ useEffect(() => {
         </div>
       )}
 
+      {noProgramYet && (
+        <div className="dash-error-banner no-program-banner">
+          <span>
+            No scholarship program has been set up yet. Set one up so students can start applying.
+          </span>
+          <div className="program-ended-banner-actions">
+            <button className="btn-export" onClick={() => navigate('/admin/settings')}>Set Up Scholarship Program</button>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       {loading ? (
         <div className="loading">Loading stats...</div>
@@ -302,7 +319,7 @@ useEffect(() => {
               className="cycle-select"
               value={selectedCycle}
               onChange={e => setSelectedCycle(e.target.value)}>
-              <option value="all">All cycles</option>
+              <option value="all">All programs</option>
               {cycles.map(c => (
                 <option key={c.id || 'legacy'} value={c.id || 'legacy'}>
                   {c.label}{c.is_current ? ' (current)' : ''} — {c.applicant_count}

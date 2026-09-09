@@ -112,7 +112,7 @@ class TestProgramResetEndpoint:
         set_reset_password(db, 'CorrectPass1')
         client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
 
-        cycle0 = db.program_cycles.find_one({'label': 'Cycle 0 (before cycle tracking)'})
+        cycle0 = db.program_cycles.find_one({'label': 'Program 0 (before program tracking)'})
         assert cycle0 is not None
         applicant = db.applicants.find_one({'_id': applicant_id})
         assert applicant['cycle_id'] == cycle0['_id']

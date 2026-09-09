@@ -45,3 +45,80 @@ class TestCreateFormField:
         })
         assert res.status_code == 201
         assert res.get_json()['field']['options'] == []
+
+
+class TestFormLockedWhileProgramOpen:
+    """The form (custom fields, document requirements, hidden built-ins) can only
+    be edited before a program starts or after it ends - changing what's expected
+    of applicants mid-program would silently invalidate submissions in flight."""
+
+    def test_create_field_blocked_while_open(self, client, auth_headers, open_cycle):
+        res = client.post('/api/form-fields', headers=auth_headers(), json={
+            'key': 'blocked_field', 'label': 'Blocked', 'type': 'text', 'section': 'personal',
+        })
+        assert res.status_code == 409
+
+    def test_update_field_blocked_while_open(self, client, auth_headers, db, open_cycle):
+        field_id = db.form_fields.insert_one({
+            'key': 'existing', 'label': 'Existing', 'type': 'text', 'section': 'personal',
+            'required': False, 'enabled': True, 'options': [], 'order': 0,
+        }).inserted_id
+        res = client.put(f'/api/form-fields/{field_id}', headers=auth_headers(), json={'enabled': False})
+        assert res.status_code == 409
+
+    def test_delete_field_blocked_while_open(self, client, auth_headers, db, open_cycle):
+        field_id = db.form_fields.insert_one({
+            'key': 'existing2', 'label': 'Existing2', 'type': 'text', 'section': 'personal',
+            'required': False, 'enabled': True, 'options': [], 'order': 0,
+        }).inserted_id
+        res = client.delete(f'/api/form-fields/{field_id}', headers=auth_headers())
+        assert res.status_code == 409
+
+    def test_create_doc_requirement_blocked_while_open(self, client, auth_headers, open_cycle):
+        res = client.post('/api/document-requirements', headers=auth_headers(), json={'label': 'New Doc'})
+        assert res.status_code == 409
+
+    def test_update_doc_requirement_blocked_while_open(self, client, auth_headers, db, open_cycle):
+        import app as app_module
+        org_id = app_module.get_default_organization_id(db)
+        req_id = db.document_requirements.insert_one({
+            'label': 'Doc', 'required': True, 'enabled': True, 'order': 0, 'organization_id': org_id,
+        }).inserted_id
+        res = client.put(f'/api/document-requirements/{req_id}', headers=auth_headers(), json={'enabled': False})
+        assert res.status_code == 409
+
+    def test_delete_doc_requirement_blocked_while_open(self, client, auth_headers, db, open_cycle):
+        import app as app_module
+        org_id = app_module.get_default_organization_id(db)
+        req_id = db.document_requirements.insert_one({
+            'label': 'Doc2', 'required': True, 'enabled': True, 'order': 0, 'organization_id': org_id,
+        }).inserted_id
+        res = client.delete(f'/api/document-requirements/{req_id}', headers=auth_headers())
+        assert res.status_code == 409
+
+    def test_hidden_builtin_fields_blocked_while_open(self, client, auth_headers, open_cycle):
+        res = client.put('/api/settings', headers=auth_headers(), json={'hidden_builtin_fields': ['religion']})
+        assert res.status_code == 409
+
+    def test_other_settings_still_editable_while_open(self, client, auth_headers, open_cycle):
+        """Only the form-shape fields are locked - unrelated settings must keep working."""
+        res = client.put('/api/settings', headers=auth_headers(), json={'max_accepted': 15})
+        assert res.status_code == 200
+
+    def test_create_field_allowed_when_no_cycle_exists(self, client, auth_headers):
+        res = client.post('/api/form-fields', headers=auth_headers(), json={
+            'key': 'allowed_field', 'label': 'Allowed', 'type': 'text', 'section': 'personal',
+        })
+        assert res.status_code == 201
+
+    def test_create_field_allowed_once_program_ends(self, client, auth_headers, db):
+        import app as app_module
+        from datetime import datetime, timedelta
+        org_id = app_module.get_default_organization_id(db)
+        cycle_id = app_module.do_program_reset(db, org_id, 'test-setup@test.com')
+        db.program_cycles.update_one({'_id': cycle_id}, {'$set': {'deadline': datetime.utcnow() - timedelta(days=1)}})
+
+        res = client.post('/api/form-fields', headers=auth_headers(), json={
+            'key': 'after_deadline_field', 'label': 'After Deadline', 'type': 'text', 'section': 'personal',
+        })
+        assert res.status_code == 201

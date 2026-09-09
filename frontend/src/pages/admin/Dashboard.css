@@ -175,6 +175,17 @@
   gap: 12px;
 }
 
+.no-program-banner {
+  background: var(--accent-light);
+  color: var(--accent-dark);
+  border: 1px solid var(--accent-light);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .program-ended-banner-actions {
   display: flex;
   align-items: center;

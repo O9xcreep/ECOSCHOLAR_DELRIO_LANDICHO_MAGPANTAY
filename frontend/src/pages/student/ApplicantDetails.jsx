@@ -243,8 +243,8 @@ function ApplicantDetails() {
             </span>
           </p>
         </div>
-        <span className={`badge ${STATUS_COLORS[displayed] || 'badge-yellow'}`}>
-          {displayed}
+        <span className={`badge ${displayed === 'Withdrawn' && application.admin_comment ? 'badge-yellow' : STATUS_COLORS[displayed] || 'badge-yellow'}`}>
+          {displayed === 'Withdrawn' && application.admin_comment ? 'Changes Requested' : displayed}
         </span>
       </div>
 
@@ -253,9 +253,13 @@ function ApplicantDetails() {
         displayed === 'Approved' ? 'banner-green' :
         displayed === 'Waitlisted' ? 'banner-yellow' :
         displayed === 'Rejected' ? 'banner-red' :
-        displayed === 'Withdrawn' ? 'banner-gray' : 'banner-blue'
+        displayed === 'Withdrawn' ? (application.admin_comment ? 'banner-yellow' : 'banner-gray') : 'banner-blue'
       }`}>
-        <p>{STATUS_MESSAGES[displayed] || 'Your application is being processed.'}</p>
+        <p>
+          {displayed === 'Withdrawn' && application.admin_comment
+            ? `An admin requested changes to your application: ${application.admin_comment} Please submit a new application with the corrected information.`
+            : STATUS_MESSAGES[displayed] || 'Your application is being processed.'}
+        </p>
 
         {status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
           <p className="av-rejection-reason">{application.rejection_reason}</p>

@@ -81,6 +81,28 @@
   border-bottom: 1px solid #f0f0f0;
 }
 
+/* A settings-card can hold several related sub-sections (e.g. the settings that
+ * together define a scholarship program) instead of splitting into separate
+ * cards - each gets its own smaller heading and a divider from the one before it. */
+.settings-subcard {
+  padding-top: 18px;
+  margin-top: 18px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.settings-subcard:first-of-type {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+.settings-subcard-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 10px;
+}
+
 /* ── SETTINGS ROW ── */
 .settings-row {
   display: flex;
@@ -251,6 +273,11 @@ input:checked + .slider {
 
 input:checked + .slider:before {
   transform: translateX(20px);
+}
+
+input:disabled + .slider {
+  opacity: .5;
+  cursor: not-allowed;
 }
 
 .toggle-row {

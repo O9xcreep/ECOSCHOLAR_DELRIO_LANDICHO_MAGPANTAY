@@ -268,6 +268,37 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     setUpdating(false)
   }
 
+  const handleRequestChanges = async () => {
+    if (!remarks.trim()) return
+    if (!window.confirm(
+      "Send this comment to the applicant and mark their application as needing changes? " +
+      "They'll be able to edit and resubmit."
+    )) return
+
+    setUpdating(true)
+    try {
+      const response = await apiFetch(`/api/applications/${applicant.id}/request-changes`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: remarks.trim() })
+      })
+      const data = await response.json()
+      if (response.ok) {
+        setUpdateSuccess('Changes Requested')
+        if (onStatusChange) await onStatusChange()
+        setTimeout(() => {
+          onClose()
+          setUpdateSuccess('')
+        }, 1200)
+      } else {
+        alert(data.error || 'Could not request changes for this applicant')
+      }
+    } catch {
+      alert('Cannot connect to server')
+    }
+    setUpdating(false)
+  }
+
   const handleVerifyAndDecide = async () => {
     if (!window.confirm(
       "Confirm the submitted documents are correct and complete. " +
@@ -678,9 +709,13 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
         {/* Footer */}
         <div className="modal-footer">
-          {(isApproved || isRejected) && (
+          {(isApproved || isRejected || isPending) && (
             <div className="remarks-field">
-              <label htmlFor="applicant-remarks">Note (optional, visible in the audit trail)</label>
+              <label htmlFor="applicant-remarks">
+                {isPending
+                  ? 'Comment for the applicant (required to Request Changes)'
+                  : 'Note (optional, visible in the audit trail)'}
+              </label>
               <textarea
                 id="applicant-remarks"
                 rows={2}
@@ -695,6 +730,9 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           <button className="btn-close-modal" onClick={onClose}>Close</button>
 
           {updateSuccess && (() => {
+            if (updateSuccess === 'Changes Requested') {
+              return <div className="update-success success-yellow">Changes Requested</div>
+            }
             const label = displayStatus(updateSuccess, mlData?.ml_status)
             return (
               <div className={`update-success ${
@@ -728,6 +766,13 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </button>
             )}
             {isPending && (
+              <button className="btn-reject-modal"
+                disabled={updating || !remarks.trim()}
+                onClick={handleRequestChanges}>
+                {updating ? 'Sending...' : 'Request Changes'}
+              </button>
+            )}
+            {isPending && (
               <button className="btn-approve-modal"
                 disabled={updating}
                 onClick={handleVerifyAndDecide}>
@@ -735,7 +780,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </button>
             )}
             {isWithdrawn && (
-              <span style={{ fontSize: '13px', color: '#6b7280' }}>This application was withdrawn by the applicant.</span>
+              <span style={{ fontSize: '13px', color: '#6b7280' }}>
+                {applicant.admin_comment
+                  ? `Changes were requested: "${applicant.admin_comment}"`
+                  : 'This application was withdrawn by the applicant.'}
+              </span>
             )}
           </div>
           </div>

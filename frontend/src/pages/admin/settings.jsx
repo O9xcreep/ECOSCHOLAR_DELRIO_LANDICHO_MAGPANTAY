@@ -244,9 +244,10 @@ function SystemTab() {
   const [savingResetPassword, setSavingResetPassword] = useState(false)
   const [resetPasswordError, setResetPasswordError] = useState('')
   const [resetPasswordSuccess, setResetPasswordSuccess] = useState(false)
-  const [newCycleLabel, setNewCycleLabel] = useState('')
+  const currentYear = new Date().getFullYear()
+  const [startYear, setStartYear] = useState(currentYear)
+  const [endYear, setEndYear] = useState(currentYear + 1)
   const [newCycleDeadline, setNewCycleDeadline] = useState('')
-  const [newCycleVisibility, setNewCycleVisibility] = useState('realtime') // 'realtime' | 'after'
   const [resetConfirmPassword, setResetConfirmPassword] = useState('')
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState('')
@@ -316,16 +317,11 @@ function SystemTab() {
     setResetError('')
     setResetSuccess('')
 
-    if (newCycleVisibility === 'after' && !newCycleDeadline) {
-      setResetError("Set a deadline above, or choose \"Real-time\" instead - \"only after the program ends\" needs a deadline to reveal at.")
-      return
-    }
-
     if (!window.confirm(
       isFirstSetup
         ? "Start this scholarship program now?"
         : "This archives every current applicant record (nothing is deleted - it stays " +
-          "visible in Reports) and starts a brand new cycle. Students will see a fresh, " +
+          "visible in Reports) and starts a brand new program. Students will see a fresh, " +
           "empty application state. Are you sure?"
     )) return
 
@@ -337,43 +333,18 @@ function SystemTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           password: resetConfirmPassword,
-          label: newCycleLabel.trim() || undefined,
+          label: `Batch ${startYear}-${endYear}`,
           deadline: deadlineIso || undefined,
         })
       })
       const data = await res.json()
       if (!res.ok) { setResetError(data.error || 'Failed to reset the program'); return }
 
-      // Translate the simple real-time/after-program choice into the existing
-      // visibility fields (are_results_visible() in app.py) - "after program ends"
-      // just means auto-reveal at the same deadline just set, no new backend concept.
-      const visibilityRes = await apiFetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          newCycleVisibility === 'realtime'
-            ? { results_visible_override: true }
-            : { results_visible_override: null, results_visible_after: deadlineIso }
-        )
-      })
-      const visibilityData = await visibilityRes.json()
-
       setResetSuccess(`Done - ${data.archived_applicant_count} applicant(s) archived. "${data.current_cycle.label}" has started.`)
       setResetConfirmPassword('')
-      setNewCycleLabel('')
       setNewCycleDeadline('')
       setCurrentCycle(data.current_cycle)
       setApprovedCount(data.approved_count)
-      if (visibilityRes.ok) {
-        const localValue = utcStringToLocalInputValue(visibilityData.results_visible_after)
-        setVisibleAfter(localValue)
-        setSavedVisibleAfter(localValue)
-        const overrideValue = visibilityData.results_visible_override === true ? 'show'
-          : visibilityData.results_visible_override === false ? 'hide' : 'auto'
-        setOverride(overrideValue)
-        setSavedOverride(overrideValue)
-        setResultsVisibleNow(visibilityData.results_visible_now)
-      }
     } catch {
       setResetError('Cannot connect to server. Please try again.')
     } finally {
@@ -502,85 +473,229 @@ function SystemTab() {
 
   return (
     <div className="tab-content">
-      {canManageSystemConfig && <>
+      {canResetProgram && (
       <div className="settings-card">
-        <h4 className="card-label">Accepted Applicant Limit</h4>
+        <h4 className="card-label">Scholarship Program Creation</h4>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
-          Approved status is always the top-{savedLimit} eligible applicants by ML score.
-          Currently {approvedCount} of {savedLimit} slots accepted. Also editable from the
-          Ranking page.
+          These settings together define how a scholarship program runs - how many
+          applicants it accepts, when students find out the results, and the program
+          itself (its name, deadline, and starting it).
         </p>
-        <div className="settings-row">
-          <input
-            type="number"
-            min={1}
-            className="settings-select"
-            style={{ width: '90px', background: '#fff' }}
-            value={slots}
-            onChange={e => setSlots(Number(e.target.value))}
-          />
-          <button className="btn-primary" onClick={handleSaveLimit} disabled={savingLimit || slots === savedLimit}>
-            {savingLimit ? 'Saving...' : 'Save'}
-          </button>
-        </div>
-        {limitError && <div className="security-error" style={{ marginTop: '10px' }}>{limitError}</div>}
-      </div>
 
-      <div className="settings-card">
-        <h4 className="card-label">Result Visibility</h4>
-        <p className="info-sub" style={{ marginBottom: '14px' }}>
-          Controls when students can see an Approved/Rejected decision (and, once
-          ranking is shown to students, their rank). Applications still in review are
-          always visible to the applicant regardless of this setting.
-          {' '}Students currently{resultsVisibleNow ? ' CAN ' : ' CANNOT '}see decisions.
-        </p>
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              Show results after
-            </label>
+        {canManageSystemConfig && (
+        <>
+        <div className="settings-subcard">
+          <h5 className="settings-subcard-title">Accepted Applicant Limit</h5>
+          <p className="info-sub" style={{ marginBottom: '14px' }}>
+            Approved status is always the top-{savedLimit} eligible applicants by ML score.
+            Currently {approvedCount} of {savedLimit} slots accepted. Also editable from the
+            Ranking page.
+          </p>
+          <div className="settings-row">
             <input
-              type="datetime-local"
+              type="number"
+              min={1}
               className="settings-select"
-              style={{ background: '#fff' }}
-              value={visibleAfter}
-              onChange={e => setVisibleAfter(e.target.value)}
+              style={{ width: '90px', background: '#fff' }}
+              value={slots}
+              onChange={e => setSlots(Number(e.target.value))}
             />
-            {visibleAfter && (
-              <button className="btn-change" style={{ marginLeft: '8px' }}
-                onClick={() => setVisibleAfter('')}>
-                Clear
-              </button>
-            )}
-          </div>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              Manual override
-            </label>
-            <select className="settings-select" style={{ background: '#fff' }}
-              value={override} onChange={e => setOverride(e.target.value)}>
-              <option value="auto">Automatic (use date/time above)</option>
-              <option value="show">Force visible now</option>
-              <option value="hide">Force hidden</option>
-            </select>
-          </div>
-          <div>
-            <button className="btn-primary" onClick={handleSaveVisibility}
-              disabled={savingVisibility || !visibilityDirty}>
-              {savingVisibility ? 'Saving...' : 'Save'}
+            <button className="btn-primary" onClick={handleSaveLimit} disabled={savingLimit || slots === savedLimit}>
+              {savingLimit ? 'Saving...' : 'Save'}
             </button>
           </div>
+          {limitError && <div className="security-error" style={{ marginTop: '10px' }}>{limitError}</div>}
         </div>
-        {visibilityError && <div className="security-error" style={{ marginTop: '10px' }}>{visibilityError}</div>}
-      </div>
 
+        <div className="settings-subcard">
+          <h5 className="settings-subcard-title">Result Visibility</h5>
+          <p className="info-sub" style={{ marginBottom: '14px' }}>
+            Controls when students can see an Approved/Rejected decision (and, once
+            ranking is shown to students, their rank). Applications still in review are
+            always visible to the applicant regardless of this setting.
+            {' '}Students currently{resultsVisibleNow ? ' CAN ' : ' CANNOT '}see decisions.
+          </p>
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Show results after
+              </label>
+              <input
+                type="datetime-local"
+                className="settings-select"
+                style={{ background: '#fff' }}
+                value={visibleAfter}
+                onChange={e => setVisibleAfter(e.target.value)}
+              />
+              {visibleAfter && (
+                <button className="btn-change" style={{ marginLeft: '8px' }}
+                  onClick={() => setVisibleAfter('')}>
+                  Clear
+                </button>
+              )}
+            </div>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Manual override
+              </label>
+              <select className="settings-select" style={{ background: '#fff' }}
+                value={override} onChange={e => setOverride(e.target.value)}>
+                <option value="auto">Automatic (use date/time above)</option>
+                <option value="show">Force visible now</option>
+                <option value="hide">Force hidden</option>
+              </select>
+            </div>
+            <div>
+              <button className="btn-primary" onClick={handleSaveVisibility}
+                disabled={savingVisibility || !visibilityDirty}>
+                {savingVisibility ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+          {visibilityError && <div className="security-error" style={{ marginTop: '10px' }}>{visibilityError}</div>}
+        </div>
+        </>
+        )}
+
+        <div className="settings-subcard">
+          <h5 className="settings-subcard-title">{isFirstSetup ? 'Set Up Scholarship Program' : 'Reset & Start New Program'}</h5>
+          <p className="info-sub" style={{ marginBottom: '14px' }}>
+            {isFirstSetup
+              ? "Students can't apply until a scholarship program is open. Set an optional " +
+                "deadline (applications close automatically once it passes), then start the program."
+              : "Archives every current applicant record and starts a brand new program. Nothing " +
+                "is deleted - past programs stay fully visible in Reports - but student " +
+                "dashboards and the live Applications queue show a clean slate, and past " +
+                "applicants can submit a new application under the new program."}
+          </p>
+
+          {currentCycle && (
+            <p className="info-sub" style={{ marginBottom: '14px' }}>
+              Current program: <strong>{currentCycle.label}</strong>
+              {currentCycle.started_at && ` — started ${new Date(currentCycle.started_at).toLocaleDateString('en-PH', {
+                month: 'long', day: 'numeric', year: 'numeric'
+              })}`}
+              {currentCycle.deadline && `, deadline ${new Date(currentCycle.deadline).toLocaleString('en-PH', {
+                month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+              })}`}
+              {' '}— {currentCycle.is_open ? <span style={{ color: '#059669' }}>open</span> : <span style={{ color: '#c23b3b' }}>closed</span>}
+            </p>
+          )}
+
+          {canManageSystemConfig && (
+          <>
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', marginBottom: '14px' }}>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Reset confirmation password {resetPasswordSet ? '(already set — enter a new one to change it)' : '(not set yet — required before resetting)'}
+              </label>
+              <input
+                type="password"
+                className="settings-select"
+                style={{ background: '#fff', width: '260px' }}
+                placeholder="At least 6 characters"
+                value={newResetPassword}
+                onChange={e => setNewResetPassword(e.target.value)}
+              />
+              <button className="btn-primary" style={{ marginLeft: '8px' }}
+                onClick={handleSaveResetPassword} disabled={savingResetPassword || !newResetPassword}>
+                {savingResetPassword ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+          {resetPasswordError && <div className="security-error" style={{ marginBottom: '10px' }}>{resetPasswordError}</div>}
+          {resetPasswordSuccess && <div className="info-sub" style={{ color: '#059669', marginBottom: '10px' }}>Reset confirmation password updated.</div>}
+          </>
+          )}
+
+          {!canManageSystemConfig && !resetPasswordSet && (
+            <p className="info-sub" style={{ marginBottom: '14px' }}>
+              No reset confirmation password has been set yet - ask the LGU's Admin to
+              set one in this same section before you can reset the program.
+            </p>
+          )}
+
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Batch
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <input
+                  type="number"
+                  className="settings-select"
+                  style={{ width: '80px', background: '#fff' }}
+                  value={startYear}
+                  onChange={e => {
+                    const year = Number(e.target.value)
+                    setStartYear(year)
+                    setEndYear(year + 1)
+                  }}
+                />
+                <span>-</span>
+                <input
+                  type="number"
+                  className="settings-select"
+                  style={{ width: '80px', background: '#fff' }}
+                  value={endYear}
+                  onChange={e => setEndYear(Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Application deadline (optional)
+              </label>
+              <input
+                type="datetime-local"
+                className="settings-select"
+                style={{ background: '#fff' }}
+                value={newCycleDeadline}
+                onChange={e => setNewCycleDeadline(e.target.value)}
+              />
+              {newCycleDeadline && (
+                <button className="btn-change" style={{ marginLeft: '8px' }}
+                  onClick={() => setNewCycleDeadline('')}>
+                  Clear
+                </button>
+              )}
+              <p className="info-sub" style={{ marginTop: '4px' }}>
+                Leave blank for no cutoff - applications close automatically once this passes.
+              </p>
+            </div>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Reset confirmation password
+              </label>
+              <input
+                type="password"
+                className="settings-select"
+                style={{ background: '#fff', width: '260px' }}
+                value={resetConfirmPassword}
+                onChange={e => setResetConfirmPassword(e.target.value)}
+              />
+            </div>
+            <div>
+              <button className="btn-danger" onClick={handleProgramReset}
+                disabled={resetting || !resetConfirmPassword || !resetPasswordSet}>
+                {resetting ? 'Setting up...' : isFirstSetup ? 'Set Up Scholarship Program' : 'Reset & Start New Program'}
+              </button>
+            </div>
+          </div>
+          {resetError && <div className="security-error" style={{ marginTop: '10px' }}>{resetError}</div>}
+          {resetSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{resetSuccess}</div>}
+        </div>
+      </div>
+      )}
+
+      {canManageSystemConfig && (
       <div className="settings-card">
         <h4 className="card-label">Data Export</h4>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
           Download applicants as an Excel (.xlsx) file, including the eligibility model's
           input features (household income, family size, parents' education/occupation,
           housing situation, etc.), optionally narrowed to a submission date range - pick a
-          past cycle for a quick range, or set custom dates.
+          past program for a quick range, or set custom dates.
         </p>
         <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
           <div>
@@ -621,143 +736,6 @@ function SystemTab() {
           </div>
         </div>
       </div>
-      </>}
-
-      {canResetProgram && (
-      <div className="settings-card">
-        <h4 className="card-label">{isFirstSetup ? 'Set Up Scholarship Program' : 'Program Reset'}</h4>
-        <p className="info-sub" style={{ marginBottom: '14px' }}>
-          {isFirstSetup
-            ? "Students can't apply until a scholarship program is open. Set an optional " +
-              "deadline (applications close automatically once it passes) and choose when " +
-              "results become visible, then start the program."
-            : "Archives every current applicant record and starts a brand new cycle. Nothing " +
-              "is deleted - past cycles stay fully visible in Reports - but student " +
-              "dashboards and the live Applications queue show a clean slate, and past " +
-              "applicants can submit a new application under the new cycle."}
-        </p>
-
-        {currentCycle && (
-          <p className="info-sub" style={{ marginBottom: '14px' }}>
-            Current cycle: <strong>{currentCycle.label}</strong>
-            {currentCycle.started_at && ` — started ${new Date(currentCycle.started_at).toLocaleDateString('en-PH', {
-              month: 'long', day: 'numeric', year: 'numeric'
-            })}`}
-            {currentCycle.deadline && `, deadline ${new Date(currentCycle.deadline).toLocaleString('en-PH', {
-              month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
-            })}`}
-            {' '}— {currentCycle.is_open ? <span style={{ color: '#059669' }}>open</span> : <span style={{ color: '#c23b3b' }}>closed</span>}
-          </p>
-        )}
-
-        {canManageSystemConfig && (
-        <>
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', marginBottom: '14px' }}>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              Reset confirmation password {resetPasswordSet ? '(already set — enter a new one to change it)' : '(not set yet — required before resetting)'}
-            </label>
-            <input
-              type="password"
-              className="settings-select"
-              style={{ background: '#fff', width: '260px' }}
-              placeholder="At least 6 characters"
-              value={newResetPassword}
-              onChange={e => setNewResetPassword(e.target.value)}
-            />
-            <button className="btn-primary" style={{ marginLeft: '8px' }}
-              onClick={handleSaveResetPassword} disabled={savingResetPassword || !newResetPassword}>
-              {savingResetPassword ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
-        {resetPasswordError && <div className="security-error" style={{ marginBottom: '10px' }}>{resetPasswordError}</div>}
-        {resetPasswordSuccess && <div className="info-sub" style={{ color: '#059669', marginBottom: '10px' }}>Reset confirmation password updated.</div>}
-        </>
-        )}
-
-        {!canManageSystemConfig && !resetPasswordSet && (
-          <p className="info-sub" style={{ marginBottom: '14px' }}>
-            No reset confirmation password has been set yet - ask the LGU's Admin to
-            set one in this same section before you can reset the program.
-          </p>
-        )}
-
-        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              New cycle label (optional)
-            </label>
-            <input
-              type="text"
-              className="settings-select"
-              style={{ background: '#fff', width: '260px' }}
-              placeholder="Enter cycle Name (2024-2025)"
-              value={newCycleLabel}
-              onChange={e => setNewCycleLabel(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              Application deadline (optional)
-            </label>
-            <input
-              type="datetime-local"
-              className="settings-select"
-              style={{ background: '#fff' }}
-              value={newCycleDeadline}
-              onChange={e => setNewCycleDeadline(e.target.value)}
-            />
-            {newCycleDeadline && (
-              <button className="btn-change" style={{ marginLeft: '8px' }}
-                onClick={() => setNewCycleDeadline('')}>
-                Clear
-              </button>
-            )}
-            <p className="info-sub" style={{ marginTop: '4px' }}>
-              Leave blank for no cutoff - applications close automatically once this passes.
-            </p>
-          </div>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              When should students see results?
-            </label>
-            <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
-              <input type="radio" name="newCycleVisibility" value="realtime"
-                checked={newCycleVisibility === 'realtime'}
-                onChange={() => setNewCycleVisibility('realtime')} />
-              {' '}Real-time (as soon as decided)
-            </label>
-            <label style={{ display: 'block', fontSize: '13px' }}>
-              <input type="radio" name="newCycleVisibility" value="after"
-                checked={newCycleVisibility === 'after'}
-                onChange={() => setNewCycleVisibility('after')} />
-              {' '}Only after the program ends (needs a deadline above)
-            </label>
-          </div>
-          <div>
-            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-              Reset confirmation password
-            </label>
-            <input
-              type="password"
-              className="settings-select"
-              style={{ background: '#fff', width: '260px' }}
-              value={resetConfirmPassword}
-              onChange={e => setResetConfirmPassword(e.target.value)}
-            />
-          </div>
-          <div>
-            <button className="btn-danger" onClick={handleProgramReset}
-              disabled={resetting || !resetConfirmPassword || !resetPasswordSet}>
-              {resetting ? 'Setting up...' : isFirstSetup ? 'Set Up Scholarship Program' : 'Reset Program & Start New Cycle'}
-            </button>
-          </div>
-        </div>
-        {resetError && <div className="security-error" style={{ marginTop: '10px' }}>{resetError}</div>}
-        {resetSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{resetSuccess}</div>}
-      </div>
-
       )}
 
       {canManageSystemConfig && <FormBuilder />}
@@ -1291,7 +1269,7 @@ function TeamTab() {
                   checked={form.permissions.can_reset_program}
                   onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_reset_program: e.target.checked } }))}
                 />
-                Reset the program (archive the current cycle and start a new one)
+                Reset the program (archive the current program and start a new one)
               </label>
             </div>
 
