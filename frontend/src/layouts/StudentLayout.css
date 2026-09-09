@@ -116,6 +116,7 @@
 .topbar-title {
   font-size: 18px;
   font-weight: 700;
+  color: white;
   color: var(--header-bg);
 }
 
