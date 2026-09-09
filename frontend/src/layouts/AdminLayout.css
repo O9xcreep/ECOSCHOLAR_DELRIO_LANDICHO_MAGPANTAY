@@ -147,7 +147,7 @@
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: white;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -179,12 +179,12 @@
 .admin-name {
   font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: white;
 }
 
 .admin-role {
   font-size: 11px;
-  color: var(--text-secondary);
+  color: white;
 }
 
 /* ── MAIN CONTENT ── */

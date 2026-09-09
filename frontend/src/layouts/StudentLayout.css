@@ -139,7 +139,7 @@
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: #ffffff;
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -171,12 +171,12 @@
 .student-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  color: #f9fafc;
 }
 
 .student-role {
   font-size: 11px;
-  color: #888;
+  color: #ffffff;
 }
 
 /* ── MAIN CONTENT ── */
