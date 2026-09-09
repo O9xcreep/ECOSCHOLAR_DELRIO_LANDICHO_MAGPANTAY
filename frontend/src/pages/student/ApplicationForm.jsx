@@ -14,6 +14,22 @@ const OCCUPATION_CATEGORIES = [
 ]
 const HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
 
+// The eligibility model was trained on bracketed income (see income_to_bracket()
+// in app.py), not an exact peso figure - it collapses whatever number this form
+// submits into one of these same five brackets before the model ever sees it, so
+// asking for a range directly loses the model nothing. `value` is a representative
+// figure comfortably inside each bracket's boundaries (never on an edge), stored
+// as monthly_income exactly like a typed number always was - every other feature
+// that reads it (income_to_bracket, the admin score-breakdown heuristic, exports)
+// keeps working unchanged.
+const INCOME_RANGES = [
+  { label: 'Below ₱5,000', value: 2500 },
+  { label: '₱5,001 - ₱10,000', value: 7500 },
+  { label: '₱10,000 - ₱15,000', value: 12500 },
+  { label: '₱15,000 - ₱20,000', value: 17500 },
+  { label: '₱20,000 and above', value: 25000 },
+]
+
 const COURSES = [
   'BS Computer Science',
   'BS Information Technology',
@@ -416,12 +432,14 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
             </select>
           </Field>
 
-          <Field label="Estimated Monthly Household Income (₱)" error={errors.monthlyIncome}>
-            <input
+          <Field label="Estimated Monthly Household Income" error={errors.monthlyIncome}>
+            <select
               className={errors.monthlyIncome ? 'input-error' : ''}
-              type="number" placeholder="Enter amount" min="0" step="1"
               value={data.monthlyIncome}
-              onChange={e => onChange('monthlyIncome', e.target.value)} />
+              onChange={e => onChange('monthlyIncome', e.target.value)}>
+              <option value="">Select income range</option>
+              {INCOME_RANGES.map(r => <option key={r.label} value={r.value}>{r.label}</option>)}
+            </select>
           </Field>
 
           <Field label="Housing Situation" error={errors.housingSituation}>

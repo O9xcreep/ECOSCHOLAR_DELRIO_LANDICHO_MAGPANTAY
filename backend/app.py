@@ -3173,16 +3173,13 @@ DEFAULT_GUIDELINES_HTML = """
 <li>The <em>Proof of Income</em> must be an official Certificate of Indigency from your Barangay or an ITR from the BIR.</li>
 <li>All documents must be current and valid &mdash; expired documents will not be accepted.</li>
 </ul>
-<h2>Scholarship Types &amp; Requirements</h2>
-<table>
-<thead><tr><th>Scholarship Type</th><th>Minimum GWA</th><th>Income Limit</th><th>Slots</th></tr></thead>
-<tbody>
-<tr><td>Academic Merit</td><td>1.75</td><td>No limit</td><td>60</td></tr>
-<tr><td>Financial Aid</td><td>2.50</td><td>Below &#8369;10,000/mo</td><td>30</td></tr>
-<tr><td>Full Scholar</td><td>1.50</td><td>Below &#8369;5,000/mo</td><td>20</td></tr>
-<tr><td>Loyalty Grant</td><td>2.00</td><td>Below &#8369;20,000/mo</td><td>40</td></tr>
-</tbody>
-</table>
+<h2>Scholarship Types</h2>
+<ul>
+<li>Academic Merit</li>
+<li>Financial Aid</li>
+<li>Full Scholar</li>
+<li>Loyalty Grant</li>
+</ul>
 <h2>Application Process</h2>
 <ol>
 <li><strong>Fill Personal Information:</strong> Complete all required fields in Step 1 including parental and financial details.</li>
