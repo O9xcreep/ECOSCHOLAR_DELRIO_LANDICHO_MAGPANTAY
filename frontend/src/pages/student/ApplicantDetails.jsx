@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
 import Reveal from '../../components/Reveal'
+import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg1.jpg'
 import './ApplicantDetails.css'
 
@@ -444,15 +445,13 @@ function ApplicantDetails() {
         <h3 className="av-card-title">Documents</h3>
 
         <div className="doc-stats">
-          <div className="doc-stat green"><div><h3>{uploaded}</h3><p>Uploaded</p></div></div>
-          <div className="doc-stat red"><div><h3>{missing}</h3><p>Missing</p></div></div>
-          <div className="doc-stat purple"><div><h3>{totalRequired}</h3><p>Total Required</p></div></div>
-          <div className="doc-stat blue">
-            <div>
-              <h3>{totalRequired > 0 ? Math.round((uploaded / totalRequired) * 100) : 0}%</h3>
-              <p>Completion</p>
-            </div>
-          </div>
+          <StatTile value={uploaded} label="Uploaded" color="#0f9d64" index={0} />
+          <StatTile value={missing} label="Missing" color="#c23b3b" index={1} />
+          <StatTile value={totalRequired} label="Total Required" color="#3d6fa3" index={2} />
+          <StatTile
+            value={`${totalRequired > 0 ? Math.round((uploaded / totalRequired) * 100) : 0}%`}
+            label="Completion" color="#2563eb" index={3}
+          />
         </div>
 
         <div className="doc-progress-track">

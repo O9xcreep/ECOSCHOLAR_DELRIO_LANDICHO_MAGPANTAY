@@ -23,50 +23,13 @@
   margin-top: 4px;
 }
 
-/* ── STAT CIRCLES ── */
+/* ── STAT TILES ── */
+/* Stat tile styling (rectangle + diamond) now lives in
+ * components/StatTile.css - shared with every other stat row in the app. */
 .stat-circles {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.stat-circle-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.stat-circle {
-  width: 72px;
-  height: 72px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 3px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--shadow);
-}
-
-.stat-circle.tone-total    { border-color: var(--accent); }
-.stat-circle.tone-review   { border-color: var(--warning); }
-.stat-circle.tone-approved { border-color: var(--success); }
-.stat-circle.tone-rejected { border-color: var(--danger); }
-
-.stat-circle-value {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.stat-circle-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-align: center;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
 
 /* ── CARD ── */
@@ -489,18 +452,8 @@
     font-size: 21px;
   }
 
-  .stat-circle {
-    width: 60px;
-    height: 60px;
-    border-width: 2.5px;
-  }
-
-  .stat-circle-value {
-    font-size: 18px;
-  }
-
-  .stat-circle-label {
-    font-size: 11px;
+  .stat-circles {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .dash-table {
@@ -522,16 +475,7 @@
 }
 
 @media (max-width: 380px) {
-  .stat-circle {
-    width: 52px;
-    height: 52px;
-  }
-
-  .stat-circle-value {
-    font-size: 16px;
-  }
-
-  .stat-circle-label {
-    font-size: 10px;
+  .stat-circles {
+    grid-template-columns: 1fr 1fr;
   }
 }

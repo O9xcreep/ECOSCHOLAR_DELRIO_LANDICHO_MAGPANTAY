@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, displayStatus } from '../../api'
-import { UsersIcon, CheckCircleIcon, ClockIcon, LayersIcon } from '../../components/NavIcons'
 import Reveal from '../../components/Reveal'
+import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg2.jpg'
 import './Ranking.css'
 
@@ -116,34 +116,10 @@ function Ranking() {
 
       {/* Stats */}
       <div className="ranking-stats">
-        <div className="rank-stat purple">
-          <div className="rank-stat-icon"><UsersIcon /></div>
-          <div>
-            <h3>{ranked.length}</h3>
-            <p>Total Applicants</p>
-          </div>
-        </div>
-        <div className="rank-stat green">
-          <div className="rank-stat-icon"><CheckCircleIcon /></div>
-          <div>
-            <h3>{withinSlots.length}</h3>
-            <p>Within Slots</p>
-          </div>
-        </div>
-        <div className="rank-stat yellow">
-          <div className="rank-stat-icon"><ClockIcon /></div>
-          <div>
-            <h3>{waitlisted.length}</h3>
-            <p>Waitlisted</p>
-          </div>
-        </div>
-        <div className="rank-stat blue">
-          <div className="rank-stat-icon"><LayersIcon /></div>
-          <div>
-            <h3>{slots}</h3>
-            <p>Available Slots</p>
-          </div>
-        </div>
+        <StatTile value={ranked.length} label="Total Applicants" color="#7c3aed" index={0} />
+        <StatTile value={withinSlots.length} label="Within Slots" color="#0f9d64" index={1} />
+        <StatTile value={waitlisted.length} label="Waitlisted" color="#b5790a" index={2} />
+        <StatTile value={slots} label="Available Slots" color="#3d6fa3" index={3} />
       </div>
 
       {/* ML Note */}

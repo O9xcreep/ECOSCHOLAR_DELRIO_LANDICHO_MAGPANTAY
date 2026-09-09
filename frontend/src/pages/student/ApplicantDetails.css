@@ -243,31 +243,8 @@
   gap: 16px;
 }
 
-.doc-stat {
-  background: #f9fafb;
-  border-radius: 12px;
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border-left: 4px solid transparent;
-}
-
-.doc-stat.green  { border-left-color: #10b981; }
-.doc-stat.red    { border-left-color: #ef4444; }
-.doc-stat.purple { border-left-color: var(--accent); }
-.doc-stat.blue   { border-left-color: #2563eb; }
-
-.doc-stat h3 {
-  font-size: 22px;
-  font-weight: 700;
-  color: #1e293b;
-}
-
-.doc-stat p {
-  font-size: 12px;
-  color: #888;
-}
+/* Stat tile styling (rectangle + diamond) now lives in
+ * components/StatTile.css - shared with every other stat row in the app. */
 
 /* ── DOCUMENTS: PROGRESS ── */
 .doc-progress-track {

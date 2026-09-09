@@ -7,6 +7,7 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { apiFetch, displayStatus, getUser } from '../../api'
 import Reveal from '../../components/Reveal'
+import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg4.jpg'
 import './Dashboard.css'
 
@@ -129,10 +130,10 @@ useEffect(() => {
 }, [])
 
   const statCircles = [
-    { label: 'Total', value: stats.total, tone: 'total' },
-    { label: 'Review', value: stats.under_review, tone: 'review' },
-    { label: 'Approved', value: stats.approved, tone: 'approved' },
-    { label: 'Rejected', value: stats.rejected, tone: 'rejected' },
+    { label: 'Total', value: stats.total, color: '#3d6fa3' },
+    { label: 'Review', value: stats.under_review, color: '#b5790a' },
+    { label: 'Approved', value: stats.approved, color: '#0f9d64' },
+    { label: 'Rejected', value: stats.rejected, color: '#c23b3b' },
   ]
 
   // Every cycle option beyond "All cycles" narrows the already-fetched full list
@@ -252,12 +253,7 @@ useEffect(() => {
       ) : (
         <div className="stat-circles">
           {statCircles.map((stat, i) => (
-            <div key={i} className="stat-circle-item">
-              <div className={`stat-circle tone-${stat.tone}`}>
-                <span className="stat-circle-value">{stat.value}</span>
-              </div>
-              <p className="stat-circle-label">{stat.label}</p>
-            </div>
+            <StatTile key={stat.label} value={stat.value} label={stat.label} color={stat.color} index={i} />
           ))}
         </div>
       )}

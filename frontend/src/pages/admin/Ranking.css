@@ -98,62 +98,13 @@
   margin-top: -8px;
 }
 
-/* ── STATS ── */
+/* ── STAT TILES ── */
+/* Stat tile styling (rectangle + diamond) now lives in
+ * components/StatTile.css - shared with every other stat row in the app. */
 .ranking-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
-}
-
-.rank-stat {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  border-radius: 14px;
-  padding: 16px 18px;
-  min-width: 0;
-  transition: transform .15s ease, box-shadow .15s ease;
-}
-
-.rank-stat:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(28,42,58,.08);
-}
-
-.rank-stat-icon {
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.rank-stat.purple { background: var(--accent-light, #dbe7f3); }
-.rank-stat.purple .rank-stat-icon { background: rgba(61,111,163,.18); color: var(--accent); }
-
-.rank-stat.green  { background: var(--success-bg, #d9f3e6); }
-.rank-stat.green .rank-stat-icon  { background: rgba(15,157,100,.18); color: var(--success, #0f9d64); }
-
-.rank-stat.yellow { background: var(--warning-bg, #faedd2); }
-.rank-stat.yellow .rank-stat-icon { background: rgba(181,121,10,.18); color: var(--warning, #b5790a); }
-
-.rank-stat.blue   { background: #dbeafe; }
-.rank-stat.blue .rank-stat-icon   { background: rgba(37,99,235,.18); color: #2563eb; }
-
-.rank-stat h3 {
-  font-size: 26px;
-  font-weight: 700;
-  font-variant-numeric: proportional-nums;
-  color: #1e293b;
-  line-height: 1.1;
-}
-
-.rank-stat p {
-  font-size: 13px;
-  color: #6b7a8d;
-  margin-top: 2px;
 }
 
 /* ── ML NOTE ── */

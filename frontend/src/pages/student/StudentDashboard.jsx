@@ -1,17 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { apiFetch, getUser, displayStatus } from '../../api'
 import Reveal from '../../components/Reveal'
+import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/student-bg.jpg'
 import './StudentDashboard.css'
-
-// "Book opening" motion: the accent diamond starts flat and small, closed
-// over the card, then rotates+scales open into its peeking-out position the
-// moment the dashboard scrolls into view - staggered slightly per card so
-// they don't all snap open in lockstep.
-const diamondClosed = { rotate: 0, scale: 0.4, opacity: 0 }
-const diamondOpen = { rotate: 45, scale: 1, opacity: 1 }
 
 const STATS_META = [
   { label: 'Completion', color: '#0065A3' },
@@ -122,25 +115,9 @@ function StudentDashboard() {
         <>
           {/* Stats */}
           <div className="sd-stats">
-            {[`${completion}%`, `${stepsDone} / 3`, uploaded, missing].map((value, i) => {
-              const { label, color } = STATS_META[i]
-              return (
-                <div className="sd-stat-card" key={label}>
-                  <motion.div
-                    className="sd-stat-diamond"
-                    style={{ background: color }}
-                    initial={diamondClosed}
-                    whileInView={diamondOpen}
-                    viewport={{ once: true }}
-                    transition={{ duration: 0.5, delay: i * 0.08, ease: [0.4, 0, 0.2, 1] }}
-                  />
-                  <div className="sd-stat-rect">
-                    <h3>{value}</h3>
-                    <p>{label}</p>
-                  </div>
-                </div>
-              )
-            })}
+            {[`${completion}%`, `${stepsDone} / 3`, uploaded, missing].map((value, i) => (
+              <StatTile key={STATS_META[i].label} value={value} label={STATS_META[i].label} color={STATS_META[i].color} index={i} />
+            ))}
           </div>
 
           {/* Bottom Row */}

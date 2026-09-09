@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, displayStatus } from '../../api'
-import { InboxIcon, ClockIcon, AlertCircleIcon } from '../../components/NavIcons'
 import Reveal from '../../components/Reveal'
+import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/admin-bg.jpg'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
 
-const STAT_TAB_ICONS = {
-  'Newly Submitted': InboxIcon,
-  'Pending Verification': ClockIcon,
-  'Incomplete': AlertCircleIcon,
+const STAT_TAB_COLORS = {
+  'Newly Submitted': '#3d6fa3',
+  'Pending Verification': '#b5790a',
+  'Incomplete': '#c23b3b',
 }
 
 // Still being worked through the review pipeline - these are the ones bulk
@@ -450,19 +450,15 @@ function Applications() {
 
       {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">
-        {TAB_GROUPS[0].tabs.map(tab => {
-          const Icon = STAT_TAB_ICONS[tab.key]
-          return (
-            <div key={tab.key}
-              className={`app-stat-card stat-${tab.key.replace(/\s/g, '-').toLowerCase()}`}>
-              {Icon && <div className="app-stat-icon"><Icon /></div>}
-              <div>
-                <h3>{tabCounts[tab.key] ?? '—'}</h3>
-                <p>{tab.label}</p>
-              </div>
-            </div>
-          )
-        })}
+        {TAB_GROUPS[0].tabs.map((tab, i) => (
+          <StatTile
+            key={tab.key}
+            value={tabCounts[tab.key] ?? '—'}
+            label={tab.label}
+            color={STAT_TAB_COLORS[tab.key]}
+            index={i}
+          />
+        ))}
       </div>
 
       {/* Header */}
