@@ -104,12 +104,17 @@ button:active:not(:disabled) {
  * needs no changes in each page's own CSS - !important is deliberate here,
  * it's a theme-level override layer, not organic component styling. Buttons/
  * selects/inputs are excluded on purpose - shrinking their contrast reads as
- * "disabled", not "glassy". */
+ * "disabled", not "glassy". Also carries the same bold black-stroke + offset
+ * shadow as components/StatTile.css's tile, so every section on every page
+ * (student and admin) reads as one consistent "book cover" visual family
+ * instead of the stat tiles being the only bordered surface in the app. */
 .dash-card, .table-card, .ranking-card, .settings-card, .fb-card, .ge-card,
 .av-card, .av-empty, .gl-card, .sd-card {
   background: rgba(255,255,255,.72) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  border: 2px solid #000 !important;
+  box-shadow: 0 4px 2px 3px rgba(22,20,20,.3) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
