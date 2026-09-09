@@ -74,7 +74,7 @@ function validateStep1(data, hiddenBuiltins = []) {
   if (!hiddenBuiltins.includes('citizenship') && !data.citizenship.trim()) errors.citizenship = 'Citizenship is required'
   if (!data.contactNumber.trim()) errors.contactNumber = 'Contact number is required'
   else if (!/^09\d{9}$/.test(data.contactNumber.replace(/\s/g, '')))
-    errors.contactNumber = 'Enter a valid PH number (e.g. 09123456789)'
+    errors.contactNumber = 'Enter a valid PH number (Number should start with 09 and be 11 digits long)'
   if (!data.fatherName.trim()) errors.fatherName = "Father's name is required"
   if (!data.fatherOccupation) errors.fatherOccupation = "Father's occupation is required"
   if (!data.fatherEducation) errors.fatherEducation = "Father's education level is required"
@@ -112,7 +112,7 @@ function validateStep2(data) {
     errors.gpa = 'GWA must be between 75 and 99'
   if (!data.academicYear.trim()) errors.academicYear = 'Academic year is required'
   else if (!/^\d{4}-\d{4}$/.test(data.academicYear))
-    errors.academicYear = 'Format must be e.g. 2025-2026'
+    errors.academicYear = 'Format must be yyyy-yyyy'
   if (!data.semester) errors.semester = 'Semester is required'
   return errors
 }
@@ -399,7 +399,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
           <Field label="Estimated Monthly Household Income (₱)" error={errors.monthlyIncome}>
             <input
               className={errors.monthlyIncome ? 'input-error' : ''}
-              type="number" placeholder="e.g. 15000" min="0" step="1"
+              type="number" placeholder="Enter amount" min="0" step="1"
               value={data.monthlyIncome}
               onChange={e => onChange('monthlyIncome', e.target.value)} />
           </Field>
@@ -417,7 +417,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
           <Field label="Family Size" error={errors.familySize}>
             <input
               className={errors.familySize ? 'input-error' : ''}
-              type="number" placeholder="e.g. 5" min="1" max="20"
+              type="number" placeholder="Enter number" min="1" max="20"
               value={data.familySize}
               onChange={e => onChange('familySize', e.target.value)} />
           </Field>
@@ -425,7 +425,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
           <Field label="Number of Siblings" error={errors.numSiblings}>
             <input
               className={errors.numSiblings ? 'input-error' : ''}
-              type="number" placeholder="e.g. 2" min="0" max="20"
+              type="number" placeholder="Enter number" min="0" max="20"
               value={data.numSiblings}
               onChange={e => onChange('numSiblings', e.target.value)} />
           </Field>
@@ -433,7 +433,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
           <Field label="Siblings Currently Studying" error={errors.numSiblingsStudying}>
             <input
               className={errors.numSiblingsStudying ? 'input-error' : ''}
-              type="number" placeholder="e.g. 1" min="0" max="20"
+              type="number" placeholder="Enter number" min="0" max="20"
               value={data.numSiblingsStudying}
               onChange={e => onChange('numSiblingsStudying', e.target.value)} />
           </Field>
@@ -478,7 +478,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
               <input
                 className={errors.otherScholarshipDetails ? 'input-error' : ''}
                 type="text"
-                placeholder="e.g. Barangay San Jose Scholarship, CHED Scholarship, etc."
+                placeholder="Enter scholarship name and details"
                 value={data.otherScholarshipDetails}
                 onChange={e => onChange('otherScholarshipDetails', e.target.value)}
               />
@@ -557,7 +557,7 @@ function Step2({ data, onChange, errors, customFields, extraFieldsData, onExtraF
           <Field label="GWA (Percentage Scale)" error={errors.gpa}>
             <input
               className={errors.gpa ? 'input-error' : ''}
-              type="number" placeholder="e.g. 88.5"
+              type="number" placeholder="Enter your GWA 90.5"
               step="0.01" min="75" max="99"
               value={data.gpa}
               onChange={e => onChange('gpa', e.target.value)} />
@@ -569,7 +569,7 @@ function Step2({ data, onChange, errors, customFields, extraFieldsData, onExtraF
           <Field label="Academic Year" error={errors.academicYear}>
             <input
               className={errors.academicYear ? 'input-error' : ''}
-              type="text" placeholder="e.g. 2025-2026"
+              type="text" placeholder="2025-2026"
               value={data.academicYear}
               onChange={e => onChange('academicYear', e.target.value)} />
           </Field>
@@ -703,7 +703,7 @@ function ApplicationForm() {
     yearLevel: '', gpa: '', academicYear: '', semester: ''
   })
 
-  // Keyed by document label (e.g. "Enrollment Form") rather than a fixed set of
+  // Keyed by document label ( "Enrollment Form") rather than a fixed set of
   // camelCase keys, since the document checklist itself is LGU-configurable.
   const [step3Data, setStep3Data] = useState({})
   const [docRequirements, setDocRequirements] = useState([])
