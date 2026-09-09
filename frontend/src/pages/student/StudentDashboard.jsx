@@ -91,8 +91,6 @@ function StudentDashboard() {
 
   return (
     <div className="student-dashboard page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
-
-      {/* Header */}
       <div className="sd-header">
         <div>
           <h2 className="sd-title">Dashboard</h2>
@@ -116,13 +114,18 @@ function StudentDashboard() {
           {/* Stats */}
           <div className="sd-stats">
             {[`${completion}%`, `${stepsDone} / 3`, uploaded, missing].map((value, i) => (
-              <StatTile key={STATS_META[i].label} value={value} label={STATS_META[i].label} color={STATS_META[i].color} index={i} />
+              <StatTile
+                key={STATS_META[i].label}
+                value={value}
+                label={STATS_META[i].label}
+                color={STATS_META[i].color}
+                index={i}
+              />
             ))}
           </div>
 
           {/* Bottom Row */}
           <Reveal className="sd-bottom">
-
             {/* Application Status */}
             <div className="sd-card sd-status-card">
               <div className="sd-card-header">
@@ -140,12 +143,10 @@ function StudentDashboard() {
               <div className="sd-steps">
                 {['Personal Info', 'Documents', 'Review'].map((step, i) => (
                   <div key={i} className="sd-step-wrapper">
-                    <div className={`sd-step-circle
-                      ${i < stepsDone ? 'done' : i === stepsDone ? 'current' : ''}`}>
+                    <div className={`sd-step-circle ${i < stepsDone ? 'done' : i === stepsDone ? 'current' : ''}`}>
                       {i + 1}
                     </div>
-                    <span className={`sd-step-label
-                      ${i < stepsDone ? 'done' : i === stepsDone ? 'current' : ''}`}>
+                    <span className={`sd-step-label ${i < stepsDone ? 'done' : i === stepsDone ? 'current' : ''}`}>
                       {step}
                     </span>
                     {i < 2 && (
@@ -249,7 +250,6 @@ function StudentDashboard() {
                 + Upload Missing Files
               </button>
             </div>
-
           </Reveal>
         </>
       )}
