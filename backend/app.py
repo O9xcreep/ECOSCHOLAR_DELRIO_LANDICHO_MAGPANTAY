@@ -565,6 +565,16 @@ _mongo_db.otps.create_index("expires_at", expireAfterSeconds=0)
 # right LGU's space (Phase B) - reserve its uniqueness now even though only one
 # organization exists yet.
 _mongo_db.organizations.create_index("join_code", unique=True)
+# require_auth checks this on every authenticated request - without an index
+# that's a full collection scan on every single API call in the app.
+_mongo_db.revoked_tokens.create_index("token_hash")
+_mongo_db.users.create_index("email", unique=True)
+_mongo_db.applicants.create_index("organization_id")
+_mongo_db.applicants.create_index([("organization_id", 1), ("cycle_id", 1)])
+_mongo_db.notifications.create_index([("user_id", 1), ("organization_id", 1)])
+_mongo_db.document_requirements.create_index("organization_id")
+_mongo_db.program_cycles.create_index("organization_id")
+_mongo_db.admin_requests.create_index("organization_id")
 
 def get_db():
     return _mongo_db
@@ -2548,10 +2558,18 @@ def get_duplicate_flags():
     try:
         db = get_db()
         org_id = current_organization_oid()
+        flag_docs = list(db.duplicate_flags.find({"resolved": False, "organization_id": org_id}).sort("flagged_at", -1))
+
+        applicant_ids = {f.get('applicant_id') for f in flag_docs if f.get('applicant_id')}
+        applicant_ids |= {f.get('duplicate_of_id') for f in flag_docs if f.get('duplicate_of_id')}
+        applicants_by_id = {
+            a['_id']: a for a in db.applicants.find({"_id": {"$in": list(applicant_ids)}, "organization_id": org_id})
+        }
+
         flags = []
-        for f in db.duplicate_flags.find({"resolved": False, "organization_id": org_id}).sort("flagged_at", -1):
-            a1 = db.applicants.find_one({"_id": f.get('applicant_id'), "organization_id": org_id}) or {}
-            a2 = db.applicants.find_one({"_id": f.get('duplicate_of_id'), "organization_id": org_id}) or {}
+        for f in flag_docs:
+            a1 = applicants_by_id.get(f.get('applicant_id'), {})
+            a2 = applicants_by_id.get(f.get('duplicate_of_id'), {})
             flags.append({
                 "id": str(f['_id']),
                 "applicant_id": str(f['applicant_id']) if f.get('applicant_id') else None,

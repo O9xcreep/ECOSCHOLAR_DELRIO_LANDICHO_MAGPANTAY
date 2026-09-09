@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 
 // Layouts
@@ -5,29 +6,31 @@ import AdminLayout from './layouts/AdminLayout'
 import StudentLayout from './layouts/StudentLayout'
 
 // Auth
-import Login from './pages/Login'
-import ResetPassword from './pages/ResetPassword'
-import ApplyAdmin from './pages/ApplyAdmin'
-import AdminSetup from './pages/AdminSetup'
 import ProtectedRoute from './components/ProtectedRoute'
 import { getUser, isFullAccess } from './api'
 
+const Login = lazy(() => import('./pages/Login'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
+const ApplyAdmin = lazy(() => import('./pages/ApplyAdmin'))
+const AdminSetup = lazy(() => import('./pages/AdminSetup'))
+
 // Student
-import StudentDashboard from './pages/student/StudentDashboard'
-import ApplicationForm from './pages/student/ApplicationForm'
-import ApplicantDetails from './pages/student/ApplicantDetails'
-import Guidelines from './pages/student/Guidelines'
-import StudentSettings from './pages/student/StudentSettings'
+const StudentDashboard = lazy(() => import('./pages/student/StudentDashboard'))
+const ApplicationForm = lazy(() => import('./pages/student/ApplicationForm'))
+const ApplicantDetails = lazy(() => import('./pages/student/ApplicantDetails'))
+const Guidelines = lazy(() => import('./pages/student/Guidelines'))
+const StudentSettings = lazy(() => import('./pages/student/StudentSettings'))
 
 // Admin
-import Dashboard from './pages/admin/Dashboard'
-import Ranking from './pages/admin/Ranking'
-import Applications from './pages/admin/applications'
-import Settings from './pages/admin/settings'
+const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
+const Ranking = lazy(() => import('./pages/admin/Ranking'))
+const Applications = lazy(() => import('./pages/admin/applications'))
+const Settings = lazy(() => import('./pages/admin/settings'))
 
 function App() {
   return (
     <BrowserRouter>
+      <Suspense fallback={<div style={{ padding: '3rem', textAlign: 'center', color: '#6b7280' }}>Loading...</div>}>
       <Routes>
         {/* Default */}
         <Route path="/" element={<Navigate to="/login" />} />
@@ -72,6 +75,7 @@ function App() {
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }
