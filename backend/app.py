@@ -1176,7 +1176,7 @@ def get_applicants():
 
         def serialize_with_status(doc):
             flat = serialize_applicant(doc)
-            flat['application_status'] = compute_display_status(doc, required_labels)
+            flat['application_status'] = compute_admin_status(doc, required_labels)
             return flat
 
         if page_param is None:
@@ -1244,7 +1244,7 @@ def get_applicants():
 
             matched = [
                 (doc, disp) for doc in db.applicants.find(py_query)
-                if (disp := compute_display_status(doc, required_labels)) in statuses
+                if (disp := compute_admin_status(doc, required_labels)) in statuses
             ]
             matched.sort(key=lambda pair: sort_key(pair[0]), reverse=(sort_dir == -1))
 
@@ -1266,7 +1266,14 @@ def get_applicants():
             })
 
         if statuses:
-            query['application.status'] = statuses[0] if len(statuses) == 1 else {'$in': statuses}
+            status_fragment = build_status_query_fragment(statuses)
+            if '$or' in status_fragment and '$or' in query:
+                # Both the search box and the status split want the top-level
+                # $or slot - combine them with $and instead of one clobbering
+                # the other.
+                query['$and'] = [{'$or': query.pop('$or')}, status_fragment]
+            else:
+                query.update(status_fragment)
 
         total = db.applicants.count_documents(query)
         cursor = db.applicants.find(query).sort(sort_field, sort_dir).skip((page - 1) * limit).limit(limit)
@@ -1300,7 +1307,7 @@ def get_applicant(applicant_id):
             return jsonify({"applicant": None, "academic": None, "documents": [], "application": None})
 
         flat = serialize_applicant(doc)
-        flat['application_status'] = compute_display_status(doc, get_required_doc_labels(db))
+        flat['application_status'] = compute_admin_status(doc, get_required_doc_labels(db))
         return jsonify({
             "applicant": flat,
             "academic": doc.get('academic'),
@@ -2624,6 +2631,40 @@ def compute_display_status(doc, required_labels):
     if required_labels.issubset(uploaded):
         return 'Pending Verification'
     return 'Incomplete'
+
+def compute_admin_status(doc, required_labels):
+    """Admin-only layer on top of compute_display_status(): additionally
+    relabels a Rejected-but-model-Eligible applicant as "Waitlisted" - they
+    met the eligibility bar but the accepted-applicant limit was full, and
+    can still be auto-promoted later (see recompute_approvals). Deliberately
+    NOT used by the student-facing endpoint (get_student_application), which
+    must see the raw "Rejected" value to decide whether to mask it before
+    results are revealed - relabeling it here first would let that check
+    slip past undetected and leak the decision early."""
+    status = compute_display_status(doc, required_labels)
+    if status == 'Rejected' and doc.get('ml_status') == 'Eligible':
+        return 'Waitlisted'
+    return status
+
+def build_status_query_fragment(statuses):
+    """Translate requested display-statuses into the Mongo filter that
+    actually matches them. "Waitlisted" isn't a stored value - it's Rejected
+    further split by ml_status (see compute_admin_status) - so from here on
+    "Rejected" always means true rejects only; a caller wanting the old
+    undifferentiated set requests both. Both directions are ordinary,
+    directly-queryable fields, unlike the document-completeness statuses
+    above, so this needs no fetch-everything-then-filter fallback."""
+    other = [s for s in statuses if s not in ('Rejected', 'Waitlisted')]
+    clauses = []
+    if 'Waitlisted' in statuses:
+        clauses.append({"application.status": "Rejected", "ml_status": "Eligible"})
+    if 'Rejected' in statuses:
+        clauses.append({"application.status": "Rejected", "ml_status": {"$ne": "Eligible"}})
+    if other:
+        clauses.append({"application.status": other[0] if len(other) == 1 else {"$in": other}})
+    if len(clauses) == 1:
+        return clauses[0]
+    return {"$or": clauses}
 
 def get_doc_requirements_collection(db):
     """Lazy-seeds the default requirements on first use so existing deployments
