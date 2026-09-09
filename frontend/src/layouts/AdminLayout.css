@@ -117,7 +117,7 @@
 /* ── TOPBAR (desktop) ── */
 .topbar {
   height: 64px;
-  background: var(--surface);
+  background: #16233d;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
