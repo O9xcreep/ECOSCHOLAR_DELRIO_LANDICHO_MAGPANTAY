@@ -3106,6 +3106,7 @@ def create_admin_from_approved_request(req, role, permissions):
     return db.users.find_one({"_id": result.inserted_id})
 
 def serialize_admin_request(r):
+    first_approval = r.get("first_approval")
     return {
         "id": str(r["_id"]),
         "full_name": r.get("full_name", ""),
@@ -3117,6 +3118,11 @@ def serialize_admin_request(r):
         "status": r.get("status", "pending"),
         "created_at": iso(r.get("created_at")),
         "reviewed_at": iso(r.get("reviewed_at")),
+        "proof_of_employment_filename": (r.get("proof_of_employment") or {}).get("filename"),
+        "first_approval": {
+            "admin_id": first_approval["admin_id"],
+            "admin_name": first_approval["admin_name"],
+        } if first_approval else None,
     }
 
 # ── ADMIN ACCOUNT REQUESTS (LGU officials applying for admin access) ──
@@ -3268,14 +3274,15 @@ def complete_admin_invite_setup():
 @app.route('/api/admin-requests', methods=['POST'])
 @limiter.limit("5 per minute")
 def submit_admin_request():
-    data = request.get_json() or {}
-    token = data.get('token') or ''
-    full_name = (data.get('full_name') or '').strip()
-    password = data.get('password') or ''
-    office = (data.get('office') or '').strip()
-    municipality = (data.get('municipality') or '').strip()
-    contact_number = (data.get('contact_number') or '').strip()
-    message = (data.get('message') or '').strip()
+    # multipart/form-data, not JSON, now that a document upload is required -
+    # everything else is still a plain form field, read the same way.
+    token = request.form.get('token') or ''
+    full_name = (request.form.get('full_name') or '').strip()
+    password = request.form.get('password') or ''
+    office = (request.form.get('office') or '').strip()
+    municipality = (request.form.get('municipality') or '').strip()
+    contact_number = (request.form.get('contact_number') or '').strip()
+    message = (request.form.get('message') or '').strip()
 
     try:
         payload = _admin_apply_serializer.loads(token, max_age=ADMIN_APPLY_TOKEN_MAX_AGE)
@@ -3290,11 +3297,25 @@ def submit_admin_request():
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
+    # A valid ID or proof-of-employment document is required - it's the one thing
+    # that raises the bar above "just fill in a form claiming to work for the LGU".
+    # Same file-type rules as the student document pipeline (upload_document).
+    file = request.files.get('file')
+    if not file or file.filename == '':
+        return jsonify({"error": "A valid ID or proof-of-employment document is required"}), 400
+    if not allowed_file(file.filename):
+        return jsonify({"error": f"File must be one of: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
+
     db = get_db()
     if db.users.find_one({"email": email}):
         return jsonify({"error": "An account with this email already exists"}), 409
-    if db.admin_requests.find_one({"email": email, "status": "pending"}):
+    if db.admin_requests.find_one({"email": email, "status": {"$in": ["pending", "pending_second_approval"]}}):
         return jsonify({"error": "A request for this email is already pending review"}), 409
+
+    filename = secure_filename(file.filename)
+    unique_filename = f"admin-request_{email}_{filename}"
+    file_bytes = file.read()
+    gridfs_id = _fs.put(file_bytes, filename=unique_filename, content_type=safe_mime_for(unique_filename))
 
     db.admin_requests.insert_one({
         "full_name": full_name,
@@ -3304,22 +3325,76 @@ def submit_admin_request():
         "municipality": municipality,
         "contact_number": contact_number,
         "message": message,
+        "proof_of_employment": {
+            "gridfs_id": gridfs_id,
+            "filename": filename,
+            "content_type": safe_mime_for(unique_filename),
+            "file_hash": hashlib.sha256(file_bytes).hexdigest(),
+            "uploaded_at": datetime.utcnow(),
+        },
         "status": "pending",
+        "first_approval": None,
+        "second_approval": None,
         "created_at": datetime.utcnow(),
         "reviewed_at": None,
         "reviewed_by": None,
     })
     return jsonify({"message": "Your request has been submitted for review. An existing admin will verify your details."}), 201
 
+# Admin-only - lets a reviewer see the applicant's uploaded ID/proof-of-employment
+# before approving/rejecting. Mirrors view_document_file(), but targets
+# admin_requests instead of applicants: no "owner self-view" case exists here,
+# since the applicant never needs to re-view their own upload after submitting.
+@app.route('/api/admin-requests/<request_id>/proof-of-employment', methods=['GET'])
+@require_permission('can_manage_members')
+def view_admin_request_proof(request_id):
+    request_oid = oid(request_id)
+    if not request_oid:
+        return jsonify({"error": "Invalid request id"}), 400
+
+    db = get_db()
+    req = db.admin_requests.find_one({"_id": request_oid})
+    if not req:
+        return jsonify({"error": "Request not found"}), 404
+
+    proof = req.get('proof_of_employment')
+    if not proof or not proof.get('gridfs_id'):
+        return jsonify({"error": "No document on file for this request"}), 404
+
+    try:
+        grid_out = _fs.get(proof['gridfs_id'])
+    except gridfs.errors.NoFile:
+        return jsonify({"error": "File not found on server"}), 404
+
+    return send_file(
+        grid_out,
+        mimetype=safe_mime_for(grid_out.filename),
+        download_name=grid_out.filename,
+        as_attachment=False
+    )
+
 @app.route('/api/admin-requests', methods=['GET'])
 @require_permission('can_manage_members')
 def list_admin_requests():
     db = get_db()
     status = request.args.get('status')
-    query = {"status": status} if status in ('pending', 'approved', 'rejected') else {}
+    # "pending" from the UI's point of view covers both a request that hasn't
+    # been touched yet and one sitting on a single approval, waiting on a
+    # second admin - both still need to show up in the same actionable list.
+    if status == 'pending':
+        query = {"status": {"$in": ["pending", "pending_second_approval"]}}
+    elif status in ('pending_second_approval', 'approved', 'rejected'):
+        query = {"status": status}
+    else:
+        query = {}
     requests_ = list(db.admin_requests.find(query).sort("created_at", -1))
     return jsonify({"requests": [serialize_admin_request(r) for r in requests_]})
 
+# Granting can_manage_members is the one privilege-escalation risk in this whole
+# flow - it lets the new account approve/add further admins - so it alone
+# requires two DIFFERENT existing admins to sign off before the account is
+# created, rather than a single admin's judgment call. Any other permission
+# combination (the common case) still finalizes on one approval, unchanged.
 @app.route('/api/admin-requests/<request_id>/approve', methods=['POST'])
 @require_permission('can_manage_members')
 def approve_admin_request(request_id):
@@ -3331,10 +3406,31 @@ def approve_admin_request(request_id):
     req = db.admin_requests.find_one({"_id": request_oid})
     if not req:
         return jsonify({"error": "Request not found"}), 404
-    if req.get("status") != "pending":
+    if req.get("status") not in ("pending", "pending_second_approval"):
         return jsonify({"error": "This request has already been reviewed"}), 400
     if db.users.find_one({"email": req["email"]}):
         return jsonify({"error": "An account with this email already exists"}), 409
+
+    now = datetime.utcnow()
+    current_admin_id = g.current_user['id']
+    current_admin_name = g.current_user.get('email', 'Admin')
+
+    # Second approval: finalize using the permissions the FIRST admin already
+    # granted, recorded on first_approval - the second admin is confirming
+    # that same grant, not re-choosing permissions from scratch.
+    if req.get("status") == "pending_second_approval":
+        first_approval = req.get("first_approval") or {}
+        if first_approval.get("admin_id") == current_admin_id:
+            return jsonify({"error": "You already gave the first approval for this request - a different admin has to give the second."}), 400
+
+        admin_doc = create_admin_from_approved_request(req, 'lgu_member', first_approval.get("permissions_granted"))
+        db.admin_requests.update_one({"_id": request_oid}, {"$set": {
+            "status": "approved",
+            "reviewed_at": now,
+            "reviewed_by": current_admin_id,
+            "second_approval": {"admin_id": current_admin_id, "admin_name": current_admin_name, "approved_at": now},
+        }})
+        return jsonify({"message": "Admin request approved", "admin": serialize_admin(admin_doc)}), 201
 
     # Always approved as a plain LGU Member - same as create_admin_account(), the
     # Admin seat only changes hands via POST /api/admins/<id>/transfer-admin.
@@ -3342,12 +3438,22 @@ def approve_admin_request(request_id):
     raw = data.get('permissions') or {}
     permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
 
+    if permissions.get('can_manage_members'):
+        db.admin_requests.update_one({"_id": request_oid}, {"$set": {
+            "status": "pending_second_approval",
+            "first_approval": {
+                "admin_id": current_admin_id, "admin_name": current_admin_name,
+                "permissions_granted": permissions, "approved_at": now,
+            },
+        }})
+        return jsonify({"message": "First approval recorded - a second admin must also approve before this account is activated."})
+
     admin_doc = create_admin_from_approved_request(req, 'lgu_member', permissions)
 
     db.admin_requests.update_one({"_id": request_oid}, {"$set": {
         "status": "approved",
-        "reviewed_at": datetime.utcnow(),
-        "reviewed_by": g.current_user['id'],
+        "reviewed_at": now,
+        "reviewed_by": current_admin_id,
     }})
 
     return jsonify({"message": "Admin request approved", "admin": serialize_admin(admin_doc)}), 201
@@ -3361,7 +3467,7 @@ def reject_admin_request(request_id):
 
     db = get_db()
     result = db.admin_requests.update_one(
-        {"_id": request_oid, "status": "pending"},
+        {"_id": request_oid, "status": {"$in": ["pending", "pending_second_approval"]}},
         {"$set": {"status": "rejected", "reviewed_at": datetime.utcnow(), "reviewed_by": g.current_user['id']}}
     )
     if result.matched_count == 0:

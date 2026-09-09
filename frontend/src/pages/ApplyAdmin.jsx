@@ -312,6 +312,7 @@ function ApplyAdmin() {
   const [inviteInfo, setInviteInfo] = useState(null)
 
   const [data, setData] = useState(EMPTY_ADMIN_REQUEST)
+  const [proofFile, setProofFile] = useState(null)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -370,21 +371,23 @@ function ApplyAdmin() {
     if (!contactNumber.trim()) { setError('Contact number is required'); return }
     else if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, '')))
       { setError('Enter a valid PH number (e.g. 09123456789)'); return }
+    if (!proofFile) { setError('Upload a valid ID or proof-of-employment document'); return }
 
     setLoading(true)
     try {
+      const formData = new FormData()
+      formData.append('token', token)
+      formData.append('full_name', fullName.trim())
+      formData.append('password', password)
+      formData.append('office', office.trim())
+      formData.append('municipality', municipality)
+      formData.append('contact_number', contactNumber.trim())
+      formData.append('message', data.message.trim())
+      formData.append('file', proofFile)
+
       const res = await fetch(`${API_BASE_URL}/api/admin-requests`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token,
-          full_name: fullName.trim(),
-          password,
-          office: office.trim(),
-          municipality,
-          contact_number: contactNumber.trim(),
-          message: data.message.trim(),
-        })
+        body: formData
       })
       const result = await res.json()
 
@@ -399,7 +402,7 @@ function ApplyAdmin() {
     } finally {
       setLoading(false)
     }
-  }, [data, token, mode, navigate])
+  }, [data, proofFile, token, mode, navigate])
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleSubmit() }
 
@@ -597,6 +600,25 @@ function ApplyAdmin() {
                     value={data.message}
                     onChange={e => { setData(p => ({ ...p, message: e.target.value })); setError('') }}
                   />
+                </div>
+
+                <div className="lp-field">
+                  <label>Valid ID or Proof of Employment</label>
+                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '-2px 0 8px' }}>
+                    An appointment letter, employee ID, or contract of service (COS) - PDF, JPG, or PNG, up to 5MB.
+                    A reviewing admin checks this before approving your request.
+                  </p>
+                  <input
+                    className="lp-input"
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    onChange={e => { setProofFile(e.target.files[0] || null); setError('') }}
+                  />
+                  {proofFile && (
+                    <p style={{ fontSize: '12.5px', color: 'var(--brand)', marginTop: '6px' }}>
+                      Selected: {proofFile.name}
+                    </p>
+                  )}
                 </div>
 
                 <button className="lp-btn" onClick={handleSubmit} disabled={loading}>

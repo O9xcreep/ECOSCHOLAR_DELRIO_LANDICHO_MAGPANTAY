@@ -658,12 +658,20 @@ function SystemTab() {
 }
 
 // ── PENDING ADMIN REQUESTS ──
+const EMPTY_APPROVAL_PERMISSIONS = { can_review_applicants: false, can_manage_members: false, can_reset_program: false }
+
 function AdminRequestsSection({ onApproved }) {
+  const currentUser = getUser() || {}
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [actioningId, setActioningId] = useState(null)
   const [actionError, setActionError] = useState('')
+  const [openingProofId, setOpeningProofId] = useState('')
+  // Which request's inline permission-picker is expanded, and what's checked in it -
+  // approving now needs to say what the account can do, not just admit it.
+  const [approvingId, setApprovingId] = useState('')
+  const [pendingPermissions, setPendingPermissions] = useState(EMPTY_APPROVAL_PERMISSIONS)
 
   const loadRequests = async () => {
     setLoading(true)
@@ -681,8 +689,61 @@ function AdminRequestsSection({ onApproved }) {
 
   useEffect(() => { loadRequests() }, [])
 
-  const handleApprove = async (req) => {
-    if (!window.confirm(`Grant admin access to ${req.full_name} (${req.email})? They already chose a password when applying, so they'll be able to sign in right away.`)) return
+  const handleViewProof = async (req) => {
+    setOpeningProofId(req.id)
+    try {
+      const res = await apiFetch(`/api/admin-requests/${req.id}/proof-of-employment`)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        alert(data.error || 'Could not load this document')
+        return
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+    } catch {
+      alert('Cannot connect to server')
+    }
+    setOpeningProofId('')
+  }
+
+  const startApproval = (req) => {
+    setActionError('')
+    setApprovingId(req.id)
+    setPendingPermissions(EMPTY_APPROVAL_PERMISSIONS)
+  }
+
+  const confirmApproval = async (req) => {
+    if (!window.confirm(`Grant admin access to ${req.full_name} (${req.email}) with the permissions selected below? They already chose a password when applying, so they'll be able to sign in right away.`)) return
+    setActionError('')
+    setActioningId(req.id)
+    try {
+      const res = await apiFetch(`/api/admin-requests/${req.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: pendingPermissions }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
+      if (data.admin) {
+        // Fully approved - remove it from the list.
+        setRequests(prev => prev.filter(r => r.id !== req.id))
+        onApproved?.(data.admin)
+      } else {
+        // First approval only (can_manage_members was granted) - refresh so it
+        // shows up as pending_second_approval instead of disappearing.
+        setApprovingId('')
+        loadRequests()
+      }
+    } catch {
+      setActionError('Cannot connect to server. Please try again.')
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  const handleSecondApproval = async (req) => {
+    if (!window.confirm(`Give the second approval for ${req.full_name} (${req.email})? This confirms the same admin-tier grant ${req.first_approval?.admin_name || 'the first admin'} already approved.`)) return
     setActionError('')
     setActioningId(req.id)
     try {
@@ -729,11 +790,15 @@ function AdminRequestsSection({ onApproved }) {
     <div className="settings-card" style={{ marginBottom: '20px' }}>
       <h4 className="card-label" style={{ marginBottom: '4px' }}>Pending Admin Requests</h4>
       <p className="info-sub" style={{ marginBottom: '14px' }}>
-        Submitted via "Apply as Admin" on the login page. Verify the requester is a real LGU official before approving.
+        Submitted via "Apply as Admin" on the login page. Check their uploaded ID/proof of employment and verify
+        the requester is a real LGU official before approving.
       </p>
       {actionError && <div className="security-error" style={{ marginBottom: '10px' }}>{actionError}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {requests.map(req => (
+        {requests.map(req => {
+          const awaitingSecond = req.status === 'pending_second_approval'
+          const isSecondApprover = awaitingSecond && req.first_approval?.admin_id !== currentUser.id
+          return (
           <div key={req.id} style={{ border: '1px solid #F0F0F0', borderRadius: '12px', padding: '16px 18px' }}>
             <div className="settings-row" style={{ marginBottom: '10px' }}>
               <div className="info-item">
@@ -760,6 +825,16 @@ function AdminRequestsSection({ onApproved }) {
                 <span className="info-label">Submitted</span>
                 <span className="info-value">{req.created_at}</span>
               </div>
+              <div className="info-item">
+                <span className="info-label">ID / Proof of Employment</span>
+                {req.proof_of_employment_filename ? (
+                  <button className="btn-change" disabled={openingProofId === req.id} onClick={() => handleViewProof(req)}>
+                    {openingProofId === req.id ? 'Opening...' : 'View Document'}
+                  </button>
+                ) : (
+                  <span className="info-value" style={{ color: '#991b1b' }}>None on file</span>
+                )}
+              </div>
             </div>
             {req.message && (
               <div className="info-item" style={{ marginBottom: '12px' }}>
@@ -767,16 +842,73 @@ function AdminRequestsSection({ onApproved }) {
                 <span className="info-sub" style={{ fontStyle: 'italic' }}>"{req.message}"</span>
               </div>
             )}
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button className="btn-primary" onClick={() => handleApprove(req)} disabled={actioningId === req.id}>
-                {actioningId === req.id ? 'Working...' : 'Approve'}
-              </button>
-              <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
-                Reject
-              </button>
-            </div>
+
+            {awaitingSecond && (
+              <div className="security-error" style={{ background: '#FEF3C7', color: '#92400E', marginBottom: '12px' }}>
+                First approval given by <strong>{req.first_approval?.admin_name}</strong> (grants team-management access) -
+                a second, different admin must confirm before this account is created.
+              </div>
+            )}
+
+            {awaitingSecond ? (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn-primary" onClick={() => handleSecondApproval(req)}
+                  disabled={actioningId === req.id || !isSecondApprover}
+                  title={!isSecondApprover ? "You gave the first approval - a different admin must give the second" : undefined}>
+                  {actioningId === req.id ? 'Working...' : 'Give Second Approval'}
+                </button>
+                <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
+                  Reject
+                </button>
+              </div>
+            ) : approvingId === req.id ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <span className="info-label">Grant permissions</span>
+                <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                    <input type="checkbox" checked={pendingPermissions.can_review_applicants}
+                      onChange={e => setPendingPermissions(p => ({ ...p, can_review_applicants: e.target.checked }))} />
+                    Review applicants
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                    <input type="checkbox" checked={pendingPermissions.can_manage_members}
+                      onChange={e => setPendingPermissions(p => ({ ...p, can_manage_members: e.target.checked }))} />
+                    Manage team members
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                    <input type="checkbox" checked={pendingPermissions.can_reset_program}
+                      onChange={e => setPendingPermissions(p => ({ ...p, can_reset_program: e.target.checked }))} />
+                    Reset the program
+                  </label>
+                </div>
+                {pendingPermissions.can_manage_members && (
+                  <p className="info-sub" style={{ color: '#92400E' }}>
+                    "Manage team members" lets this account approve future admins - granting it here will need a
+                    second, different admin's confirmation before the account is actually created.
+                  </p>
+                )}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn-primary" onClick={() => confirmApproval(req)} disabled={actioningId === req.id}>
+                    {actioningId === req.id ? 'Working...' : 'Confirm Approval'}
+                  </button>
+                  <button className="btn-change" onClick={() => setApprovingId('')} disabled={actioningId === req.id}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button className="btn-primary" onClick={() => startApproval(req)} disabled={actioningId === req.id}>
+                  Approve
+                </button>
+                <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
+                  Reject
+                </button>
+              </div>
+            )}
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
