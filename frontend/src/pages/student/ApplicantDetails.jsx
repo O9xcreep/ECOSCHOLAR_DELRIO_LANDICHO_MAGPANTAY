@@ -529,7 +529,11 @@ function ApplicantDetails() {
           onClick={() => navigate('/student/dashboard')}>
           ← Back to Dashboard
         </button>
-        {status !== 'Withdrawn' && (
+        {status === 'Withdrawn' ? (
+          <button className="av-btn-primary" onClick={() => navigate('/student/application')}>
+            Submit New Application
+          </button>
+        ) : (
           <button className="av-btn-danger" onClick={handleWithdraw} disabled={withdrawing}>
             {withdrawing ? 'Withdrawing…' : 'Withdraw Application'}
           </button>

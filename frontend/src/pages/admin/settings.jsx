@@ -1003,22 +1003,22 @@ function TeamTab() {
             {admins.map(admin => {
               const isAdminSeat = admin.role === 'lgu_admin'
               return (
-              <div key={admin.id} className="info-item" style={{ flexDirection: 'column', alignItems: 'stretch', padding: '12px 0', borderBottom: '1px solid #F0F0F0', gap: '8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div>
-                    <span className="info-value">
+              <div key={admin.id} className="info-item" style={{ flexDirection: 'column', alignItems: 'stretch', padding: '12px 0', borderBottom: '1px solid #F0F0F0', gap: '8px', minWidth: 0, width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <span className="info-value" style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 4px' }}>
                       {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
                       <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? '#dbe7f3' : '#E0F2FE', color: isAdminSeat ? '#2c5580' : '#075985' }}>
                         {isAdminSeat ? 'Admin' : 'LGU Member'}
                       </span>
                       {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
                     </span>
-                    <span className="info-sub">{admin.email}</span>
+                    <span className="info-sub" style={{ display: 'block', wordBreak: 'break-word' }}>{admin.email}</span>
                     {(admin.office || admin.municipality) && (
-                      <span className="info-sub">{[admin.office, admin.municipality].filter(Boolean).join(' · ')}</span>
+                      <span className="info-sub" style={{ display: 'block' }}>{[admin.office, admin.municipality].filter(Boolean).join(' · ')}</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
                     {!admin.password_set && (
                       <button
                         className="btn-change"

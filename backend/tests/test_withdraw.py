@@ -63,6 +63,72 @@ class TestWithdrawnCannotBeOverridden:
         assert 'withdrawn' in res.get_json()['error'].lower()
 
 
+VALID_APPLY_PAYLOAD = {
+    'contactNumber': '09171234567', 'address': 'X', 'gender': 'Male', 'dob': '2003-01-01',
+    'religion': 'X', 'citizenship': 'Filipino',
+    'fatherName': 'X', 'fatherOccupation': 'Informal/Vendor', 'fatherEducation': 'High School',
+    'motherName': 'X', 'motherOccupation': 'Informal/Vendor', 'motherEducation': 'High School',
+    'monthlyIncome': '10000', 'familySize': '4', 'numSiblings': '1', 'numSiblingsStudying': '1',
+    'housingSituation': 'Owned', 'school': 'X', 'schoolAddress': 'X', 'course': 'BSCS',
+    'yearLevel': '2', 'gpa': '90', 'academicYear': '2026', 'semester': '1st',
+}
+
+
+class TestReapplyAfterWithdraw:
+    """A withdrawn application must not be treated as a blocking duplicate -
+    see the comment on withdraw_application() in app.py: withdrawing is meant
+    to free the applicant up to submit a fresh application, not lock them out
+    for the rest of the cycle."""
+
+    def test_student_can_reapply_in_same_cycle_after_withdrawing(self, client, db, make_user):
+        student = make_user(email='withdraw-reapply@test.com', password='TestPass123', role='student')
+        db.applicants.insert_one({
+            'full_name': 'Withdraw Reapply', 'email': 'withdraw-reapply@test.com', 'user_id': student['id'],
+            'application': {'status': 'Withdrawn'},
+        })
+        login = client.post('/api/login', json={'email': 'withdraw-reapply@test.com', 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+
+        res = client.post('/api/apply', headers=headers,
+                           json={**VALID_APPLY_PAYLOAD, 'fullName': 'Withdraw Reapply', 'email': 'withdraw-reapply@test.com'})
+        assert res.status_code == 200, res.get_json()
+
+        docs = list(db.applicants.find({'email': 'withdraw-reapply@test.com'}))
+        assert len(docs) == 2
+        assert any(d['application']['status'] == 'Withdrawn' for d in docs)
+        assert any(d['application']['status'] == 'Newly Submitted' for d in docs)
+
+    def test_still_active_application_remains_blocked(self, client, db, make_user):
+        """The fix only exempts Withdrawn - an application still in the pipeline
+        must keep blocking a second submission for the same person."""
+        student = make_user(email='still-active@test.com', password='TestPass123', role='student')
+        db.applicants.insert_one({
+            'full_name': 'Still Active', 'email': 'still-active@test.com', 'user_id': student['id'],
+            'application': {'status': 'Newly Submitted'},
+        })
+        login = client.post('/api/login', json={'email': 'still-active@test.com', 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+
+        res = client.post('/api/apply', headers=headers,
+                           json={**VALID_APPLY_PAYLOAD, 'fullName': 'Still Active', 'email': 'still-active@test.com'})
+        assert res.status_code == 409
+
+    def test_name_and_birthdate_duplicate_also_exempts_withdrawn(self, client, db, make_user):
+        student = make_user(email='withdraw-reapply2@test.com', password='TestPass123', role='student')
+        db.applicants.insert_one({
+            'full_name': 'Name Dob Withdrawn', 'email': 'old-email@test.com', 'user_id': student['id'],
+            'date_of_birth': '2003-01-01',
+            'application': {'status': 'Withdrawn'},
+        })
+        login = client.post('/api/login', json={'email': 'withdraw-reapply2@test.com', 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+
+        res = client.post('/api/apply', headers=headers,
+                           json={**VALID_APPLY_PAYLOAD, 'fullName': 'Name Dob Withdrawn',
+                                 'email': 'withdraw-reapply2@test.com', 'dob': '2003-01-01'})
+        assert res.status_code == 200, res.get_json()
+
+
 class TestRecomputeExcludesWithdrawn:
     def test_withdrawn_applicant_not_reinstated(self, db):
         """A withdrawn applicant with a stale ml_status='Eligible' must not get

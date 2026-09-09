@@ -1337,7 +1337,12 @@ def submit_application():
         # entire point of a program reset. A DIFFERENT check (reused document/photo
         # detection in upload_document) is what catches the same person trying to
         # reapply under a new identity, and that one deliberately stays cross-cycle.
-        existing = db.applicants.find_one({"email": email, "cycle_id": current_cycle_id})
+        # A Withdrawn application never counts as the blocking duplicate here either -
+        # withdrawing is meant to free the applicant up to submit a fresh one in the
+        # same cycle (see the comment on withdraw_application below).
+        existing = db.applicants.find_one({
+            "email": email, "cycle_id": current_cycle_id, "application.status": {"$ne": "Withdrawn"}
+        })
         duplicate_reason = 'email' if existing else None
 
         # ── Check duplicate by FULL NAME + DATE OF BIRTH ──
@@ -1349,6 +1354,7 @@ def submit_application():
                     "full_name": {"$regex": f"^{re.escape(full_name)}$", "$options": "i"},
                     "date_of_birth": dob,
                     "cycle_id": current_cycle_id,
+                    "application.status": {"$ne": "Withdrawn"},
                 })
                 if existing:
                     duplicate_reason = 'name_and_birthdate'
