@@ -4,6 +4,7 @@ import writeExcelFile from 'write-excel-file/browser'
 import { apiFetch, getUser, setSession, logout, isFullAccess } from '../../api'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
+import pageBg from '../../assets/bg3.jpg'
 import './settings.css'
 
 const ALL_TABS = ['Profile', 'Security', 'System', 'Team']
@@ -1316,7 +1317,8 @@ function Settings() {
   )
 
   return (
-    <div className="settings-page">
+    <div className="settings-page page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
       <div className="settings-header">
         <div>
           <h2 className="page-title">Settings</h2>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, displayStatus } from '../../api'
 import { InboxIcon, ClockIcon, AlertCircleIcon } from '../../components/NavIcons'
+import pageBg from '../../assets/admin-bg.jpg'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
 
@@ -444,7 +445,8 @@ function Applications() {
   const reviewableIds = applications.filter(a => REVIEWABLE_STATUSES.includes(a.application_status)).map(a => a.id)
 
   return (
-    <div className="applications-page">
+    <div className="applications-page page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
 
       {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">

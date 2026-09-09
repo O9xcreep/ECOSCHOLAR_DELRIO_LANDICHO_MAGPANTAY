@@ -6,6 +6,7 @@ import {
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { apiFetch, displayStatus, getUser } from '../../api'
+import pageBg from '../../assets/bg4.jpg'
 import './Dashboard.css'
 
 const statusClass = {
@@ -230,7 +231,8 @@ useEffect(() => {
   }
 
   return (
-    <div className="dashboard">
+    <div className="dashboard page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
 
       {/* Header */}
       <div className="dash-header">

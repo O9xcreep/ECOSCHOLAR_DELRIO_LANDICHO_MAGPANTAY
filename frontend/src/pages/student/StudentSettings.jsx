@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, setSession, logout } from '../../api'
+import pageBg from '../../assets/bg4.jpg'
 import './StudentSettings.css'
 
 const TABS = ['Profile', 'Security']
@@ -265,7 +266,8 @@ function StudentSettings() {
   const [activeTab, setActiveTab] = useState('Profile')
 
   return (
-    <div className="student-settings-page">
+    <div className="student-settings-page page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
       <div className="settings-header">
         <h2 className="page-title">Settings</h2>
         <p className="page-sub">Manage your account and preferences</p>

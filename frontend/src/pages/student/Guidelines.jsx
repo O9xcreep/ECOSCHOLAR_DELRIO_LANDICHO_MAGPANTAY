@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../api'
+import pageBg from '../../assets/bg2.jpg'
 import './Guidelines.css'
 
 function Guidelines() {
@@ -20,7 +21,8 @@ function Guidelines() {
   useEffect(load, [])
 
   return (
-    <div className="guidelines-page">
+    <div className="guidelines-page page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
 
       {/* Header */}
       <div className="gl-header">

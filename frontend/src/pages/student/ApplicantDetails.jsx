@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
+import pageBg from '../../assets/bg1.jpg'
 import './ApplicantDetails.css'
 
 // Must match backend's SELFIE_DOC_LABEL (backend/app.py) - stored/uploaded through the
@@ -186,7 +187,8 @@ function ApplicantDetails() {
 
   if (loading) {
     return (
-      <div className="av-container">
+      <div className="av-container page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
         <div className="av-loading">Loading your application...</div>
       </div>
     )
@@ -194,7 +196,8 @@ function ApplicantDetails() {
 
   if (loadError) {
     return (
-      <div className="av-container">
+      <div className="av-container page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
         <div className="av-empty">
           <h2>Couldn't Load Your Details</h2>
           <p>Check your connection and try again.</p>
@@ -206,7 +209,8 @@ function ApplicantDetails() {
 
   if (!application) {
     return (
-      <div className="av-container">
+      <div className="av-container page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
         <div className="av-empty">
           <h2>No Application Found</h2>
           <p>You haven't submitted a scholarship application yet.</p>
@@ -228,7 +232,8 @@ function ApplicantDetails() {
   const totalRequired = checklistDocs.filter(d => d.required).length
 
   return (
-    <div className="av-container">
+    <div className="av-container page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
 
       {/* Header */}
       <div className="av-header">

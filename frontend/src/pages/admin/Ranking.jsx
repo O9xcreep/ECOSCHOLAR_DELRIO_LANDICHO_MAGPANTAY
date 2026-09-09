@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, displayStatus } from '../../api'
 import { UsersIcon, CheckCircleIcon, ClockIcon, LayersIcon } from '../../components/NavIcons'
+import pageBg from '../../assets/bg2.jpg'
 import './Ranking.css'
 
 function Ranking() {
@@ -71,7 +72,8 @@ function Ranking() {
   const waitlisted = ranked.slice(savedLimit)
 
   return (
-    <div className="ranking-page">
+    <div className="ranking-page page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
 
       {/* Header */}
       <div className="ranking-header">

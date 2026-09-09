@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
+import pageBg from '../../assets/student-bg.jpg'
 import './StudentDashboard.css'
 
 const STATUS_COLORS = {
@@ -80,7 +81,8 @@ function StudentDashboard() {
   const stepsDone = getStepsDone()
 
   return (
-    <div className="student-dashboard">
+    <div className="student-dashboard page-enter">
+      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
 
       {/* Header */}
       <div className="sd-header">
