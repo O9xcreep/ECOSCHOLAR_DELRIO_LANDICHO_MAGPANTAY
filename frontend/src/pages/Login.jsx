@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
 
@@ -656,16 +656,6 @@ function Login() {
   const [forgotSent, setForgotSent] = useState(false)
   const [forgotLoading, setForgotLoading] = useState(false)
 
-  // ── APPLY FOR ADMIN (email -> OTP code -> redirected to /apply-admin with a
-  // verified session token; the full application form, including password,
-  // lives on that separate page) ──
-  const [showApplyAdmin, setShowApplyAdmin] = useState(false)
-  const [applyAdminStep, setApplyAdminStep] = useState('email') // 'email' | 'otp'
-  const [applyAdminEmail, setApplyAdminEmail] = useState('')
-  const [applyAdminError, setApplyAdminError] = useState('')
-  const [applyAdminLoading, setApplyAdminLoading] = useState(false)
-  const [applyAdminCode, setApplyAdminCode] = useState('')
-  const [applyAdminResendMessage, setApplyAdminResendMessage] = useState('')
 
  const switchTab = (t) => {
   setTab(t)
@@ -883,79 +873,6 @@ function Login() {
     setForgotLoading(false)
   }, [forgotEmail])
 
-  // ── APPLY FOR ADMIN: SEND CODE (step 1) ──
-  const handleApplyAdminStart = useCallback(async () => {
-    setApplyAdminError('')
-    if (!applyAdminEmail.trim())                  { setApplyAdminError('Email is required'); return }
-    if (!/\S+@\S+\.\S+/.test(applyAdminEmail))   { setApplyAdminError('Enter a valid email address'); return }
-
-    setApplyAdminLoading(true)
-    try {
-      await fetch(`${API_BASE_URL}/api/admin-requests/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase() })
-      })
-      // Same anti-enumeration shape as forgot-password - always move to the code
-      // step regardless of whether this email already has an account/request.
-      setApplyAdminStep('otp')
-    } catch {
-      setApplyAdminError('Cannot connect to server. Please try again.')
-    }
-    setApplyAdminLoading(false)
-  }, [applyAdminEmail])
-
-  // ── APPLY FOR ADMIN: VERIFY CODE (step 2) ──
-  const handleVerifyApplyAdminOtp = useCallback(async () => {
-    setApplyAdminError('')
-    if (!applyAdminCode.trim()) { setApplyAdminError('Enter the code from your email'); return }
-
-    setApplyAdminLoading(true)
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/admin-requests/verify-start-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase(), code: applyAdminCode.trim() })
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setApplyAdminError(data.error || 'Verification failed. Please try again.')
-        return
-      }
-      navigate(`/apply-admin?token=${encodeURIComponent(data.token)}`)
-    } catch {
-      setApplyAdminError('Cannot connect to server. Please try again.')
-    } finally {
-      setApplyAdminLoading(false)
-    }
-  }, [applyAdminEmail, applyAdminCode, navigate])
-
-  const handleResendApplyAdminOtp = useCallback(async () => {
-    setApplyAdminResendMessage('')
-    setApplyAdminLoading(true)
-    try {
-      await fetch(`${API_BASE_URL}/api/admin-requests/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: applyAdminEmail.trim().toLowerCase() })
-      })
-      setApplyAdminResendMessage('A new code has been sent to your email.')
-    } catch {
-      setApplyAdminResendMessage('Cannot connect to server. Please try again.')
-    } finally {
-      setApplyAdminLoading(false)
-    }
-  }, [applyAdminEmail])
-
-  const closeApplyAdminModal = () => {
-    setShowApplyAdmin(false)
-    setApplyAdminStep('email')
-    setApplyAdminEmail('')
-    setApplyAdminCode('')
-    setApplyAdminError('')
-    setApplyAdminResendMessage('')
-  }
-
   const handleKeyDown = (e) => {
     if (e.key !== 'Enter') return
     if (tab === 'login') handleLogin()
@@ -1079,7 +996,7 @@ function Login() {
                         type="text"
                         inputMode="numeric"
                         maxLength={6}
-                        placeholder="123456"
+                        placeholder="Enter verification code"
                         value={regOtpCode}
                         onChange={e => { setRegOtpCode(e.target.value.replace(/\D/g, '')); setRegOtpError('') }}
                         onKeyDown={e => e.key === 'Enter' && handleVerifyRegOtp()}
@@ -1112,7 +1029,7 @@ function Login() {
                       <input
                         className="lp-input"
                         type="text"
-                        placeholder="e.g. ABC123"
+                        placeholder="Enter your LGU join code"
                         value={regData.join_code}
                         onChange={e => { setRegData(p => ({ ...p, join_code: e.target.value })); setRegError(''); setJoinCodeOrgName(''); setJoinCodeError('') }}
                         onBlur={handleJoinCodeBlur}
@@ -1257,7 +1174,7 @@ function Login() {
                     </p>
                     <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                       LGU official?{' '}
-                      <button className="lp-link" type="button" onClick={() => setShowApplyAdmin(true)}>Apply for admin access</button>
+                      <Link className="lp-link" to="/apply-admin">Apply for admin access</Link>
                     </p>
                   </>
                 ) : (
@@ -1321,7 +1238,7 @@ function Login() {
                         <label>Contact Number</label>
                         <input
                           className={`lp-input${regFieldErrors.contactNumber ? ' input-err' : ''}`}
-                          type="text" placeholder="09123456789"
+                          type="text" placeholder="Enter your contact number"
                           value={regData.contactNumber}
                           onChange={e => { setRegData(p => ({ ...p, contactNumber: e.target.value })); setRegError('') }} />
                         {regFieldErrors.contactNumber && <p className="lp-field-err">{regFieldErrors.contactNumber}</p>}
@@ -1575,83 +1492,6 @@ function Login() {
                     Done
                   </button>
                 </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* APPLY FOR ADMIN MODAL (start step) */}
-        {showApplyAdmin && (
-          <div className="lp-overlay" onClick={closeApplyAdminModal}>
-            <div className="lp-modal" onClick={e => e.stopPropagation()}>
-              {applyAdminStep === 'email' ? (
-                <>
-                  <h3>Apply for Admin Access</h3>
-                  <p>Enter your official email. We'll send you a verification code to confirm it's really you before you fill anything in.</p>
-
-                  {applyAdminError && <div className="lp-alert error" style={{ marginBottom: '14px' }}>{applyAdminError}</div>}
-
-                  <div className="lp-field">
-                    <label>Official Email Address</label>
-                    <input
-                      className="lp-input"
-                      type="email"
-                      placeholder="you@lgu.gov.ph"
-                      value={applyAdminEmail}
-                      onChange={e => { setApplyAdminEmail(e.target.value); setApplyAdminError('') }}
-                      onKeyDown={e => e.key === 'Enter' && handleApplyAdminStart()}
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="lp-modal-btns">
-                    <button className="lp-btn-cancel" onClick={closeApplyAdminModal}>
-                      Cancel
-                    </button>
-                    <button className="lp-btn-send" onClick={handleApplyAdminStart} disabled={applyAdminLoading}>
-                      {applyAdminLoading ? 'Sending…' : 'Send Code'}
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <h3>Enter Verification Code</h3>
-                  <p>If <strong>{applyAdminEmail}</strong> can apply for admin access, a 6-digit code is on its way. Enter it below to continue.</p>
-
-                  {applyAdminError && <div className="lp-alert error" style={{ marginBottom: '14px' }}>{applyAdminError}</div>}
-
-                  <div className="lp-field">
-                    <label>Verification Code</label>
-                    <input
-                      className="lp-input"
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      placeholder="123456"
-                      value={applyAdminCode}
-                      onChange={e => { setApplyAdminCode(e.target.value.replace(/\D/g, '')); setApplyAdminError('') }}
-                      onKeyDown={e => e.key === 'Enter' && handleVerifyApplyAdminOtp()}
-                      autoFocus
-                    />
-                  </div>
-
-                  <div className="lp-modal-btns">
-                    <button className="lp-btn-cancel" onClick={closeApplyAdminModal}>
-                      Cancel
-                    </button>
-                    <button className="lp-btn-send" onClick={handleVerifyApplyAdminOtp} disabled={applyAdminLoading}>
-                      {applyAdminLoading ? 'Verifying…' : 'Verify & Continue'}
-                    </button>
-                  </div>
-
-                  <p style={{ marginTop: '14px', textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                    Didn't get it?{' '}
-                    <button className="lp-link" type="button" onClick={handleResendApplyAdminOtp} disabled={applyAdminLoading}>
-                      Resend code
-                    </button>
-                  </p>
-                  {applyAdminResendMessage && <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>{applyAdminResendMessage}</p>}
-                </>
               )}
             </div>
           </div>

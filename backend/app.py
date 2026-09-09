@@ -3010,7 +3010,6 @@ def serialize_admin(u):
         "id": str(u["_id"]),
         "full_name": u.get("full_name", ""),
         "email": u.get("email", ""),
-        "office": u.get("office", ""),
         "municipality": u.get("municipality", ""),
         "role": u.get("role", "lgu_member"),
         # Accounts created before this field existed already have a real,
@@ -3185,7 +3184,7 @@ def delete_admin_account(admin_id):
     db.users.delete_one({"_id": admin_oid})
     return jsonify({"message": "Admin account removed"})
 
-def create_admin_with_setup_email(full_name, email, office='', municipality='', role='lgu_member', permissions=None, organization_id=None):
+def create_admin_with_setup_email(full_name, email, municipality='', role='lgu_member', permissions=None, organization_id=None):
     """Inserts a new admin/LGU-member user with no usable starting password and emails
     them a one-time code to set one - used when an existing admin adds a colleague
     directly, so nobody (not even the admin who created the account) ever knows
@@ -3201,7 +3200,6 @@ def create_admin_with_setup_email(full_name, email, office='', municipality='', 
         "password_set": False,
         "role": role,
         "status": "active",
-        "office": office,
         "municipality": municipality,
         "created_at": datetime.utcnow(),
         "privacy_consent": True,
@@ -3227,7 +3225,6 @@ def create_admin_from_approved_request(req, role, permissions):
         "password_set": True,
         "role": role,
         "status": "active",
-        "office": req.get("office", ""),
         "municipality": req.get("municipality", ""),
         "created_at": datetime.utcnow(),
         "privacy_consent": True,
@@ -3237,9 +3234,6 @@ def create_admin_from_approved_request(req, role, permissions):
     doc["organization_id"] = req.get("organization_id") or get_default_organization_id(db)
     result = db.users.insert_one(doc)
 
-    office_line = req.get('office') or ''
-    if req.get('municipality'):
-        office_line = f"{office_line} &middot; {req['municipality']}" if office_line else req['municipality']
     login_link = f"{FRONTEND_URL}/login"
     html = f"""
         <div style="background:#EAF0F7;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
@@ -3250,7 +3244,7 @@ def create_admin_from_approved_request(req, role, permissions):
             <div style="padding:32px;">
               <h2 style="margin:0 0 12px;color:#1A1A2E;font-size:19px;">You're approved, {req['full_name']}!</h2>
               <p style="margin:0 0 8px;color:#374151;font-size:15px;line-height:1.6;">
-                Your admin account request{f" ({office_line})" if office_line else ""} has been approved.
+                Your admin account request{f" ({req['municipality']})" if req.get('municipality') else ""} has been approved.
                 You can sign in now with the password you set when applying.
               </p>
               <div style="text-align:center;margin:28px 0;">
@@ -3279,7 +3273,6 @@ def serialize_admin_request(r, db=None):
         "id": str(r["_id"]),
         "full_name": r.get("full_name", ""),
         "email": r.get("email", ""),
-        "office": r.get("office", ""),
         "municipality": r.get("municipality", ""),
         "contact_number": r.get("contact_number", ""),
         "message": r.get("message", ""),
@@ -3304,7 +3297,7 @@ def serialize_admin_request(r, db=None):
 #    whether that email already has an account or a pending request either way.
 # 2) POST /verify-start-otp with that code exchanges it for a short-lived token
 #    proving the email was actually reachable; only then does the full form
-#    (password, office, municipality, etc.) become fillable, and the request is
+#    (password, municipality, etc.) become fillable, and the request is
 #    stored under the token's email, not a client-supplied one.
 # The applicant's password is collected upfront here (unlike an admin added
 # directly by an existing admin, who still gets an emailed set-password link,
@@ -3374,7 +3367,6 @@ def verify_admin_apply_token():
             "email": email,
             "mode": "invite",
             "full_name": user.get("full_name", ""),
-            "office": user.get("office", ""),
             "municipality": user.get("municipality", ""),
             "role": user.get("role"),
         })
@@ -3455,7 +3447,6 @@ def submit_admin_request():
     token = request.form.get('token') or ''
     full_name = (request.form.get('full_name') or '').strip()
     password = request.form.get('password') or ''
-    office = (request.form.get('office') or '').strip()
     municipality = (request.form.get('municipality') or '').strip()
     contact_number = (request.form.get('contact_number') or '').strip()
     message = (request.form.get('message') or '').strip()
@@ -3468,8 +3459,8 @@ def submit_admin_request():
         return jsonify({"error": "This session is invalid."}), 400
     email = (payload.get('email') or '').strip().lower()
 
-    if not full_name or not email or not office or not municipality or not contact_number or not password:
-        return jsonify({"error": "Full name, password, office, municipality, and contact number are required"}), 400
+    if not full_name or not email or not municipality or not contact_number or not password:
+        return jsonify({"error": "Full name, password, municipality, and contact number are required"}), 400
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
@@ -3525,7 +3516,6 @@ def submit_admin_request():
         "full_name": full_name,
         "email": email,
         "password_hash": generate_password_hash(password),
-        "office": office,
         "municipality": municipality,
         "contact_number": contact_number,
         "message": message,

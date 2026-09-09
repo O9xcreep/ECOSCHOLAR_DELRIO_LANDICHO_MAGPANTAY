@@ -3,10 +3,14 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
 
-// Reached only after verifying a one-time code sent to the applicant's email
-// (see the "Apply for admin access" modal on the login page) - the token in
-// the URL proves that verification already happened, it isn't itself a secret
-// link mailed out.
+// Two ways to land here:
+// - No token in the URL: the public, self-service "apply for admin access"
+//   flow - fill in the full form (including your own email), then verify a
+//   one-time code sent to that email before the request is actually
+//   submitted for review.
+// - A token in the URL: an existing admin already invited you directly and
+//   chose your role/permissions - this is just the "set your password"
+//   step, no review needed.
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
 
@@ -251,6 +255,17 @@ const css = `
   .lp-btn:active:not(:disabled) { transform: translateY(0); }
   .lp-btn:disabled { opacity: .65; cursor: not-allowed; transform: none; }
 
+  .lp-btn-secondary {
+    background: none;
+    color: var(--text-secondary);
+    box-shadow: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    font-weight: 500;
+    margin-top: 10px;
+  }
+  .lp-btn-secondary:hover:not(:disabled) { opacity: .8; transform: none; box-shadow: none; }
+
   .spinner {
     width: 16px; height: 16px;
     border: 2.5px solid rgba(255,255,255,.4);
@@ -293,8 +308,9 @@ const ADDRESS_CITIES = [
 ]
 
 const EMPTY_ADMIN_REQUEST = {
-  fullName: '', password: '', confirmPassword: '', office: '', municipality: '', contactNumber: '', message: '',
   orgMode: 'join', joinCode: '', orgName: '',
+  fullName: '', email: '', password: '', confirmPassword: '',
+  municipality: '', contactNumber: '', message: '',
 }
 
 function ApplyAdmin() {
@@ -302,24 +318,157 @@ function ApplyAdmin() {
   const navigate = useNavigate()
   const token = searchParams.get('token') || ''
 
+  if (token) return <InviteSetup token={token} />
+  return <ApplyForm />
+}
+
+// ── INVITE MODE: an existing admin already created the account and chose its
+// role/permissions - this only ever needs a password to activate it. ──
+function InviteSetup({ token }) {
+  const navigate = useNavigate()
+
   // 'checking' | 'invalid' | 'ready'
-  const [tokenStatus, setTokenStatus] = useState(() => token ? 'checking' : 'invalid')
-  const [tokenError, setTokenError] = useState(() => token ? '' : 'This link is missing its token.')
+  const [status, setStatus] = useState('checking')
+  const [statusError, setStatusError] = useState('')
   const [verifiedEmail, setVerifiedEmail] = useState('')
-  // 'apply' (public request, needs review) or 'invite' (an admin already
-  // created the account and chose its role/permissions - this just needs a
-  // password to activate it, no review step).
-  const [mode, setMode] = useState('apply')
   const [inviteInfo, setInviteInfo] = useState(null)
+
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/admin-requests/verify-token?token=${encodeURIComponent(token)}`)
+      .then(async res => {
+        const result = await res.json()
+        if (!res.ok || result.mode !== 'invite') {
+          setStatus('invalid')
+          setStatusError(result.error || 'This invitation link is no longer valid.')
+          return
+        }
+        setVerifiedEmail(result.email)
+        setInviteInfo({ fullName: result.full_name, municipality: result.municipality, role: result.role })
+        setStatus('ready')
+      })
+      .catch(() => { setStatus('invalid'); setStatusError('Unable to reach the server. Please try again.') })
+  }, [token])
+
+  const handleSubmit = useCallback(async () => {
+    setError('')
+    if (!password)            { setError('Password is required'); return }
+    if (password.length < 8)  { setError('Password must be at least 8 characters'); return }
+    if (password !== confirmPassword) { setError('Passwords do not match'); return }
+
+    setLoading(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admins/complete-invite-setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, new_password: password })
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        setError(result.error || 'Unable to activate your account. Please try again.')
+        return
+      }
+      setSession(result.user, result.token)
+      navigate(result.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard')
+    } catch {
+      setError('Unable to reach the server. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }, [password, confirmPassword, token, navigate])
+
+  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSubmit() }
+
+  return (
+    <ApplyAdminShell>
+      {status === 'checking' ? (
+        <div className="lp-success-box">
+          <h2>Verifying your invitation…</h2>
+        </div>
+      ) : status === 'invalid' ? (
+        <div className="lp-success-box">
+          <h2>Invitation No Longer Valid</h2>
+          <p>{statusError} Please ask whoever invited you to send a new invitation.</p>
+          <Link className="lp-btn" to="/login" style={{ textDecoration: 'none', display: 'flex' }}>
+            Return to Sign In
+          </Link>
+        </div>
+      ) : (
+        <>
+          <h2 className="lp-title">Activate Your Account</h2>
+          <p className="lp-sub">
+            Welcome, <strong>{inviteInfo?.fullName}</strong>
+            {inviteInfo?.municipality ? ` — ${inviteInfo.municipality}. ` : '. '}
+            Set a password for <strong>{verifiedEmail}</strong> to finish setting up your account.
+          </p>
+
+          {error && <div className="lp-alert error">{error}</div>}
+
+          <div className="lp-field">
+            <label>Password</label>
+            <input
+              className="lp-input"
+              type="password"
+              placeholder="Enter a password with at least 8 characters"
+              value={password}
+              autoComplete="new-password"
+              onChange={e => { setPassword(e.target.value); setError('') }}
+              onKeyDown={handleKeyDown}
+              autoFocus
+            />
+          </div>
+
+          <div className="lp-field">
+            <label>Confirm Password</label>
+            <input
+              className="lp-input"
+              type="password"
+              placeholder="Re-enter your password"
+              value={confirmPassword}
+              autoComplete="new-password"
+              onChange={e => { setConfirmPassword(e.target.value); setError('') }}
+              onKeyDown={handleKeyDown}
+            />
+            {confirmPassword && confirmPassword !== password && (
+              <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
+            )}
+          </div>
+
+          <button className="lp-btn" onClick={handleSubmit} disabled={loading}>
+            {loading ? <><span className="spinner" /> Activating…</> : 'Activate Account'}
+          </button>
+        </>
+      )}
+    </ApplyAdminShell>
+  )
+}
+
+// ── APPLY MODE: public self-service request. Choose join-vs-create first,
+// fill in the complete form (including your own email), then verify a
+// one-time code sent to that email as the final step before the request is
+// actually submitted for review. ──
+function ApplyForm() {
+  // 'form' | 'otp' | 'success'
+  const [step, setStep] = useState('form')
 
   const [data, setData] = useState(EMPTY_ADMIN_REQUEST)
   const [proofFile, setProofFile] = useState(null)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [formError, setFormError] = useState('')
+  const [sendingCode, setSendingCode] = useState(false)
+
   const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
   const [joinCodeChecking, setJoinCodeChecking] = useState(false)
   const [joinCodeError, setJoinCodeError] = useState('')
+
+  const [otpCode, setOtpCode] = useState('')
+  const [otpError, setOtpError] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [resendMessage, setResendMessage] = useState('')
+  const [resendLoading, setResendLoading] = useState(false)
 
   const handleJoinCodeBlur = useCallback(async () => {
     const code = data.joinCode.trim().toUpperCase()
@@ -332,87 +481,98 @@ function ApplyAdmin() {
       const res = await fetch(`${API_BASE_URL}/api/organizations/lookup?code=${encodeURIComponent(code)}`)
       const result = await res.json()
       if (!res.ok) {
-        setJoinCodeError(result.error || "That join code isn't valid. Check it with your LGU and try again.")
+        setJoinCodeError(result.error || 'This join code could not be verified. Confirm it with your LGU and try again.')
         return
       }
       setJoinCodeOrgName(result.organization.name)
     } catch {
-      setJoinCodeError('Cannot connect to server. Please try again.')
+      setJoinCodeError('Unable to reach the server. Please try again.')
     } finally {
       setJoinCodeChecking(false)
     }
   }, [data.joinCode])
 
-  useEffect(() => {
-    if (!token) return
-
-    fetch(`${API_BASE_URL}/api/admin-requests/verify-token?token=${encodeURIComponent(token)}`)
-      .then(async res => {
-        const result = await res.json()
-        if (!res.ok) { setTokenStatus('invalid'); setTokenError(result.error || 'This link is invalid.'); return }
-        setVerifiedEmail(result.email)
-        setMode(result.mode === 'invite' ? 'invite' : 'apply')
-        if (result.mode === 'invite') {
-          setInviteInfo({ fullName: result.full_name, office: result.office, municipality: result.municipality, role: result.role })
-        }
-        setTokenStatus('ready')
-      })
-      .catch(() => { setTokenStatus('invalid'); setTokenError('Cannot connect to server. Please try again.') })
-  }, [token])
-
-  const handleSubmit = useCallback(async () => {
-    setError('')
-    const { fullName, password, confirmPassword, office, municipality, contactNumber } = data
-
-    if (!password)             { setError('Password is required'); return }
-    if (password.length < 8)  { setError('Password must be at least 8 characters'); return }
-    if (password !== confirmPassword) { setError('Passwords do not match'); return }
-
-    if (mode === 'invite') {
-      setLoading(true)
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/admins/complete-invite-setup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token, new_password: password })
-        })
-        const result = await res.json()
-        if (!res.ok) {
-          setError(result.error || 'Failed to activate your account. Please try again.')
-          return
-        }
-        setSession(result.user, result.token)
-        navigate(result.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard')
-      } catch {
-        setError('Cannot connect to server. Please try again.')
-      } finally {
-        setLoading(false)
-      }
-      return
-    }
-
-    if (!fullName.trim())      { setError('Full name is required'); return }
-    if (!office.trim())        { setError('Office / position is required'); return }
-    if (!municipality)         { setError('Municipality is required'); return }
-    if (!contactNumber.trim()) { setError('Contact number is required'); return }
-    else if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, '')))
-      { setError('Enter a valid PH number (e.g. 09123456789)'); return }
+  const validateForm = () => {
+    const { fullName, email, password, confirmPassword, municipality, contactNumber } = data
+    if (!fullName.trim())      return 'Full name is required'
+    if (!email.trim())         return 'Email address is required'
+    if (!/\S+@\S+\.\S+/.test(email)) return 'Enter a valid email address'
+    if (!password)             return 'Password is required'
+    if (password.length < 8)   return 'Password must be at least 8 characters'
+    if (password !== confirmPassword) return 'Passwords do not match'
+    if (!municipality)         return 'Municipality is required'
+    if (!contactNumber.trim()) return 'Contact number is required'
+    if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, ''))) return 'Enter a valid Philippine mobile number'
     if (data.orgMode === 'create') {
-      if (!data.orgName.trim()) { setError('Organization name is required'); return }
-    } else {
-      if (!data.joinCode.trim()) { setError('An LGU join code is required'); return }
+      if (!data.orgName.trim()) return 'Organization name is required'
+    } else if (!data.joinCode.trim()) {
+      return 'A valid LGU join code is required'
     }
-    if (!proofFile) { setError('Upload a valid ID or proof-of-employment document'); return }
+    if (!proofFile) return 'A valid identification or proof-of-employment document is required'
+    return ''
+  }
 
-    setLoading(true)
+  const handleSendCode = useCallback(async () => {
+    setFormError('')
+    const validationError = validateForm()
+    if (validationError) { setFormError(validationError); return }
+
+    setSendingCode(true)
     try {
+      await fetch(`${API_BASE_URL}/api/admin-requests/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email.trim().toLowerCase() })
+      })
+      setStep('otp')
+    } catch {
+      setFormError('Unable to reach the server. Please try again.')
+    } finally {
+      setSendingCode(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, proofFile])
+
+  const handleResendCode = useCallback(async () => {
+    setResendMessage('')
+    setResendLoading(true)
+    try {
+      await fetch(`${API_BASE_URL}/api/admin-requests/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email.trim().toLowerCase() })
+      })
+      setResendMessage('A new verification code has been sent to your email.')
+    } catch {
+      setResendMessage('Unable to reach the server. Please try again.')
+    } finally {
+      setResendLoading(false)
+    }
+  }, [data.email])
+
+  const handleVerifyAndSubmit = useCallback(async () => {
+    setOtpError('')
+    if (!otpCode.trim()) { setOtpError('Enter the verification code sent to your email'); return }
+
+    setVerifying(true)
+    try {
+      const verifyRes = await fetch(`${API_BASE_URL}/api/admin-requests/verify-start-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: data.email.trim().toLowerCase(), code: otpCode.trim() })
+      })
+      const verifyResult = await verifyRes.json()
+      if (!verifyRes.ok) {
+        setOtpError(verifyResult.error || 'Verification failed. Please try again.')
+        return
+      }
+
       const formData = new FormData()
-      formData.append('token', token)
-      formData.append('full_name', fullName.trim())
-      formData.append('password', password)
-      formData.append('office', office.trim())
-      formData.append('municipality', municipality)
-      formData.append('contact_number', contactNumber.trim())
+      formData.append('token', verifyResult.token)
+      formData.append('full_name', data.fullName.trim())
+      formData.append('password', data.password)
+      formData.append('municipality', data.municipality)
+      formData.append('contact_number', data.contactNumber.trim())
       formData.append('message', data.message.trim())
       formData.append('file', proofFile)
       formData.append('org_mode', data.orgMode)
@@ -422,27 +582,282 @@ function ApplyAdmin() {
         formData.append('join_code', data.joinCode.trim().toUpperCase())
       }
 
-      const res = await fetch(`${API_BASE_URL}/api/admin-requests`, {
-        method: 'POST',
-        body: formData
-      })
-      const result = await res.json()
-
-      if (!res.ok) {
-        setError(result.error || 'Failed to submit request. Please try again.')
+      const submitRes = await fetch(`${API_BASE_URL}/api/admin-requests`, { method: 'POST', body: formData })
+      const submitResult = await submitRes.json()
+      if (!submitRes.ok) {
+        setOtpError(submitResult.error || 'Unable to submit your request. Please try again.')
         return
       }
 
-      setSuccess(true)
+      setStep('success')
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setOtpError('Unable to reach the server. Please try again.')
     } finally {
-      setLoading(false)
+      setVerifying(false)
     }
-  }, [data, proofFile, token, mode, navigate])
+  }, [otpCode, data, proofFile])
 
-  const handleKeyDown = (e) => { if (e.key === 'Enter') handleSubmit() }
+  const handleFormKeyDown = (e) => { if (e.key === 'Enter') handleSendCode() }
+  const handleOtpKeyDown = (e) => { if (e.key === 'Enter') handleVerifyAndSubmit() }
 
+  if (step === 'success') {
+    return (
+      <ApplyAdminShell>
+        <div className="lp-success-box">
+          <h2>Request Submitted</h2>
+          <p>
+            Thank you — an existing administrator will review your details.
+            Once approved, you can sign in at <strong>{data.email}</strong> with
+            the password you set.
+          </p>
+          <Link className="lp-btn" to="/login" style={{ textDecoration: 'none', display: 'flex' }}>
+            Return to Sign In
+          </Link>
+        </div>
+      </ApplyAdminShell>
+    )
+  }
+
+  if (step === 'otp') {
+    return (
+      <ApplyAdminShell>
+        <h2 className="lp-title">Verify Your Email</h2>
+        <p className="lp-sub">
+          Enter the verification code sent to <strong>{data.email}</strong> to submit your request.
+        </p>
+
+        {otpError && <div className="lp-alert error">{otpError}</div>}
+
+        <div className="lp-field">
+          <label>Verification Code</label>
+          <input
+            className="lp-input"
+            type="text"
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="Enter verification code"
+            value={otpCode}
+            onChange={e => { setOtpCode(e.target.value.replace(/\D/g, '')); setOtpError('') }}
+            onKeyDown={handleOtpKeyDown}
+            autoFocus
+          />
+        </div>
+
+        <button className="lp-btn" onClick={handleVerifyAndSubmit} disabled={verifying}>
+          {verifying ? <><span className="spinner" /> Submitting…</> : 'Verify and Submit Request'}
+        </button>
+
+        <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+          Did not receive a code?{' '}
+          <button className="lp-link" type="button" onClick={handleResendCode} disabled={resendLoading}>
+            {resendLoading ? 'Sending…' : 'Resend code'}
+          </button>
+        </p>
+        {resendMessage && <p style={{ textAlign: 'center', fontSize: '13px', color: 'var(--text-secondary)' }}>{resendMessage}</p>}
+
+        <button className="lp-btn lp-btn-secondary" type="button" onClick={() => setStep('form')} disabled={verifying}>
+          Return to the form
+        </button>
+      </ApplyAdminShell>
+    )
+  }
+
+  return (
+    <ApplyAdminShell>
+      <h2 className="lp-title">Apply as Admin</h2>
+      <p className="lp-sub">Complete the form below to request administrator access.</p>
+
+      {formError && <div className="lp-alert error">{formError}</div>}
+
+      <div className="lp-field">
+        <label>Your LGU</label>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+          <button
+            type="button"
+            className="lp-btn"
+            style={{
+              flex: 1, background: data.orgMode === 'join' ? undefined : '#F3F4F6',
+              color: data.orgMode === 'join' ? undefined : 'var(--text-secondary)',
+              boxShadow: data.orgMode === 'join' ? undefined : 'none',
+            }}
+            onClick={() => { setData(p => ({ ...p, orgMode: 'join' })); setFormError('') }}
+          >
+            Join an Existing Organization
+          </button>
+          <button
+            type="button"
+            className="lp-btn"
+            style={{
+              flex: 1, background: data.orgMode === 'create' ? undefined : '#F3F4F6',
+              color: data.orgMode === 'create' ? undefined : 'var(--text-secondary)',
+              boxShadow: data.orgMode === 'create' ? undefined : 'none',
+            }}
+            onClick={() => { setData(p => ({ ...p, orgMode: 'create' })); setFormError('') }}
+          >
+            Create a New Organization
+          </button>
+        </div>
+
+        {data.orgMode === 'join' ? (
+          <>
+            <input
+              className="lp-input"
+              type="text"
+              placeholder="Enter your LGU join code"
+              value={data.joinCode}
+              onChange={e => { setData(p => ({ ...p, joinCode: e.target.value })); setFormError(''); setJoinCodeOrgName(''); setJoinCodeError('') }}
+              onBlur={handleJoinCodeBlur}
+              onKeyDown={handleFormKeyDown}
+            />
+            {joinCodeChecking && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Checking code…</p>}
+            {!joinCodeChecking && joinCodeOrgName && (
+              <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>Joining {joinCodeOrgName}</p>
+            )}
+            {!joinCodeChecking && joinCodeError && (
+              <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>{joinCodeError}</p>
+            )}
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Request this code from your LGU's administrator.</p>
+          </>
+        ) : (
+          <>
+            <input
+              className="lp-input"
+              type="text"
+              placeholder="Enter your organization's official name"
+              value={data.orgName}
+              onChange={e => { setData(p => ({ ...p, orgName: e.target.value })); setFormError('') }}
+              onKeyDown={handleFormKeyDown}
+            />
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              A new organization has no existing team to review this request, so it will instead be reviewed by the platform's Super Admin. Once approved, you will receive a join code to share with your team.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="lp-field">
+        <label>Full Name</label>
+        <input
+          className="lp-input"
+          type="text"
+          placeholder="Enter your full name"
+          value={data.fullName}
+          autoComplete="name"
+          onChange={e => { setData(p => ({ ...p, fullName: e.target.value })); setFormError('') }}
+          onKeyDown={handleFormKeyDown}
+        />
+      </div>
+
+      <div className="lp-field">
+        <label>Email Address</label>
+        <input
+          className="lp-input"
+          type="email"
+          placeholder="Enter your official email address"
+          value={data.email}
+          autoComplete="email"
+          onChange={e => { setData(p => ({ ...p, email: e.target.value })); setFormError('') }}
+          onKeyDown={handleFormKeyDown}
+        />
+      </div>
+
+      <div className="lp-field">
+        <label>Password</label>
+        <input
+          className="lp-input"
+          type="password"
+          placeholder="Enter a password with at least 8 characters"
+          value={data.password}
+          autoComplete="new-password"
+          onChange={e => { setData(p => ({ ...p, password: e.target.value })); setFormError('') }}
+          onKeyDown={handleFormKeyDown}
+        />
+      </div>
+
+      <div className="lp-field">
+        <label>Confirm Password</label>
+        <input
+          className="lp-input"
+          type="password"
+          placeholder="Re-enter your password"
+          value={data.confirmPassword}
+          autoComplete="new-password"
+          onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setFormError('') }}
+          onKeyDown={handleFormKeyDown}
+        />
+        {data.confirmPassword && data.confirmPassword !== data.password && (
+          <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
+        )}
+      </div>
+
+      <div className="lp-field">
+        <label>Municipality</label>
+        <select
+          className="lp-input"
+          value={data.municipality}
+          onChange={e => { setData(p => ({ ...p, municipality: e.target.value })); setFormError('') }}>
+          <option value="">Select your city or municipality</option>
+          {ADDRESS_CITIES.map(c => (
+            <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="lp-field">
+        <label>Contact Number</label>
+        <input
+          className="lp-input"
+          type="text"
+          placeholder="Enter your contact number"
+          value={data.contactNumber}
+          onChange={e => { setData(p => ({ ...p, contactNumber: e.target.value })); setFormError('') }}
+          onKeyDown={handleFormKeyDown}
+        />
+      </div>
+
+      <div className="lp-field">
+        <label>Reason for Request <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
+        <textarea
+          className="lp-input"
+          rows={3}
+          placeholder="State the reason for your admin access request"
+          value={data.message}
+          onChange={e => { setData(p => ({ ...p, message: e.target.value })); setFormError('') }}
+        />
+      </div>
+
+      <div className="lp-field">
+        <label>Valid ID or Proof of Employment</label>
+        <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '-2px 0 8px' }}>
+          Submit an appointment letter, employee identification, or contract of service (COS) - PDF, JPG, or PNG, up to 5MB.
+          This document will be reviewed by an administrator before your request is approved.
+        </p>
+        <input
+          className="lp-input"
+          type="file"
+          accept=".pdf,.jpg,.jpeg,.png"
+          onChange={e => { setProofFile(e.target.files[0] || null); setFormError('') }}
+        />
+        {proofFile && (
+          <p style={{ fontSize: '12.5px', color: 'var(--brand)', marginTop: '6px' }}>
+            Selected file: {proofFile.name}
+          </p>
+        )}
+      </div>
+
+      <button className="lp-btn" onClick={handleSendCode} disabled={sendingCode}>
+        {sendingCode ? <><span className="spinner" /> Sending Code…</> : 'Send Verification Code'}
+      </button>
+
+      <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
+        Already have an account?{' '}
+        <Link className="lp-link" to="/login">Sign in here</Link>
+      </p>
+    </ApplyAdminShell>
+  )
+}
+
+function ApplyAdminShell({ children }) {
   return (
     <>
       <style>{css}</style>
@@ -472,268 +887,7 @@ function ApplyAdmin() {
               <GraduationCapIcon width={24} height={24} />
               <span>EcoScholar</span>
             </div>
-
-            {tokenStatus === 'checking' ? (
-              <div className="lp-success-box">
-                <h2>Checking your link…</h2>
-              </div>
-            ) : tokenStatus === 'invalid' ? (
-              <div className="lp-success-box">
-                <h2>Session Invalid</h2>
-                <p>{tokenError} Go back to the sign-up page and use "Apply for admin access" to verify your email again.</p>
-                <Link className="lp-btn" to="/login" style={{ textDecoration: 'none', display: 'flex' }}>
-                  Back to Sign In
-                </Link>
-              </div>
-            ) : success ? (
-              <div className="lp-success-box">
-                <h2>Request Submitted</h2>
-                <p>
-                  Thanks — an existing EcoScholar admin will verify your details.
-                  If approved, you can sign in right away at <strong>{verifiedEmail}</strong> with
-                  the password you just set.
-                </p>
-                <Link className="lp-btn" to="/login" style={{ textDecoration: 'none', display: 'flex' }}>
-                  Back to Sign In
-                </Link>
-              </div>
-            ) : mode === 'invite' ? (
-              <>
-                <h2 className="lp-title">Activate Your Account</h2>
-                <p className="lp-sub">
-                  Welcome, <strong>{inviteInfo?.fullName}</strong> — {inviteInfo?.office ? `${inviteInfo.office}, ` : ''}
-                  {inviteInfo?.municipality ? `${inviteInfo.municipality}. ` : ''}
-                  Choose a password for <strong>{verifiedEmail}</strong> to finish setting up your account.
-                </p>
-
-                {error && <div className="lp-alert error">{error}</div>}
-
-                <div className="lp-field">
-                  <label>Password</label>
-                  <input
-                    className="lp-input"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    value={data.password}
-                    autoComplete="new-password"
-                    onChange={e => { setData(p => ({ ...p, password: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                    autoFocus
-                  />
-                </div>
-
-                <div className="lp-field">
-                  <label>Confirm Password</label>
-                  <input
-                    className="lp-input"
-                    type="password"
-                    placeholder="Re-enter your password"
-                    value={data.confirmPassword}
-                    autoComplete="new-password"
-                    onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                  />
-                  {data.confirmPassword && data.confirmPassword !== data.password && (
-                    <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
-                  )}
-                </div>
-
-                <button className="lp-btn" onClick={handleSubmit} disabled={loading}>
-                  {loading ? <><span className="spinner" /> Activating…</> : 'Activate Account'}
-                </button>
-              </>
-            ) : (
-              <>
-                <h2 className="lp-title">Apply as Admin</h2>
-                <p className="lp-sub">Applying as <strong>{verifiedEmail}</strong></p>
-
-                {error && <div className="lp-alert error">{error}</div>}
-
-                <div className="lp-field">
-                  <label>Your LGU</label>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                    <button
-                      type="button"
-                      className="lp-btn"
-                      style={{
-                        flex: 1, background: data.orgMode === 'join' ? undefined : '#F3F4F6',
-                        color: data.orgMode === 'join' ? undefined : 'var(--text-secondary)',
-                        boxShadow: data.orgMode === 'join' ? undefined : 'none',
-                      }}
-                      onClick={() => { setData(p => ({ ...p, orgMode: 'join' })); setError('') }}
-                    >
-                      Join with a code
-                    </button>
-                    <button
-                      type="button"
-                      className="lp-btn"
-                      style={{
-                        flex: 1, background: data.orgMode === 'create' ? undefined : '#F3F4F6',
-                        color: data.orgMode === 'create' ? undefined : 'var(--text-secondary)',
-                        boxShadow: data.orgMode === 'create' ? undefined : 'none',
-                      }}
-                      onClick={() => { setData(p => ({ ...p, orgMode: 'create' })); setError('') }}
-                    >
-                      Create a new LGU
-                    </button>
-                  </div>
-
-                  {data.orgMode === 'join' ? (
-                    <>
-                      <input
-                        className="lp-input"
-                        type="text"
-                        placeholder="e.g. ABC123"
-                        value={data.joinCode}
-                        onChange={e => { setData(p => ({ ...p, joinCode: e.target.value })); setError(''); setJoinCodeOrgName(''); setJoinCodeError('') }}
-                        onBlur={handleJoinCodeBlur}
-                        onKeyDown={handleKeyDown}
-                      />
-                      {joinCodeChecking && <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Checking code…</p>}
-                      {!joinCodeChecking && joinCodeOrgName && (
-                        <p style={{ fontSize: '12px', color: '#16a34a', marginTop: '4px' }}>Joining {joinCodeOrgName}</p>
-                      )}
-                      {!joinCodeChecking && joinCodeError && (
-                        <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>{joinCodeError}</p>
-                      )}
-                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Ask your LGU's admin for this code.</p>
-                    </>
-                  ) : (
-                    <>
-                      <input
-                        className="lp-input"
-                        type="text"
-                        placeholder="Your LGU's name"
-                        value={data.orgName}
-                        onChange={e => { setData(p => ({ ...p, orgName: e.target.value })); setError('') }}
-                        onKeyDown={handleKeyDown}
-                      />
-                      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                        No peer admins exist yet for a brand-new LGU, so this request is reviewed by the platform's Super Admin instead. Once approved, you'll get a join code to share with your team.
-                      </p>
-                    </>
-                  )}
-                </div>
-
-                <div className="lp-field">
-                  <label>Full Name</label>
-                  <input
-                    className="lp-input"
-                    type="text"
-                    placeholder="Full name"
-                    value={data.fullName}
-                    autoComplete="name"
-                    onChange={e => { setData(p => ({ ...p, fullName: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                  />
-                </div>
-
-                <div className="lp-field">
-                  <label>Password</label>
-                  <input
-                    className="lp-input"
-                    type="password"
-                    placeholder="At least 8 characters"
-                    value={data.password}
-                    autoComplete="new-password"
-                    onChange={e => { setData(p => ({ ...p, password: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                  />
-                </div>
-
-                <div className="lp-field">
-                  <label>Confirm Password</label>
-                  <input
-                    className="lp-input"
-                    type="password"
-                    placeholder="Re-enter your password"
-                    value={data.confirmPassword}
-                    autoComplete="new-password"
-                    onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                  />
-                  {data.confirmPassword && data.confirmPassword !== data.password && (
-                    <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
-                  )}
-                </div>
-
-                <div className="lp-field">
-                  <label>Office / Position</label>
-                  <input
-                    className="lp-input"
-                    type="text"
-                    placeholder="e.g. Municipal Social Welfare and Development Office"
-                    value={data.office}
-                    onChange={e => { setData(p => ({ ...p, office: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                  />
-                </div>
-
-                <div className="lp-field">
-                  <label>Municipality</label>
-                  <select
-                    className="lp-input"
-                    value={data.municipality}
-                    onChange={e => { setData(p => ({ ...p, municipality: e.target.value })); setError('') }}>
-                    <option value="">Select city / municipality</option>
-                    {ADDRESS_CITIES.map(c => (
-                      <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="lp-field">
-                  <label>Contact Number</label>
-                  <input
-                    className="lp-input"
-                    type="text"
-                    placeholder="09123456789"
-                    value={data.contactNumber}
-                    onChange={e => { setData(p => ({ ...p, contactNumber: e.target.value })); setError('') }}
-                    onKeyDown={handleKeyDown}
-                  />
-                </div>
-
-                <div className="lp-field">
-                  <label>Reason for Request <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>(optional)</span></label>
-                  <textarea
-                    className="lp-input"
-                    rows={3}
-                    placeholder="Briefly describe your role in the scholarship program"
-                    value={data.message}
-                    onChange={e => { setData(p => ({ ...p, message: e.target.value })); setError('') }}
-                  />
-                </div>
-
-                <div className="lp-field">
-                  <label>Valid ID or Proof of Employment</label>
-                  <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '-2px 0 8px' }}>
-                    An appointment letter, employee ID, or contract of service (COS) - PDF, JPG, or PNG, up to 5MB.
-                    A reviewing admin checks this before approving your request.
-                  </p>
-                  <input
-                    className="lp-input"
-                    type="file"
-                    accept=".pdf,.jpg,.jpeg,.png"
-                    onChange={e => { setProofFile(e.target.files[0] || null); setError('') }}
-                  />
-                  {proofFile && (
-                    <p style={{ fontSize: '12.5px', color: 'var(--brand)', marginTop: '6px' }}>
-                      Selected: {proofFile.name}
-                    </p>
-                  )}
-                </div>
-
-                <button className="lp-btn" onClick={handleSubmit} disabled={loading}>
-                  {loading ? <><span className="spinner" /> Submitting…</> : 'Submit Request'}
-                </button>
-
-                <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
-                  Already have an account?{' '}
-                  <Link className="lp-link" to="/login">Sign in here</Link>
-                </p>
-              </>
-            )}
+            {children}
           </div>
         </div>
 

@@ -15,7 +15,6 @@ APPLICANT_EMAIL = 'juan@lgu.gov.ph'
 FORM_FIELDS = {
     'full_name': 'Juan Dela Cruz',
     'password': 'ApplicantPass123',
-    'office': 'Municipal Social Welfare and Development Office',
     'municipality': 'Liliw',
     'contact_number': '09123456789',
     'message': 'Requesting access to review scholarship applications.',

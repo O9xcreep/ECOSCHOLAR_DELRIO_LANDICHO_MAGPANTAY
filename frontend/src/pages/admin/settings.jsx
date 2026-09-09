@@ -837,10 +837,6 @@ function AdminRequestsSection({ onApproved }) {
                 <span className="info-value">{req.contact_number}</span>
               </div>
               <div className="info-item">
-                <span className="info-label">Office / Position</span>
-                <span className="info-value">{req.office}</span>
-              </div>
-              <div className="info-item">
                 <span className="info-label">Municipality</span>
                 <span className="info-value">{req.municipality}</span>
               </div>
@@ -1227,8 +1223,8 @@ function TeamTab() {
                       {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
                     </span>
                     <span className="info-sub" style={{ display: 'block', wordBreak: 'break-word' }}>{admin.email}</span>
-                    {(admin.office || admin.municipality) && (
-                      <span className="info-sub" style={{ display: 'block' }}>{[admin.office, admin.municipality].filter(Boolean).join(' · ')}</span>
+                    {admin.municipality && (
+                      <span className="info-sub" style={{ display: 'block' }}>{admin.municipality}</span>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
