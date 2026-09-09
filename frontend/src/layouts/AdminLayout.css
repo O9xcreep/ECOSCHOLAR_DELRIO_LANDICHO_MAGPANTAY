@@ -131,7 +131,7 @@
 .topbar-left .page-title {
   font-size: 18px;
   font-weight: 700;
-  color: var(--header-bg);
+  color: white;
 }
 
 .topbar-right {
