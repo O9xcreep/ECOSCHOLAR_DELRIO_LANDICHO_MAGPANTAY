@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
-import loginBg from '../assets/login-bg.jpg'
+import adminBg from '../assets/admin-bg.jpg'
 
 // Two ways to land here:
 // - No token in the URL: the public, self-service "apply for admin access"
@@ -37,7 +37,7 @@ const css = `
   .lp-page {
     display: flex;
     min-height: 100vh;
-    background: #eaf0f7 url(${loginBg}) center/cover no-repeat;
+    background: #eaf0f7 url(${adminBg}) center/cover no-repeat;
   }
 
   .lp-left {

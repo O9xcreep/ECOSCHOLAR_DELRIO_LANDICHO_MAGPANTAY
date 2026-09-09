@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
-import loginBg from '../assets/login-bg.jpg'
+import studentBg from '../assets/student-bg.jpg'
 
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
@@ -33,7 +33,7 @@ const css = `
   .lp-page {
     display: flex;
     min-height: 100vh;
-    background: #eaf0f7 url(${loginBg}) center/cover no-repeat;
+    background: #eaf0f7 url(${studentBg}) center/cover no-repeat;
   }
 
   /* ── LEFT PANEL ── */
