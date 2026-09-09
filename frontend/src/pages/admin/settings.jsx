@@ -245,6 +245,8 @@ function SystemTab() {
   const [resetPasswordError, setResetPasswordError] = useState('')
   const [resetPasswordSuccess, setResetPasswordSuccess] = useState(false)
   const [newCycleLabel, setNewCycleLabel] = useState('')
+  const [newCycleDeadline, setNewCycleDeadline] = useState('')
+  const [newCycleVisibility, setNewCycleVisibility] = useState('realtime') // 'realtime' | 'after'
   const [resetConfirmPassword, setResetConfirmPassword] = useState('')
   const [resetting, setResetting] = useState(false)
   const [resetError, setResetError] = useState('')
@@ -308,29 +310,70 @@ function SystemTab() {
     }
   }
 
+  const isFirstSetup = !currentCycle
+
   const handleProgramReset = async () => {
     setResetError('')
     setResetSuccess('')
+
+    if (newCycleVisibility === 'after' && !newCycleDeadline) {
+      setResetError("Set a deadline above, or choose \"Real-time\" instead - \"only after the program ends\" needs a deadline to reveal at.")
+      return
+    }
+
     if (!window.confirm(
-      "This archives every current applicant record (nothing is deleted - it stays " +
-      "visible in Reports) and starts a brand new cycle. Students will see a fresh, " +
-      "empty application state. Are you sure?"
+      isFirstSetup
+        ? "Start this scholarship program now?"
+        : "This archives every current applicant record (nothing is deleted - it stays " +
+          "visible in Reports) and starts a brand new cycle. Students will see a fresh, " +
+          "empty application state. Are you sure?"
     )) return
 
     setResetting(true)
     try {
+      const deadlineIso = localInputValueToUtcIso(newCycleDeadline)
       const res = await apiFetch('/api/program-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: resetConfirmPassword, label: newCycleLabel.trim() || undefined })
+        body: JSON.stringify({
+          password: resetConfirmPassword,
+          label: newCycleLabel.trim() || undefined,
+          deadline: deadlineIso || undefined,
+        })
       })
       const data = await res.json()
       if (!res.ok) { setResetError(data.error || 'Failed to reset the program'); return }
+
+      // Translate the simple real-time/after-program choice into the existing
+      // visibility fields (are_results_visible() in app.py) - "after program ends"
+      // just means auto-reveal at the same deadline just set, no new backend concept.
+      const visibilityRes = await apiFetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          newCycleVisibility === 'realtime'
+            ? { results_visible_override: true }
+            : { results_visible_override: null, results_visible_after: deadlineIso }
+        )
+      })
+      const visibilityData = await visibilityRes.json()
+
       setResetSuccess(`Done - ${data.archived_applicant_count} applicant(s) archived. "${data.current_cycle.label}" has started.`)
       setResetConfirmPassword('')
       setNewCycleLabel('')
+      setNewCycleDeadline('')
       setCurrentCycle(data.current_cycle)
       setApprovedCount(data.approved_count)
+      if (visibilityRes.ok) {
+        const localValue = utcStringToLocalInputValue(visibilityData.results_visible_after)
+        setVisibleAfter(localValue)
+        setSavedVisibleAfter(localValue)
+        const overrideValue = visibilityData.results_visible_override === true ? 'show'
+          : visibilityData.results_visible_override === false ? 'hide' : 'auto'
+        setOverride(overrideValue)
+        setSavedOverride(overrideValue)
+        setResultsVisibleNow(visibilityData.results_visible_now)
+      }
     } catch {
       setResetError('Cannot connect to server. Please try again.')
     } finally {
@@ -582,12 +625,16 @@ function SystemTab() {
 
       {canResetProgram && (
       <div className="settings-card">
-        <h4 className="card-label">Program Reset</h4>
+        <h4 className="card-label">{isFirstSetup ? 'Set Up Scholarship Program' : 'Program Reset'}</h4>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
-          Archives every current applicant record and starts a brand new cycle. Nothing
-          is deleted - past cycles stay fully visible in Reports - but student
-          dashboards and the live Applications queue show a clean slate, and past
-          applicants can submit a new application under the new cycle.
+          {isFirstSetup
+            ? "Students can't apply until a scholarship program is open. Set an optional " +
+              "deadline (applications close automatically once it passes) and choose when " +
+              "results become visible, then start the program."
+            : "Archives every current applicant record and starts a brand new cycle. Nothing " +
+              "is deleted - past cycles stay fully visible in Reports - but student " +
+              "dashboards and the live Applications queue show a clean slate, and past " +
+              "applicants can submit a new application under the new cycle."}
         </p>
 
         {currentCycle && (
@@ -596,6 +643,10 @@ function SystemTab() {
             {currentCycle.started_at && ` — started ${new Date(currentCycle.started_at).toLocaleDateString('en-PH', {
               month: 'long', day: 'numeric', year: 'numeric'
             })}`}
+            {currentCycle.deadline && `, deadline ${new Date(currentCycle.deadline).toLocaleString('en-PH', {
+              month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+            })}`}
+            {' '}— {currentCycle.is_open ? <span style={{ color: '#059669' }}>open</span> : <span style={{ color: '#c23b3b' }}>closed</span>}
           </p>
         )}
 
@@ -648,6 +699,44 @@ function SystemTab() {
           </div>
           <div>
             <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              Application deadline (optional)
+            </label>
+            <input
+              type="datetime-local"
+              className="settings-select"
+              style={{ background: '#fff' }}
+              value={newCycleDeadline}
+              onChange={e => setNewCycleDeadline(e.target.value)}
+            />
+            {newCycleDeadline && (
+              <button className="btn-change" style={{ marginLeft: '8px' }}
+                onClick={() => setNewCycleDeadline('')}>
+                Clear
+              </button>
+            )}
+            <p className="info-sub" style={{ marginTop: '4px' }}>
+              Leave blank for no cutoff - applications close automatically once this passes.
+            </p>
+          </div>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              When should students see results?
+            </label>
+            <label style={{ display: 'block', fontSize: '13px', marginBottom: '4px' }}>
+              <input type="radio" name="newCycleVisibility" value="realtime"
+                checked={newCycleVisibility === 'realtime'}
+                onChange={() => setNewCycleVisibility('realtime')} />
+              {' '}Real-time (as soon as decided)
+            </label>
+            <label style={{ display: 'block', fontSize: '13px' }}>
+              <input type="radio" name="newCycleVisibility" value="after"
+                checked={newCycleVisibility === 'after'}
+                onChange={() => setNewCycleVisibility('after')} />
+              {' '}Only after the program ends (needs a deadline above)
+            </label>
+          </div>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
               Reset confirmation password
             </label>
             <input
@@ -661,7 +750,7 @@ function SystemTab() {
           <div>
             <button className="btn-danger" onClick={handleProgramReset}
               disabled={resetting || !resetConfirmPassword || !resetPasswordSet}>
-              {resetting ? 'Resetting...' : 'Reset Program & Start New Cycle'}
+              {resetting ? 'Setting up...' : isFirstSetup ? 'Set Up Scholarship Program' : 'Reset Program & Start New Cycle'}
             </button>
           </div>
         </div>

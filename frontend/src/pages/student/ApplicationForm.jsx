@@ -646,7 +646,7 @@ function Step3({ data, onChange, errors, consent, onConsentChange, requirements 
                 id={`doc-${req.id}`}
                 style={{ display: 'none' }}
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={e => onChange(req.label, e.target.files[0], req.label)}
+                onChange={e => onChange(req.label, e.target.files[0])}
               />
             </div>
 
@@ -702,8 +702,7 @@ function ApplicationForm() {
   const [existingApplication, setExistingApplication] = useState(null)
   const [duplicateReason, setDuplicateReason] = useState('')
   const [privacyConsent, setPrivacyConsent] = useState(false)
-  const [autoFilling, setAutoFilling] = useState(false)
-  const [autoFillResults, setAutoFillResults] = useState({})
+  const [cycleCheckDone, setCycleCheckDone] = useState(false)
 
   const [step1Data, setStep1Data] = useState({
    fullName: user.full_name || '',
@@ -733,6 +732,30 @@ function ApplicationForm() {
   const [customFields, setCustomFields] = useState([])
   const [hiddenBuiltins, setHiddenBuiltins] = useState([])
   const [extraFieldsData, setExtraFieldsData] = useState({})
+
+  // A student who navigates here directly (bookmark, back button) while no
+  // scholarship program is open, or who already has an application, gets sent
+  // back to the dashboard rather than filling out a form that will just 403 on
+  // submit - the dashboard shows the right message for either case. Fails open
+  // on a network error so a flaky check never blocks a legitimate submission;
+  // POST /api/apply enforces the real gate server-side regardless.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/student/application?email=${encodeURIComponent(lockedEmail)}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.application || (data.current_cycle && !data.current_cycle.is_open)) {
+            navigate('/student/dashboard')
+            return
+          }
+        }
+      } catch {
+        // fail open - see comment above
+      }
+      setCycleCheckDone(true)
+    })()
+  }, [])
 
   useEffect(() => {
     (async () => {
@@ -797,69 +820,9 @@ function ApplicationForm() {
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }))
   }
 
-  const handleAutoFill = async (file, docLabel) => {
-    if (!file) return
-    setAutoFilling(true)
-
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('doc_type', docLabel)
-
-      const response = await apiFetch('/api/ocr-autofill', {
-        method: 'POST',
-        body: formData
-      })
-
-      const data = await response.json()
-
-      if (data.success && Object.keys(data.fields).length > 0) {
-        const fields = data.fields
-
-        // Auto-fill Step 1 fields
-        if (fields.fullName && !step1Data.fullName)
-          setStep1Data(prev => ({ ...prev, fullName: fields.fullName }))
-        if (fields.address && !step1Data.address)
-          setStep1Data(prev => ({ ...prev, address: fields.address }))
-        if (fields.monthlyIncome && !step1Data.monthlyIncome)
-          setStep1Data(prev => ({ ...prev, monthlyIncome: fields.monthlyIncome }))
-        if (fields.fatherName && !step1Data.fatherName)
-          setStep1Data(prev => ({ ...prev, fatherName: fields.fatherName }))
-        if (fields.motherName && !step1Data.motherName)
-          setStep1Data(prev => ({ ...prev, motherName: fields.motherName }))
-
-        // Auto-fill Step 2 fields
-        if (fields.school && !step2Data.school)
-          setStep2Data(prev => ({ ...prev, school: fields.school }))
-        if (fields.course && !step2Data.course)
-          setStep2Data(prev => ({ ...prev, course: fields.course }))
-        if (fields.yearLevel && !step2Data.yearLevel)
-          setStep2Data(prev => ({ ...prev, yearLevel: fields.yearLevel }))
-        if (fields.semester && !step2Data.semester)
-          setStep2Data(prev => ({ ...prev, semester: fields.semester }))
-        if (fields.academicYear && !step2Data.academicYear)
-          setStep2Data(prev => ({ ...prev, academicYear: fields.academicYear }))
-        if (fields.gpa && !step2Data.gpa)
-          setStep2Data(prev => ({ ...prev, gpa: fields.gpa }))
-
-        // Show what was filled
-        setAutoFillResults(fields)
-        setTimeout(() => setAutoFillResults({}), 5000)
-      }
-
-    } catch (err) {
-      console.error('AutoFill error:', err)
-    }
-    setAutoFilling(false)
-  }
-
-  const handleStep3Change = (field, value, docLabel) => {
+  const handleStep3Change = (field, value) => {
     setStep3Data(prev => ({ ...prev, [field]: value }))
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }))
-    // Trigger OCR autofill
-    if (value && docLabel) {
-      handleAutoFill(value, docLabel)
-    }
   }
 
   const handleNext = () => {
@@ -1036,6 +999,10 @@ function ApplicationForm() {
   )
 }
 
+  if (!cycleCheckDone) {
+    return <div className="form-container"><p>Loading...</p></div>
+  }
+
   // ── SUCCESS SCREEN ──
   if (submitSuccess) {
     return (
@@ -1060,20 +1027,7 @@ function ApplicationForm() {
   return (
     <div className="form-container">
       <StepIndicator currentStep={currentStep} />
-      
-      {/* AutoFill notification */}
-      {autoFilling && (
-        <div className="autofill-banner loading">
-          Reading document with OCR... Auto-filling your form...
-        </div>
-      )}
 
-      {Object.keys(autoFillResults).length > 0 && !autoFilling && (
-        <div className="autofill-banner success">
-          OCR Auto-filled {Object.keys(autoFillResults).length} field(s):
-          {' '}{Object.keys(autoFillResults).join(', ')}
-        </div>
-      )}
       {currentStep === 1 &&
         <Step1
           data={step1Data} onChange={handleStep1Change} errors={errors}

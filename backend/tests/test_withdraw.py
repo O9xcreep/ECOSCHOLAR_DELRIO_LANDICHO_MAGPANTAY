@@ -80,11 +80,11 @@ class TestReapplyAfterWithdraw:
     to free the applicant up to submit a fresh application, not lock them out
     for the rest of the cycle."""
 
-    def test_student_can_reapply_in_same_cycle_after_withdrawing(self, client, db, make_user):
+    def test_student_can_reapply_in_same_cycle_after_withdrawing(self, client, db, make_user, open_cycle):
         student = make_user(email='withdraw-reapply@test.com', password='TestPass123', role='student')
         db.applicants.insert_one({
             'full_name': 'Withdraw Reapply', 'email': 'withdraw-reapply@test.com', 'user_id': student['id'],
-            'application': {'status': 'Withdrawn'},
+            'application': {'status': 'Withdrawn'}, 'cycle_id': open_cycle,
         })
         login = client.post('/api/login', json={'email': 'withdraw-reapply@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
@@ -98,13 +98,13 @@ class TestReapplyAfterWithdraw:
         assert any(d['application']['status'] == 'Withdrawn' for d in docs)
         assert any(d['application']['status'] == 'Newly Submitted' for d in docs)
 
-    def test_still_active_application_remains_blocked(self, client, db, make_user):
+    def test_still_active_application_remains_blocked(self, client, db, make_user, open_cycle):
         """The fix only exempts Withdrawn - an application still in the pipeline
         must keep blocking a second submission for the same person."""
         student = make_user(email='still-active@test.com', password='TestPass123', role='student')
         db.applicants.insert_one({
             'full_name': 'Still Active', 'email': 'still-active@test.com', 'user_id': student['id'],
-            'application': {'status': 'Newly Submitted'},
+            'application': {'status': 'Newly Submitted'}, 'cycle_id': open_cycle,
         })
         login = client.post('/api/login', json={'email': 'still-active@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
@@ -113,12 +113,12 @@ class TestReapplyAfterWithdraw:
                            json={**VALID_APPLY_PAYLOAD, 'fullName': 'Still Active', 'email': 'still-active@test.com'})
         assert res.status_code == 409
 
-    def test_name_and_birthdate_duplicate_also_exempts_withdrawn(self, client, db, make_user):
+    def test_name_and_birthdate_duplicate_also_exempts_withdrawn(self, client, db, make_user, open_cycle):
         student = make_user(email='withdraw-reapply2@test.com', password='TestPass123', role='student')
         db.applicants.insert_one({
             'full_name': 'Name Dob Withdrawn', 'email': 'old-email@test.com', 'user_id': student['id'],
             'date_of_birth': '2003-01-01',
-            'application': {'status': 'Withdrawn'},
+            'application': {'status': 'Withdrawn'}, 'cycle_id': open_cycle,
         })
         login = client.post('/api/login', json={'email': 'withdraw-reapply2@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {login.get_json()['token']}"}

@@ -67,6 +67,20 @@
 
 .btn-refresh:hover { background: var(--accent-dark); }
 
+.btn-export {
+  padding: 9px 18px;
+  background: var(--accent-dark);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-export:hover:not(:disabled) { background: var(--accent); }
+.btn-export:disabled { background: #d1d5db; cursor: not-allowed; }
+
 .btn-save-limit {
   padding: 8px 14px;
   background: #10b981;

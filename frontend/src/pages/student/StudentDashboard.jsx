@@ -39,6 +39,7 @@ function StudentDashboard() {
   const [application, setApplication] = useState(null)
   const [documents, setDocuments] = useState(DEFAULT_DOCS)
   const [loading, setLoading] = useState(true)
+  const [currentCycle, setCurrentCycle] = useState(null)
 
   
   const user = getUser() || {}
@@ -63,6 +64,7 @@ function StudentDashboard() {
             setDocuments(data.documents)
           }
         }
+        setCurrentCycle(data.current_cycle || null)
         setLoading(false)
       })
       .catch(err => {
@@ -199,6 +201,11 @@ function StudentDashboard() {
                     </p>
                   )}
                 </>
+              ) : currentCycle && !currentCycle.is_open ? (
+                <p className="sd-progress-text">
+                  No scholarship program is currently open{currentCycle.label ? ` for ${currentCycle.label}` : ''}.
+                  Please check back later.
+                </p>
               ) : (
                 <>
                   <p className="sd-progress-text">
@@ -210,13 +217,15 @@ function StudentDashboard() {
                 </>
               )}
 
-              <button
-                className="btn-continue"
-                onClick={() => navigate(
-                  application ? '/student/applicant-details' : '/student/application'
-                )}>
-                {application ? 'View My Application →' : 'Start Application →'}
-              </button>
+              {(application || !currentCycle || currentCycle.is_open) && (
+                <button
+                  className="btn-continue"
+                  onClick={() => navigate(
+                    application ? '/student/applicant-details' : '/student/application'
+                  )}>
+                  {application ? 'View My Application →' : 'Start Application →'}
+                </button>
+              )}
             </div>
 
             {/* Uploaded Documents */}

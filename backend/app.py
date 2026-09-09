@@ -22,7 +22,7 @@ import os
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
-from ocr import extract_text, verify_document, parse_document_fields
+from ocr import extract_text, verify_document
 
 
 # Load .env relative to this file, not the process's working directory - otherwise
@@ -309,19 +309,31 @@ def get_current_cycle_id(db, org_id):
     cycle = get_current_cycle(db, org_id)
     return cycle["_id"] if cycle else None
 
+def is_cycle_open(cycle):
+    """A cycle accepts new applications while it's live (closed_at unset) and, if it
+    has a deadline, only until that deadline passes - the deadline is a hard cutoff,
+    not just a displayed target, so no separate admin action is needed to stop new
+    submissions once it's reached."""
+    if not cycle or cycle.get('closed_at') is not None:
+        return False
+    deadline = cycle.get('deadline')
+    return deadline is None or datetime.utcnow() <= deadline
+
 def serialize_cycle(c, applicant_count=None):
     return {
         "id": str(c["_id"]),
         "label": c.get("label"),
         "started_at": iso(c.get("started_at")),
         "closed_at": iso(c.get("closed_at")),
+        "deadline": iso(c.get("deadline")),
         "started_by": c.get("started_by"),
         "closed_by": c.get("closed_by"),
         "is_current": c.get("closed_at") is None,
+        "is_open": is_cycle_open(c),
         "applicant_count": applicant_count,
     }
 
-def do_program_reset(db, org_id, performed_by, new_label=None):
+def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None):
     """Archives the current cycle (or, on a deployment's very first reset, retroactively
     records the implicit pre-tracking cycle as 'Cycle 0') and opens a new one. Nothing is
     deleted - applicants/documents/audit trails all stay exactly where they are; they
@@ -355,6 +367,7 @@ def do_program_reset(db, org_id, performed_by, new_label=None):
         "label": (new_label or '').strip() or f"Cycle {cycle_count + 1}",
         "started_at": now,
         "closed_at": None,
+        "deadline": deadline,
         "started_by": performed_by,
         "closed_by": None,
         "organization_id": org_id,
@@ -1464,7 +1477,18 @@ def submit_application():
     try:
         db = get_db()
         org_id = current_organization_oid()
-        current_cycle_id = get_current_cycle_id(db, org_id)
+        current_cycle = get_current_cycle(db, org_id)
+        current_cycle_id = current_cycle["_id"] if current_cycle else None
+
+        # An org must explicitly set up a scholarship program (Settings -> System)
+        # before students can apply - current_cycle is None until that first happens,
+        # which used to be treated as an always-open implicit "Cycle 0" for
+        # backward compatibility with pre-cycle-tracking data. New submissions no
+        # longer get that free pass: a brand-new org (or one between programs) has
+        # nothing open until an admin starts one. A cycle with no deadline stays open
+        # indefinitely once started; a past deadline closes it automatically.
+        if not is_cycle_open(current_cycle):
+            return jsonify({"error": "No scholarship program is currently open."}), 403
 
         # ── Check duplicate by EMAIL ──
         # Scoped to the current cycle only: someone who already applied in a past,
@@ -2115,9 +2139,10 @@ def upload_document():
 
     return jsonify({"error": "File type not allowed"}), 400
 
-# ── OCR VERIFY DOCUMENT ──
+# ── OCR VERIFY DOCUMENT ── admin-only: OCR only ever runs on the admin verification
+# side, never during a student's own application (see the removed /api/ocr-autofill).
 @app.route('/api/verify-document', methods=['POST'])
-@require_auth
+@require_permission('can_review_applicants')
 @limiter.limit("20 per minute")
 def verify_document_route():
     data = request.get_json()
@@ -2275,8 +2300,18 @@ def get_student_application():
             query["cycle_id"] = get_current_cycle_id(db, org_id)
         applicant = db.applicants.find_one(query, sort=[("_id", -1)])
 
+        # Lets the student dashboard/application form know whether a program is
+        # currently open, even before the student has an application of their own -
+        # see is_cycle_open() for what "open" means (a deadline is a hard cutoff).
+        current_cycle = get_current_cycle(db, org_id)
+        current_cycle_info = {
+            "label": current_cycle.get("label") if current_cycle else None,
+            "deadline": iso(current_cycle.get("deadline")) if current_cycle else None,
+            "is_open": is_cycle_open(current_cycle),
+        }
+
         if not applicant:
-            return jsonify({"application": None})
+            return jsonify({"application": None, "current_cycle": current_cycle_info})
 
         application = serialize_applicant(applicant)
         # Same document-completeness computation admins see in the Applications
@@ -2298,7 +2333,8 @@ def get_student_application():
 
         return jsonify({
             "application": application,
-            "documents": [serialize_document(d) for d in applicant.get('documents', [])]
+            "documents": [serialize_document(d) for d in applicant.get('documents', [])],
+            "current_cycle": current_cycle_info,
         })
 
     except Exception as e:
@@ -2557,6 +2593,16 @@ def program_reset():
     password = data.get('password') or ''
     label = data.get('label')
 
+    deadline = None
+    raw_deadline = data.get('deadline')
+    if raw_deadline:
+        try:
+            deadline = datetime.fromisoformat(raw_deadline.replace('Z', '+00:00')).replace(tzinfo=None)
+        except (ValueError, AttributeError):
+            return jsonify({"error": "deadline must be an ISO date/time string, or null"}), 400
+        if deadline <= datetime.utcnow():
+            return jsonify({"error": "deadline must be in the future"}), 400
+
     try:
         db = get_db()
         org_id = current_organization_oid()
@@ -2574,7 +2620,7 @@ def program_reset():
         )
 
         performed_by = g.current_user.get('email', 'Admin')
-        new_cycle_id = do_program_reset(db, org_id, performed_by, new_label=label)
+        new_cycle_id = do_program_reset(db, org_id, performed_by, new_label=label, deadline=deadline)
 
         return jsonify({
             "message": "Program reset complete. A new cycle has started.",
@@ -2731,8 +2777,8 @@ def delete_form_field(field_id):
 # ── DOCUMENT REQUIREMENTS ──
 # Which documents an LGU asks applicants to upload. The "label" here IS the
 # document_name stored against every upload (see upload_document()) - one string
-# used consistently as the storage key, the OCR verify_document()/parse_document_fields()
-# doc_type, and the label shown to students/admins, rather than three drifting variants.
+# used consistently as the storage key, the OCR verify_document() doc_type, and the
+# label shown to students/admins, rather than three drifting variants.
 #
 # SELFIE_DOC_LABEL is stored/uploaded exactly like any other requirement (same GridFS
 # path, same fraud checks) but the frontend pulls it out of the generic checklist and
@@ -3942,50 +3988,6 @@ def rank_applicants():
             r['rank'] = i + 1
 
         return jsonify({"ranked": ranked})
-
-    except Exception as e:
-        app.logger.error(str(e))
-        if DEBUG:
-            raise
-        return jsonify({"error": "Something went wrong. Please try again."}), 500
-
-# ── OCR AUTO-FILL ──
-@app.route('/api/ocr-autofill', methods=['POST'])
-@require_auth
-def ocr_autofill():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files['file']
-    doc_type = request.form.get('doc_type', '')
-
-    if file.filename == '':
-        return jsonify({"error": "No file selected"}), 400
-
-    if not allowed_file(file.filename):
-        return jsonify({"error": "File type not allowed"}), 400
-
-    try:
-        # Save temp file
-        filename = secure_filename(file.filename)
-        temp_path = os.path.join('uploads', f'temp_{filename}')
-        file.save(temp_path)
-
-        # Extract text using OCR
-        extracted_text = extract_text(temp_path)
-
-        # Clean up temp file
-        os.remove(temp_path)
-
-        # Parse extracted fields
-        fields = parse_document_fields(extracted_text, doc_type)
-
-        return jsonify({
-            "success": True,
-            "extracted_text": extracted_text[:500],
-            "fields": fields,
-            "doc_type": doc_type
-        })
 
     except Exception as e:
         app.logger.error(str(e))

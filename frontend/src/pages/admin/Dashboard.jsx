@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -34,6 +35,7 @@ const STATUS_COLORS = {
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function Dashboard() {
+  const navigate = useNavigate()
   const [stats, setStats] = useState({
     total: 0,
     approved: 0,
@@ -56,6 +58,7 @@ function Dashboard() {
   const [selectedCycle, setSelectedCycle] = useState('all')
   const [submittedPeriod, setSubmittedPeriod] = useState('monthly') // 'monthly' | 'yearly'
   const [decidedPeriod, setDecidedPeriod] = useState('monthly') // 'monthly' | 'yearly'
+  const [bannerDismissed, setBannerDismissed] = useState(false)
 
   const handleViewFlagDoc = async (applicantId, documentName, key) => {
     if (!applicantId || !documentName) return
@@ -129,6 +132,24 @@ useEffect(() => {
     { label: 'Approved', value: stats.approved, color: '#0f9d64' },
     { label: 'Rejected', value: stats.rejected, color: '#c23b3b' },
   ]
+
+  // The live cycle (closed_at unset) with a deadline that's already passed but
+  // hasn't been manually reset yet - is_open comes straight from the backend
+  // (is_cycle_open()) via GET /api/program-cycles's serialize_cycle().
+  const liveCycle = cycles.find(c => c.is_current)
+  const programEnded = !!(liveCycle && liveCycle.deadline && !liveCycle.is_open)
+  const bannerStorageKey = liveCycle ? `program-ended-banner-dismissed-${liveCycle.id}` : null
+
+  useEffect(() => {
+    if (bannerStorageKey) {
+      setBannerDismissed(sessionStorage.getItem(bannerStorageKey) === '1')
+    }
+  }, [bannerStorageKey])
+
+  const dismissBanner = () => {
+    if (bannerStorageKey) sessionStorage.setItem(bannerStorageKey, '1')
+    setBannerDismissed(true)
+  }
 
   // Every cycle option beyond "All cycles" narrows the already-fetched full list
   // client-side, rather than re-fetching - the charts already need every
@@ -243,6 +264,21 @@ useEffect(() => {
       {loadError && (
         <div className="dash-error-banner">
           Some dashboard data couldn't be loaded. Try refreshing the page.
+        </div>
+      )}
+
+      {programEnded && !bannerDismissed && (
+        <div className="dash-error-banner program-ended-banner">
+          <span>
+            This program's deadline ({new Date(liveCycle.deadline).toLocaleDateString('en-PH', {
+              month: 'long', day: 'numeric', year: 'numeric'
+            })}) has passed. Export the final ranking, then reset to start a new program.
+          </span>
+          <div className="program-ended-banner-actions">
+            <button className="btn-export" onClick={() => navigate('/admin/ranking')}>Export Ranking PDF</button>
+            <button className="btn-export" onClick={() => navigate('/admin/settings')}>Reset & Start New Program</button>
+            <button className="btn-dismiss-banner" onClick={dismissBanner}>Dismiss</button>
+          </div>
         </div>
       )}
 

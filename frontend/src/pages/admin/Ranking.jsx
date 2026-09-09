@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
-import { apiFetch, displayStatus } from '../../api'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { apiFetch, displayStatus, getUser } from '../../api'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg2.jpg'
@@ -72,6 +74,67 @@ function Ranking() {
   const withinSlots = ranked.slice(0, savedLimit)
   const waitlisted = ranked.slice(savedLimit)
 
+  const handleExportRankingPdf = () => {
+    const doc = new jsPDF()
+    const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+    const orgName = getUser()?.organization_name || 'EcoScholar'
+
+    doc.setFontSize(16)
+    doc.text(`${orgName} - Applicant Ranking`, 14, 18)
+    doc.setFontSize(10)
+    doc.setTextColor(120)
+    doc.text(`Generated ${generatedAt}`, 14, 25)
+
+    const rowFor = app => [
+      `#${app.rank}`,
+      app.full_name,
+      app.course || '',
+      app.gpa ?? '',
+      app.monthly_income != null ? `P${Number(app.monthly_income).toLocaleString()}` : 'N/A',
+      app.family_size ?? '',
+      app.has_other_scholarship ? 'Yes' : 'No',
+      `${app.ml_score}%`,
+      displayStatus(app.application_status, app.ml_status),
+    ]
+    const columns = ['Rank', 'Applicant', 'Course', 'GPA', 'Income', 'Family', 'Other Sch.', 'ML Score', 'Status']
+
+    autoTable(doc, {
+      startY: 32,
+      head: [[{ content: `Within Scholarship Slots (Top ${slots}) - ${withinSlots.length} scholars`, colSpan: columns.length }]],
+      body: [],
+      theme: 'plain',
+      headStyles: { fontStyle: 'bold', fontSize: 11 },
+    })
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY,
+      head: [columns],
+      body: withinSlots.map(rowFor),
+      theme: 'grid',
+      headStyles: { fillColor: [61, 111, 163] },
+      styles: { fontSize: 8 },
+    })
+
+    if (waitlisted.length > 0) {
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY + 10,
+        head: [[{ content: `Waitlisted Applicants - ${waitlisted.length}`, colSpan: columns.length }]],
+        body: [],
+        theme: 'plain',
+        headStyles: { fontStyle: 'bold', fontSize: 11 },
+      })
+      autoTable(doc, {
+        startY: doc.lastAutoTable.finalY,
+        head: [columns],
+        body: waitlisted.map(rowFor),
+        theme: 'grid',
+        headStyles: { fillColor: [61, 111, 163] },
+        styles: { fontSize: 8 },
+      })
+    }
+
+    doc.save(`ecoscholar-ranking-${new Date().toISOString().slice(0, 10)}.pdf`)
+  }
+
   return (
     <div className="ranking-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
@@ -102,6 +165,9 @@ function Ranking() {
           </div>
           <button className="btn-refresh" onClick={fetchRanking}>
             Refresh
+          </button>
+          <button className="btn-export" onClick={handleExportRankingPdf} disabled={ranked.length === 0}>
+            Export Ranking PDF
           </button>
         </div>
       </div>

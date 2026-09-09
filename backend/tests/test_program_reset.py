@@ -4,7 +4,7 @@ GET /api/program-cycles): archiving the current cycle and opening a new one
 without deleting anything, plus every "current cycle only" query this feature
 introduced (recompute_approvals, GET /api/applicants?cycle=current,
 GET /api/student/application, the submit_application duplicate check)."""
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import app as app_module
 
@@ -244,3 +244,78 @@ class TestCurrentCycleScoping:
         new_status = db.applicants.find_one({'_id': new_id})['application']['status']
         assert old_status == 'Approved'  # untouched - belongs to the archived cycle
         assert new_status == 'Approved'  # the only eligible applicant in the current cycle
+
+
+VALID_APPLY_PAYLOAD = {
+    'contactNumber': '09171234567', 'address': 'X', 'gender': 'Male', 'dob': '2003-01-01',
+    'religion': 'X', 'citizenship': 'Filipino',
+    'fatherName': 'X', 'fatherOccupation': 'Informal/Vendor', 'fatherEducation': 'High School',
+    'motherName': 'X', 'motherOccupation': 'Informal/Vendor', 'motherEducation': 'High School',
+    'monthlyIncome': '10000', 'familySize': '4', 'numSiblings': '1', 'numSiblingsStudying': '1',
+    'housingSituation': 'Owned', 'school': 'X', 'schoolAddress': 'X', 'course': 'BSCS',
+    'yearLevel': '2', 'gpa': '90', 'academicYear': '2026', 'semester': '1st',
+}
+
+
+class TestProgramDeadline:
+    """A deadline is a hard cutoff, not just a displayed target - see is_cycle_open()
+    in app.py. No program set up at all behaves the same as a closed/expired one:
+    students can't submit until an admin explicitly opens one (Settings -> System)."""
+
+    def test_no_cycle_at_all_blocks_submission(self, client, make_user):
+        student = make_user(email='nocycle@test.com', password='TestPass123', role='student')
+        login = client.post('/api/login', json={'email': student['email'], 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+
+        res = client.post('/api/apply', headers=headers,
+                           json={**VALID_APPLY_PAYLOAD, 'fullName': 'No Cycle', 'email': 'nocycle@test.com'})
+        assert res.status_code == 403
+
+    def test_future_deadline_allows_submission(self, client, db, make_user, auth_headers):
+        set_reset_password(db, 'CorrectPass1')
+        future = (datetime.utcnow() + timedelta(days=1)).isoformat()
+        res = client.post('/api/program-reset', headers=auth_headers(),
+                           json={'password': 'CorrectPass1', 'deadline': future})
+        assert res.status_code == 200
+        assert res.get_json()['current_cycle']['is_open'] is True
+
+        student = make_user(email='future-deadline@test.com', password='TestPass123', role='student')
+        login = client.post('/api/login', json={'email': student['email'], 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+        res = client.post('/api/apply', headers=headers,
+                           json={**VALID_APPLY_PAYLOAD, 'fullName': 'Future Deadline', 'email': 'future-deadline@test.com'})
+        assert res.status_code == 200, res.get_json()
+
+    def test_past_deadline_blocks_submission_even_though_cycle_not_manually_closed(self, client, db, make_user, open_cycle):
+        org_id = app_module.get_default_organization_id(db)
+        past = datetime.utcnow() - timedelta(days=1)
+        db.program_cycles.update_one({'_id': open_cycle}, {'$set': {'deadline': past}})
+
+        student = make_user(email='past-deadline@test.com', password='TestPass123', role='student')
+        login = client.post('/api/login', json={'email': student['email'], 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+        res = client.post('/api/apply', headers=headers,
+                           json={**VALID_APPLY_PAYLOAD, 'fullName': 'Past Deadline', 'email': 'past-deadline@test.com'})
+        assert res.status_code == 403
+
+        # The cycle is still "current" (closed_at unset) - just no longer open.
+        cycle = app_module.get_current_cycle(db, org_id)
+        assert cycle['_id'] == open_cycle
+        assert app_module.is_cycle_open(cycle) is False
+
+    def test_program_reset_rejects_a_non_future_deadline(self, client, db, auth_headers):
+        set_reset_password(db, 'CorrectPass1')
+        past = (datetime.utcnow() - timedelta(days=1)).isoformat()
+        res = client.post('/api/program-reset', headers=auth_headers(),
+                           json={'password': 'CorrectPass1', 'deadline': past})
+        assert res.status_code == 400
+
+    def test_student_application_endpoint_reports_cycle_status_before_applying(self, client, db, make_user, open_cycle):
+        student = make_user(email='checkcycle@test.com', password='TestPass123', role='student')
+        login = client.post('/api/login', json={'email': student['email'], 'password': 'TestPass123'})
+        headers = {'Authorization': f"Bearer {login.get_json()['token']}"}
+
+        res = client.get('/api/student/application?email=checkcycle@test.com', headers=headers)
+        body = res.get_json()
+        assert body['application'] is None
+        assert body['current_cycle']['is_open'] is True

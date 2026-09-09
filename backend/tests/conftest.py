@@ -102,6 +102,18 @@ def db():
 
 
 @pytest.fixture
+def open_cycle(db):
+    """POST /api/apply now requires the org to have an explicitly open scholarship
+    program (see is_cycle_open() in app.py). Opt-in (not autouse) since plenty of
+    tests deliberately exercise the "no program set up yet" implicit-Cycle-0 state -
+    only a test that itself calls /api/apply needs this. Returns the new cycle's id
+    so the test can tag any applicant fixtures it inserts directly with a matching
+    cycle_id (the duplicate-check queries below are scoped by cycle)."""
+    org_id = app_module.get_default_organization_id(db)
+    return app_module.do_program_reset(db, org_id, 'test-setup@test.com')
+
+
+@pytest.fixture
 def client():
     app_module.app.config['TESTING'] = True
     # Rate limits are real production behavior worth having, but the test suite

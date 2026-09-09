@@ -164,6 +164,37 @@
   font-weight: 500;
 }
 
+.program-ended-banner {
+  background: var(--warning-bg);
+  color: var(--warning);
+  border: 1px solid var(--warning-bg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.program-ended-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.btn-dismiss-banner {
+  padding: 8px 12px;
+  background: transparent;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-dismiss-banner:hover { background: rgba(181, 121, 10, .08); }
+
 /* ── DUPLICATE ALERTS ── */
 .duplicate-alert-card {
   border-left: 4px solid var(--danger);
