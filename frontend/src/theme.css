@@ -106,7 +106,7 @@ button:active:not(:disabled) {
  * selects/inputs are excluded on purpose - shrinking their contrast reads as
  * "disabled", not "glassy". */
 .dash-card, .table-card, .ranking-card, .settings-card, .fb-card, .ge-card,
-.av-card, .av-empty, .gl-card, .sd-card, .sd-stat-card {
+.av-card, .av-empty, .gl-card, .sd-card {
   background: rgba(255,255,255,.72) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
