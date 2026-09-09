@@ -23,7 +23,6 @@ import StudentSettings from './pages/student/StudentSettings'
 import Dashboard from './pages/admin/Dashboard'
 import Ranking from './pages/admin/Ranking'
 import Applications from './pages/admin/applications'
-import Reports from './pages/admin/reports'
 import Settings from './pages/admin/settings'
 
 function App() {
@@ -66,7 +65,8 @@ function App() {
           {/* Old route from before Applicants merged into Applications */}
           <Route path="applicants" element={<Navigate to="/admin/applications" replace />} />
           <Route path="applications" element={<Applications />} />
-          <Route path="reports" element={<Reports />} />
+          {/* Old route from before Reports merged into Dashboard */}
+          <Route path="reports" element={<Navigate to="/admin/dashboard" replace />} />
           {/* Old route from before Form Builder moved into Settings > System */}
           <Route path="form-builder" element={<Navigate to="/admin/settings" replace />} />
           <Route path="settings" element={<Settings />} />

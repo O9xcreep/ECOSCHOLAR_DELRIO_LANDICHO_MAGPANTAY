@@ -152,57 +152,105 @@ def get_setup_otp_code(db, email):
     return db.otps.find_one({'email': email, 'purpose': 'admin_setup'})['code']
 
 
-class TestVerifyAdminSetupOtp:
-    def test_correct_code_sets_password_and_logs_in(self, client, db, auth_headers):
+class TestVerifyAdminSetupCode:
+    """Step 1 of invite activation - just proves the OTP is correct and hands
+    back a short-lived token; setting the password happens on the shared
+    /apply-admin page (see complete-invite-setup below), not here."""
+
+    def test_correct_code_returns_token(self, client, db, auth_headers):
         client.post('/api/admins', headers=auth_headers(),
                     json={'full_name': 'New Admin', 'email': 'setup@test.com'})
         code = get_setup_otp_code(db, 'setup@test.com')
 
-        res = client.post('/api/admins/verify-setup-otp',
-                           json={'email': 'setup@test.com', 'code': code, 'new_password': 'MyChosenPass123'})
+        res = client.post('/api/admins/verify-setup-code',
+                           json={'email': 'setup@test.com', 'code': code})
+        assert res.status_code == 200
+        assert 'token' in res.get_json()
+
+    def test_wrong_code_rejected(self, client, auth_headers):
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'New Admin', 'email': 'setup2@test.com'})
+        res = client.post('/api/admins/verify-setup-code',
+                           json={'email': 'setup2@test.com', 'code': '000000'})
+        assert res.status_code == 400
+
+    def test_missing_fields_rejected(self, client):
+        res = client.post('/api/admins/verify-setup-code', json={'email': 'setup4@test.com'})
+        assert res.status_code == 400
+
+    def test_token_resolves_via_shared_verify_token_endpoint(self, client, db, auth_headers):
+        """The same GET /api/admin-requests/verify-token the public-apply page
+        uses also understands an invite token, returning the invite's
+        already-known details so /apply-admin can render its "invite" mode."""
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'Invited Person', 'email': 'setup5@test.com', 'office': 'MSWDO'})
+        code = get_setup_otp_code(db, 'setup5@test.com')
+        token = client.post('/api/admins/verify-setup-code',
+                             json={'email': 'setup5@test.com', 'code': code}).get_json()['token']
+
+        res = client.get(f'/api/admin-requests/verify-token?token={token}')
         assert res.status_code == 200
         body = res.get_json()
-        assert 'token' in body
+        assert body['mode'] == 'invite'
+        assert body['email'] == 'setup5@test.com'
+        assert body['full_name'] == 'Invited Person'
+
+
+def get_setup_token(client, db, email):
+    code = get_setup_otp_code(db, email)
+    return client.post('/api/admins/verify-setup-code', json={'email': email, 'code': code}).get_json()['token']
+
+
+class TestCompleteAdminInviteSetup:
+    def test_sets_password_and_logs_in(self, client, db, auth_headers):
+        client.post('/api/admins', headers=auth_headers(),
+                    json={'full_name': 'New Admin', 'email': 'setup@test.com'})
+        token = get_setup_token(client, db, 'setup@test.com')
+
+        res = client.post('/api/admins/complete-invite-setup',
+                           json={'token': token, 'new_password': 'MyChosenPass123'})
+        assert res.status_code == 200
+        assert 'token' in res.get_json()
 
         assert db.users.find_one({'email': 'setup@test.com'})['password_set'] is True
         relogin = client.post('/api/login', json={'email': 'setup@test.com', 'password': 'MyChosenPass123'})
         assert relogin.status_code == 200
 
-    def test_wrong_code_rejected(self, client, auth_headers):
-        client.post('/api/admins', headers=auth_headers(),
-                    json={'full_name': 'New Admin', 'email': 'setup2@test.com'})
-        res = client.post('/api/admins/verify-setup-otp',
-                           json={'email': 'setup2@test.com', 'code': '000000', 'new_password': 'MyChosenPass123'})
-        assert res.status_code == 400
-
     def test_short_password_rejected(self, client, db, auth_headers):
         client.post('/api/admins', headers=auth_headers(),
                     json={'full_name': 'New Admin', 'email': 'setup3@test.com'})
-        code = get_setup_otp_code(db, 'setup3@test.com')
-        res = client.post('/api/admins/verify-setup-otp',
-                           json={'email': 'setup3@test.com', 'code': code, 'new_password': 'short'})
+        token = get_setup_token(client, db, 'setup3@test.com')
+        res = client.post('/api/admins/complete-invite-setup',
+                           json={'token': token, 'new_password': 'short'})
         assert res.status_code == 400
 
-    def test_missing_fields_rejected(self, client):
-        res = client.post('/api/admins/verify-setup-otp', json={'email': 'setup4@test.com'})
+    def test_missing_or_invalid_token_rejected(self, client):
+        res = client.post('/api/admins/complete-invite-setup', json={'new_password': 'MyChosenPass123'})
+        assert res.status_code == 400
+        res = client.post('/api/admins/complete-invite-setup', json={'token': 'garbage', 'new_password': 'MyChosenPass123'})
+        assert res.status_code == 400
+
+    def test_admin_apply_token_cannot_be_reused_here(self, client):
+        """A token minted for the public-apply flow (purpose "admin_apply")
+        must not double as an invite-activation token, even though both are
+        signed with the same serializer."""
+        from app import _admin_apply_serializer
+        apply_token = _admin_apply_serializer.dumps({'email': 'someone@test.com', 'purpose': 'admin_apply'})
+        res = client.post('/api/admins/complete-invite-setup',
+                           json={'token': apply_token, 'new_password': 'MyChosenPass123'})
         assert res.status_code == 400
 
     def test_cannot_be_used_against_an_already_activated_admin(self, client, db, auth_headers):
         """Otherwise this endpoint would double as an unauthenticated password
-        reset for anyone who can guess a valid code window - forgot-password
-        (which requires clicking a link mailed to that address) covers that.
-        Bypasses resend-invite's own "already activated" guard by inserting the
-        OTP directly, to isolate this endpoint's own check."""
-        from datetime import datetime, timedelta
+        reset for anyone who can forge/replay a token - forgot-password (which
+        requires clicking a link mailed to that address) covers that."""
+        from app import _admin_apply_serializer
         auth_headers()  # admin@test.com, already has password_set True
-        db.otps.insert_one({
-            'email': 'admin@test.com', 'purpose': 'admin_setup', 'code': '123456', 'attempts': 0,
-            'created_at': datetime.utcnow(), 'expires_at': datetime.utcnow() + timedelta(minutes=10),
-        })
+        token = _admin_apply_serializer.dumps({'email': 'admin@test.com', 'purpose': 'admin_setup'})
 
-        res = client.post('/api/admins/verify-setup-otp',
-                           json={'email': 'admin@test.com', 'code': '123456', 'new_password': 'NewPass123'})
-        assert res.status_code == 404
+        res = client.post('/api/admins/complete-invite-setup',
+                           json={'token': token, 'new_password': 'NewPass123'})
+        assert res.status_code == 400
 
 
 class TestResendAdminSetupOtp:
@@ -216,8 +264,10 @@ class TestResendAdminSetupOtp:
         new_code = get_setup_otp_code(db, 'resend-setup@test.com')
         assert new_code != old_code
 
-        fresh = client.post('/api/admins/verify-setup-otp',
-                             json={'email': 'resend-setup@test.com', 'code': new_code, 'new_password': 'MyChosenPass123'})
+        token = client.post('/api/admins/verify-setup-code',
+                             json={'email': 'resend-setup@test.com', 'code': new_code}).get_json()['token']
+        fresh = client.post('/api/admins/complete-invite-setup',
+                             json={'token': token, 'new_password': 'MyChosenPass123'})
         assert fresh.status_code == 200
 
     def test_same_response_for_activated_or_unknown_email(self, client, auth_headers):

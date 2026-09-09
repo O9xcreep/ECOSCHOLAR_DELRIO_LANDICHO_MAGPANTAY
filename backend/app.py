@@ -519,7 +519,7 @@ OTP_COPY = {
     },
     "admin_setup": {
         "subject": "Set up your EcoScholar admin account",
-        "intro": "Enter this code, along with a new password, on the admin setup page to activate your account.",
+        "intro": f'Enter this code on the <a href="{FRONTEND_URL}/admin-setup">admin setup page</a> to activate your account.',
     },
 }
 
@@ -1172,8 +1172,15 @@ def get_applicants():
         # live Applications queue explicitly asks for cycle=current.
         base_query = {"cycle_id": get_current_cycle_id(db)} if request.args.get('cycle') == 'current' else {}
 
+        required_labels = get_required_doc_labels(db)
+
+        def serialize_with_status(doc):
+            flat = serialize_applicant(doc)
+            flat['application_status'] = compute_display_status(doc, required_labels)
+            return flat
+
         if page_param is None:
-            applicants = [serialize_applicant(a) for a in db.applicants.find(base_query)]
+            applicants = [serialize_with_status(a) for a in db.applicants.find(base_query)]
             return jsonify({"applicants": applicants})
 
         try:
@@ -1187,12 +1194,12 @@ def get_applicants():
 
         query = dict(base_query)
         status_param = request.args.get('status')
+        statuses = None
         if status_param and status_param != 'All':
             # Comma-separated so a page's "All" tab can mean "any of these
             # statuses" (e.g. Approved or Rejected) without matching every
             # status in the system.
             statuses = [s.strip() for s in status_param.split(',') if s.strip()]
-            query['application.status'] = statuses[0] if len(statuses) == 1 else {'$in': statuses}
 
         q = (request.args.get('q') or '').strip()
         if q:
@@ -1216,9 +1223,54 @@ def get_applicants():
                 return jsonify({"error": f"sort must be one of {sorted(SORT_FIELD_MAP)} (optionally prefixed with -)"}), 400
             sort_field, sort_dir = SORT_FIELD_MAP[key], direction
 
+        # "Pending Verification"/"Incomplete"/"Newly Submitted" are computed from
+        # document completeness, not a stored field - Mongo can't filter or count
+        # them directly. Whenever a tab asks for one of these, fall back to
+        # fetching every raw-"Newly Submitted" match (plus any other requested
+        # real statuses) and do the filter/sort/paginate in Python instead.
+        if statuses and (set(statuses) & COMPUTED_STATUSES):
+            raw_statuses_needed = sorted({
+                'Newly Submitted' if s in COMPUTED_STATUSES else s
+                for s in statuses
+            })
+            py_query = dict(query)
+            py_query['application.status'] = raw_statuses_needed[0] if len(raw_statuses_needed) == 1 else {'$in': raw_statuses_needed}
+
+            def sort_key(doc):
+                val = doc
+                for part in sort_field.split('.'):
+                    val = (val or {}).get(part) if isinstance(val, dict) else None
+                return (val is None, val)
+
+            matched = [
+                (doc, disp) for doc in db.applicants.find(py_query)
+                if (disp := compute_display_status(doc, required_labels)) in statuses
+            ]
+            matched.sort(key=lambda pair: sort_key(pair[0]), reverse=(sort_dir == -1))
+
+            total = len(matched)
+            start = (page - 1) * limit
+            page_slice = matched[start:start + limit]
+            applicants = []
+            for doc, disp in page_slice:
+                flat = serialize_applicant(doc)
+                flat['application_status'] = disp
+                applicants.append(flat)
+
+            return jsonify({
+                "applicants": applicants,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "pages": max(1, (total + limit - 1) // limit),
+            })
+
+        if statuses:
+            query['application.status'] = statuses[0] if len(statuses) == 1 else {'$in': statuses}
+
         total = db.applicants.count_documents(query)
         cursor = db.applicants.find(query).sort(sort_field, sort_dir).skip((page - 1) * limit).limit(limit)
-        applicants = [serialize_applicant(a) for a in cursor]
+        applicants = [serialize_with_status(doc) for doc in cursor]
 
         return jsonify({
             "applicants": applicants,
@@ -1248,6 +1300,7 @@ def get_applicant(applicant_id):
             return jsonify({"applicant": None, "academic": None, "documents": [], "application": None})
 
         flat = serialize_applicant(doc)
+        flat['application_status'] = compute_display_status(doc, get_required_doc_labels(db))
         return jsonify({
             "applicant": flat,
             "academic": doc.get('academic'),
@@ -2072,6 +2125,11 @@ def get_student_application():
             return jsonify({"application": None})
 
         application = serialize_applicant(applicant)
+        # Same document-completeness computation admins see in the Applications
+        # queue - only changes what a raw "Newly Submitted" record displays as,
+        # so it can't collide with the Approved/Rejected masking step below.
+        if application['application_status'] == 'Newly Submitted':
+            application['application_status'] = compute_display_status(applicant, get_required_doc_labels(db))
         # Only mask for the applicant viewing their own record - admins/reviewers
         # calling this same endpoint (e.g. from an admin context) always see the
         # real decision, same as every other admin-facing route.
@@ -2534,6 +2592,33 @@ def serialize_doc_requirement(d):
         "order": d.get("order", 0),
     }
 
+# Admin-facing status flags computed from document-upload completeness, never
+# stored on the applicant doc. "Newly Submitted" only ever means "hasn't shown
+# up in the admin queue yet" in the DB - these three labels are what the admin
+# actually sees for that same raw value, based on how far the student has
+# gotten through uploading their required documents:
+#   - no required docs uploaded yet      -> "Newly Submitted"
+#   - some but not all required docs up  -> "Incomplete"
+#   - every required doc uploaded        -> "Pending Verification" (ready to verify)
+# Approved/Rejected/Withdrawn are real decisions and pass through unchanged.
+COMPUTED_STATUSES = {'Newly Submitted', 'Pending Verification', 'Incomplete'}
+
+def get_required_doc_labels(db):
+    return {r['label'] for r in get_doc_requirements_collection(db).find({"required": True, "enabled": True})}
+
+def compute_display_status(doc, required_labels):
+    raw = (doc.get('application') or {}).get('status')
+    if raw != 'Newly Submitted':
+        return raw
+    if not required_labels:
+        return 'Pending Verification'
+    uploaded = {d.get('document_name') for d in doc.get('documents', []) if d.get('status') == 'Uploaded'}
+    if not uploaded & required_labels:
+        return 'Newly Submitted'
+    if required_labels.issubset(uploaded):
+        return 'Pending Verification'
+    return 'Incomplete'
+
 def get_doc_requirements_collection(db):
     """Lazy-seeds the default requirements on first use so existing deployments
     (and fresh ones) start with the same documents the form always had."""
@@ -2630,6 +2715,90 @@ def delete_doc_requirement(req_id):
     if result.deleted_count == 0:
         return jsonify({"error": "Requirement not found"}), 404
     return jsonify({"message": "Requirement deleted"})
+
+# ── APPLICATION GUIDELINES (student-facing, admin-editable) ──
+# Used to hardcode the whole page in student/Guidelines.jsx - now a single rich-text
+# blob any LGU admin can edit from Settings > System, next to the Form Builder. This
+# default is just that old hardcoded page translated to plain HTML, so an LGU that
+# never touches the editor still sees the same content it always did.
+DEFAULT_GUIDELINES_HTML = """
+<h2>General Eligibility Criteria</h2>
+<ul>
+<li>Must be a registered resident of the city with a valid Barangay Certificate.</li>
+<li>Must be currently enrolled or an incoming first-year college student in an accredited institution.</li>
+<li>Must maintain a minimum general weighted average (GWA) or GPA requirement as specified by your specific scholarship type.</li>
+<li>Combined family annual income must not exceed the threshold set for financial assistance (unless applying for pure merit-based slots).</li>
+<li>Must not be a recipient of any other government scholarship at the time of application.</li>
+<li>Must be a Filipino citizen.</li>
+</ul>
+<h2>Document Submission Rules</h2>
+<ul>
+<li><strong>File Format:</strong> All uploaded files must be in clear PDF, PNG, or JPEG format.</li>
+<li><strong>File Size:</strong> Individual document file sizes must not exceed 5MB.</li>
+<li>Ensure that scanned documents or photos are completely readable &mdash; blurry submissions can cause automatic rejection or delay processing.</li>
+<li>The <em>Proof of Income</em> must be an official Certificate of Indigency from your Barangay or an ITR from the BIR.</li>
+<li>All documents must be current and valid &mdash; expired documents will not be accepted.</li>
+</ul>
+<h2>Scholarship Types &amp; Requirements</h2>
+<table>
+<thead><tr><th>Scholarship Type</th><th>Minimum GWA</th><th>Income Limit</th><th>Slots</th></tr></thead>
+<tbody>
+<tr><td>Academic Merit</td><td>1.75</td><td>No limit</td><td>60</td></tr>
+<tr><td>Financial Aid</td><td>2.50</td><td>Below &#8369;10,000/mo</td><td>30</td></tr>
+<tr><td>Full Scholar</td><td>1.50</td><td>Below &#8369;5,000/mo</td><td>20</td></tr>
+<tr><td>Loyalty Grant</td><td>2.00</td><td>Below &#8369;20,000/mo</td><td>40</td></tr>
+</tbody>
+</table>
+<h2>Application Process</h2>
+<ol>
+<li><strong>Fill Personal Information:</strong> Complete all required fields in Step 1 including parental and financial details.</li>
+<li><strong>Provide Academic Information:</strong> Enter your school, course, GWA, and semester details in Step 2.</li>
+<li><strong>Upload Required Documents:</strong> Upload all required supporting documents in Step 3 before submitting.</li>
+<li><strong>Submit Application:</strong> Click Submit Application. Your application will be reviewed by the scholarship committee.</li>
+<li><strong>Wait for Results:</strong> You will be notified via email once your application has been reviewed.</li>
+</ol>
+<h2>Important Reminders</h2>
+<blockquote><p><strong>Double-Check Your Data:</strong> Once you click <strong>Submit Application</strong> on Step 3, your files and details are sent directly to the screening committee. You will not be able to edit your entries while the review is active.</p></blockquote>
+<ul>
+<li><strong>Deadline:</strong> Applications close on June 30, 2026. Late submissions will not be accepted unless the system allows late applications.</li>
+<li><strong>Data Privacy:</strong> All information submitted is protected under the Data Privacy Act of 2012 (RA 10173). Your data will only be used for scholarship evaluation.</li>
+<li><strong>Need Help?</strong> Contact the scholarship office at scholarship@ecoscolar.edu.ph or visit City Hall during office hours (8AM - 5PM, Mon-Fri).</li>
+</ul>
+""".strip()
+
+MAX_GUIDELINES_HTML_LENGTH = 200_000
+
+def sanitize_basic_html(html):
+    """Not a full sanitizer - guidelines_html is only ever written by an
+    admin/lgu_admin (the same trust level that already controls Form Builder
+    field labels and email templates elsewhere in this app), so this is just
+    defense-in-depth against an obviously dangerous paste, not a security
+    boundary against the editor's own author."""
+    html = re.sub(r'(?is)<script.*?</script>', '', html)
+    html = re.sub(r'(?is)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
+    html = re.sub(r'(?is)(href|src)\s*=\s*(["\'])\s*javascript:.*?\2', r'\1=\2#\2', html)
+    return html
+
+@app.route('/api/guidelines', methods=['GET'])
+@require_auth
+def get_guidelines():
+    db = get_db()
+    doc = db.settings.find_one({"_id": "global"}) or {}
+    return jsonify({"html": doc.get("guidelines_html", DEFAULT_GUIDELINES_HTML)})
+
+@app.route('/api/guidelines', methods=['PUT'])
+@require_role('admin', 'lgu_admin')
+def update_guidelines():
+    data = request.get_json() or {}
+    html = data.get('html')
+    if not isinstance(html, str) or not html.strip():
+        return jsonify({"error": "html is required"}), 400
+    if len(html) > MAX_GUIDELINES_HTML_LENGTH:
+        return jsonify({"error": "Guidelines content is too long"}), 400
+
+    db = get_db()
+    db.settings.update_one({"_id": "global"}, {"$set": {"guidelines_html": sanitize_basic_html(html)}}, upsert=True)
+    return jsonify({"message": "Guidelines updated", "html": db.settings.find_one({"_id": "global"})["guidelines_html"]})
 
 def serialize_admin(u):
     doc = {
@@ -2769,43 +2938,6 @@ def resend_admin_invite(admin_id):
 
     create_and_send_otp(admin["email"], 'admin_setup', admin['full_name'])
     return jsonify({"message": "Invite resent"})
-
-# Public (no auth) - the invited person isn't logged in yet. Only usable against
-# an account that's still password_set=False, so it can't be used to reset an
-# already-active admin's password (that's what forgot-password is for).
-@app.route('/api/admins/verify-setup-otp', methods=['POST'])
-@limiter.limit("10 per minute")
-def verify_admin_setup_otp():
-    data = request.get_json() or {}
-    email = (data.get('email') or '').strip().lower()
-    code = data.get('code') or ''
-    new_password = data.get('new_password') or ''
-    if not email or not code or not new_password:
-        return jsonify({"error": "Email, code, and new password are required"}), 400
-    if len(new_password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters"}), 400
-
-    ok, error = verify_otp(email, 'admin_setup', code)
-    if not ok:
-        return jsonify({"error": error}), 400
-
-    db = get_db()
-    user = db.users.find_one({"email": email, "role": {"$in": ["lgu_admin", "lgu_member"]}, "password_set": False})
-    if not user:
-        return jsonify({"error": "Account not found"}), 404
-
-    db.users.update_one({"_id": user["_id"]}, {"$set": {
-        "password": generate_password_hash(new_password),
-        "password_set": True,
-    }})
-    user_payload = {"id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role']}
-    if user['role'] == 'lgu_member':
-        user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
-    return jsonify({
-        "message": "Password set. Your account is ready.",
-        "user": user_payload,
-        "token": issue_token(user_payload)
-    })
 
 @app.route('/api/admins/resend-setup-otp', methods=['POST'])
 @limiter.limit("5 per minute")
@@ -2984,9 +3116,15 @@ def verify_admin_apply_start_otp():
     if not ok:
         return jsonify({"error": error}), 400
 
-    token = _admin_apply_serializer.dumps({"email": email})
+    token = _admin_apply_serializer.dumps({"email": email, "purpose": "admin_apply"})
     return jsonify({"token": token})
 
+# Shared by both ways of becoming an admin: a public applicant proving their
+# email (mode "apply", creates a pending admin_requests row for review) and
+# someone an existing admin already invited (mode "invite", account already
+# exists with password_set=False - this just verifies the OTP the invite
+# emailed them). Same token shape, same downstream /apply-admin page - the
+# `purpose` on the token is what tells that page which form to render.
 @app.route('/api/admin-requests/verify-token', methods=['GET'])
 @limiter.limit("20 per minute")
 def verify_admin_apply_token():
@@ -2997,7 +3135,88 @@ def verify_admin_apply_token():
         return jsonify({"error": "This link has expired. Please verify your email again."}), 400
     except BadSignature:
         return jsonify({"error": "This session is invalid."}), 400
-    return jsonify({"email": payload.get('email', '')})
+
+    email = payload.get('email', '')
+    purpose = payload.get('purpose', 'admin_apply')
+
+    if purpose == 'admin_setup':
+        db = get_db()
+        user = db.users.find_one({"email": email, "role": {"$in": ["lgu_admin", "lgu_member"]}, "password_set": False})
+        if not user:
+            return jsonify({"error": "This invite is no longer valid."}), 400
+        return jsonify({
+            "email": email,
+            "mode": "invite",
+            "full_name": user.get("full_name", ""),
+            "office": user.get("office", ""),
+            "municipality": user.get("municipality", ""),
+            "role": user.get("role"),
+        })
+
+    return jsonify({"email": email, "mode": "apply"})
+
+@app.route('/api/admins/verify-setup-code', methods=['POST'])
+@limiter.limit("10 per minute")
+def verify_admin_setup_code():
+    """First step of the invite-activation flow - just proves the OTP is
+    correct, same shape as verify-start-otp above. The invitee then lands on
+    /apply-admin (via the returned token) to actually set their password,
+    instead of a separate one-shot code+password form."""
+    data = request.get_json() or {}
+    email = (data.get('email') or '').strip().lower()
+    code = data.get('code') or ''
+    if not email or not code:
+        return jsonify({"error": "Email and code are required"}), 400
+
+    ok, error = verify_otp(email, 'admin_setup', code)
+    if not ok:
+        return jsonify({"error": error}), 400
+
+    token = _admin_apply_serializer.dumps({"email": email, "purpose": "admin_setup"})
+    return jsonify({"token": token})
+
+@app.route('/api/admins/complete-invite-setup', methods=['POST'])
+@limiter.limit("10 per minute")
+def complete_admin_invite_setup():
+    """Final step for an invited admin/LGU member - sets the password they
+    chose on the shared /apply-admin page. Mirrors submit_admin_request's
+    token handling, but activates an already-existing account instead of
+    creating a pending request."""
+    data = request.get_json() or {}
+    token = data.get('token') or ''
+    new_password = data.get('new_password') or ''
+
+    try:
+        payload = _admin_apply_serializer.loads(token, max_age=ADMIN_APPLY_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "This session has expired. Please verify your email again."}), 400
+    except BadSignature:
+        return jsonify({"error": "This session is invalid."}), 400
+
+    if payload.get('purpose') != 'admin_setup':
+        return jsonify({"error": "This session is invalid."}), 400
+    email = (payload.get('email') or '').strip().lower()
+
+    if len(new_password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+    db = get_db()
+    user = db.users.find_one({"email": email, "role": {"$in": ["lgu_admin", "lgu_member"]}, "password_set": False})
+    if not user:
+        return jsonify({"error": "This invite is no longer valid."}), 400
+
+    db.users.update_one({"_id": user["_id"]}, {"$set": {
+        "password": generate_password_hash(new_password),
+        "password_set": True,
+    }})
+    user_payload = {"id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role']}
+    if user['role'] == 'lgu_member':
+        user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
+    return jsonify({
+        "message": "Password set. Your account is ready.",
+        "user": user_payload,
+        "token": issue_token(user_payload)
+    })
 
 @app.route('/api/admin-requests', methods=['POST'])
 @limiter.limit("5 per minute")

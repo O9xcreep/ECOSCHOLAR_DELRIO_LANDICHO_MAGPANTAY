@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import writeExcelFile from 'write-excel-file/browser'
 import { apiFetch, getUser, setSession, logout, isFullAccess } from '../../api'
 import FormBuilder from './FormBuilder'
+import GuidelinesEditor from './GuidelinesEditor'
 import './settings.css'
 
 const ALL_TABS = ['Profile', 'Security', 'System', 'Team']
@@ -246,6 +248,18 @@ function SystemTab() {
   const [resetError, setResetError] = useState('')
   const [resetSuccess, setResetSuccess] = useState('')
 
+  const [exportCycles, setExportCycles] = useState([])
+  const [exportRangePreset, setExportRangePreset] = useState('all')
+  const [exportFrom, setExportFrom] = useState('')
+  const [exportTo, setExportTo] = useState('')
+
+  useEffect(() => {
+    apiFetch('/api/program-cycles')
+      .then(res => res.json())
+      .then(data => setExportCycles(data.cycles || []))
+      .catch(() => {})
+  }, [])
+
   const loadSettings = () => {
     apiFetch('/api/settings')
       .then(res => res.json())
@@ -370,26 +384,54 @@ function SystemTab() {
     }
   }
 
-  const handleExportCsv = async () => {
+  // A cycle's start/end dates are just a convenient way to fill in the date
+  // fields below - the actual filter always runs on submitted_at, so picking
+  // "Custom range" and typing dates works exactly the same way.
+  const handleExportRangePreset = (value) => {
+    setExportRangePreset(value)
+    if (value === 'all') { setExportFrom(''); setExportTo(''); return }
+    if (value === 'custom') return
+    const cycle = exportCycles.find(c => (c.id || 'legacy') === value)
+    if (cycle) {
+      setExportFrom(cycle.started_at ? cycle.started_at.slice(0, 10) : '')
+      setExportTo(cycle.closed_at ? cycle.closed_at.slice(0, 10) : '')
+    }
+  }
+
+  const handleExportExcel = async () => {
     setExporting(true)
     try {
       const res = await apiFetch('/api/applicants')
       const data = await res.json()
-      const applicants = data.applicants || []
-      const columns = [
-        'full_name', 'email', 'city', 'course', 'gpa', 'ml_score', 'ml_status',
-        'application_status', 'submitted_at',
+      let applicants = data.applicants || []
+      if (exportFrom) applicants = applicants.filter(a => a.submitted_at && a.submitted_at.slice(0, 10) >= exportFrom)
+      if (exportTo) applicants = applicants.filter(a => a.submitted_at && a.submitted_at.slice(0, 10) <= exportTo)
+
+      const headerRow = ['Full Name', 'Email', 'City', 'Course', 'GWA', 'ML Score', 'ML Status', 'Application Status', 'Submitted At']
+      const sheetData = [
+        headerRow,
+        ...applicants.map(a => ([
+          a.full_name || '',
+          a.email || '',
+          a.city || '',
+          a.course || '',
+          a.gpa != null ? Number(a.gpa) : '',
+          a.ml_score != null ? Number(a.ml_score) : '',
+          a.ml_status || '',
+          a.application_status || '',
+          a.submitted_at || '',
+        ]))
       ]
-      const escape = v => `"${String(v ?? '').replace(/"/g, '""')}"`
-      const rows = [columns.join(',')]
-      applicants.forEach(a => rows.push(columns.map(c => escape(a[c])).join(',')))
-      const blob = new Blob([rows.join('\n')], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `ecoscholar-applicants-${new Date().toISOString().slice(0, 10)}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
+
+      let rangeLabel = 'all'
+      if (exportFrom || exportTo) {
+        const submittedYears = applicants.map(a => a.submitted_at?.slice(0, 4)).filter(Boolean)
+        const fromYear = exportFrom ? exportFrom.slice(0, 4) : submittedYears.sort()[0]
+        const toYear = exportTo ? exportTo.slice(0, 4) : submittedYears.sort().slice(-1)[0]
+        rangeLabel = fromYear && toYear ? (fromYear === toYear ? fromYear : `${fromYear}-${toYear}`) : 'filtered'
+      }
+
+      await writeExcelFile(sheetData).toFile(`ecoscholar-applicants-${rangeLabel}.xlsx`)
     } catch {
       alert('Failed to export applicants')
     } finally {
@@ -473,14 +515,47 @@ function SystemTab() {
 
       <div className="settings-card">
         <h4 className="card-label">Data Export</h4>
-        <div className="settings-row">
-          <div className="info-item">
-            <span className="info-label">Export all applicants</span>
-            <span className="info-sub">Download the full applicant list as CSV</span>
+        <p className="info-sub" style={{ marginBottom: '14px' }}>
+          Download applicants as an Excel (.xlsx) file, optionally narrowed to a
+          submission date range - pick a past cycle for a quick range, or set custom dates.
+        </p>
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+          <div>
+            <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+              Range
+            </label>
+            <select className="settings-select" style={{ background: '#fff' }}
+              value={exportRangePreset} onChange={e => handleExportRangePreset(e.target.value)}>
+              <option value="all">All applicants</option>
+              <option value="custom">Custom date range</option>
+              {exportCycles.map(c => (
+                <option key={c.id || 'legacy'} value={c.id || 'legacy'}>
+                  {c.label}{c.is_current ? ' (current)' : ''}
+                </option>
+              ))}
+            </select>
           </div>
-          <button className="btn-primary" onClick={handleExportCsv} disabled={exporting}>
-            {exporting ? 'Exporting...' : 'Export CSV'}
-          </button>
+          {exportRangePreset !== 'all' && (
+            <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap' }}>
+              <div>
+                <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>From</label>
+                <input type="date" className="settings-select" style={{ background: '#fff' }}
+                  value={exportFrom}
+                  onChange={e => { setExportFrom(e.target.value); setExportRangePreset('custom') }} />
+              </div>
+              <div>
+                <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>To</label>
+                <input type="date" className="settings-select" style={{ background: '#fff' }}
+                  value={exportTo}
+                  onChange={e => { setExportTo(e.target.value); setExportRangePreset('custom') }} />
+              </div>
+            </div>
+          )}
+          <div>
+            <button className="btn-primary" onClick={handleExportExcel} disabled={exporting}>
+              {exporting ? 'Exporting...' : 'Export Excel'}
+            </button>
+          </div>
         </div>
       </div>
       </>}
@@ -577,6 +652,7 @@ function SystemTab() {
       )}
 
       {canManageSystemConfig && <FormBuilder />}
+      {canManageSystemConfig && <GuidelinesEditor />}
     </div>
   )
 }
@@ -606,7 +682,7 @@ function AdminRequestsSection({ onApproved }) {
   useEffect(() => { loadRequests() }, [])
 
   const handleApprove = async (req) => {
-    if (!window.confirm(`Grant admin access to ${req.full_name} (${req.email})? They'll receive an email to set their password.`)) return
+    if (!window.confirm(`Grant admin access to ${req.full_name} (${req.email})? They already chose a password when applying, so they'll be able to sign in right away.`)) return
     setActionError('')
     setActioningId(req.id)
     try {
@@ -656,17 +732,42 @@ function AdminRequestsSection({ onApproved }) {
         Submitted via "Apply as Admin" on the login page. Verify the requester is a real LGU official before approving.
       </p>
       {actionError && <div className="security-error" style={{ marginBottom: '10px' }}>{actionError}</div>}
-      <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {requests.map(req => (
-          <div key={req.id} className="info-item" style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', display: 'flex', padding: '12px 0', borderBottom: '1px solid #F0F0F0' }}>
-            <div>
-              <span className="info-value">{req.full_name}</span>
-              <span className="info-sub">{req.email} · {req.office}</span>
-              <span className="info-sub">{req.municipality} · {req.contact_number}</span>
-              {req.message && <span className="info-sub">"{req.message}"</span>}
-              <span className="info-sub">Submitted {req.created_at}</span>
+          <div key={req.id} style={{ border: '1px solid #F0F0F0', borderRadius: '12px', padding: '16px 18px' }}>
+            <div className="settings-row" style={{ marginBottom: '10px' }}>
+              <div className="info-item">
+                <span className="info-label">Full Name</span>
+                <span className="info-value">{req.full_name}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Email</span>
+                <span className="info-value">{req.email}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Contact Number</span>
+                <span className="info-value">{req.contact_number}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Office / Position</span>
+                <span className="info-value">{req.office}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Municipality</span>
+                <span className="info-value">{req.municipality}</span>
+              </div>
+              <div className="info-item">
+                <span className="info-label">Submitted</span>
+                <span className="info-value">{req.created_at}</span>
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+            {req.message && (
+              <div className="info-item" style={{ marginBottom: '12px' }}>
+                <span className="info-label">Reason for Request</span>
+                <span className="info-sub" style={{ fontStyle: 'italic' }}>"{req.message}"</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px' }}>
               <button className="btn-primary" onClick={() => handleApprove(req)} disabled={actioningId === req.id}>
                 {actioningId === req.id ? 'Working...' : 'Approve'}
               </button>

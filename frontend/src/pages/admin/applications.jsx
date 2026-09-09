@@ -6,25 +6,39 @@ import ApplicantModal from '../../components/ApplicantModal'
 // Still being worked through the review pipeline - these are the ones bulk
 // actions and the per-row Verify button apply to. Approved/Rejected/Withdrawn
 // are already decided, so they only ever get a View action.
-const REVIEWABLE_STATUSES = ['Newly Submitted', 'Pending Verification', 'Not Yet Reviewed', 'Incomplete']
+const REVIEWABLE_STATUSES = ['Newly Submitted', 'Pending Verification', 'Incomplete']
 const DECIDED_STATUSES = ['Approved', 'Rejected', 'Withdrawn']
 const ALL_STATUSES = [...REVIEWABLE_STATUSES, ...DECIDED_STATUSES]
 
+// Two visual groups in the tab bar: still-in-progress applications on top,
+// already-decided ones on the bottom - mirrors how the table itself reads,
+// top to bottom, oldest-in-the-pipeline to fully resolved.
+const TAB_GROUPS = [
+  {
+    label: 'Needs Attention',
+    tabs: [
+      { label: 'Newly Submitted', key: 'Newly Submitted', value: 'Newly Submitted' },
+      { label: 'Pending Verification', key: 'Pending Verification', value: 'Pending Verification' },
+      { label: 'Incomplete', key: 'Incomplete', value: 'Incomplete' },
+    ],
+  },
+  {
+    label: 'Decided',
+    tabs: [
+      { label: 'Approved', key: 'Approved', value: 'Approved' },
+      { label: 'Rejected', key: 'Rejected', value: 'Rejected' },
+      { label: 'Withdrawn', key: 'Withdrawn', value: 'Withdrawn' },
+    ],
+  },
+]
 const TABS = [
   { label: 'All', key: 'All', value: ALL_STATUSES.join(',') },
-  { label: 'Newly Submitted', key: 'Newly Submitted', value: 'Newly Submitted' },
-  { label: 'Pending Verification', key: 'Pending Verification', value: 'Pending Verification' },
-  { label: 'Not Yet Reviewed', key: 'Not Yet Reviewed', value: 'Not Yet Reviewed' },
-  { label: 'Incomplete', key: 'Incomplete', value: 'Incomplete' },
-  { label: 'Approved', key: 'Approved', value: 'Approved' },
-  { label: 'Rejected', key: 'Rejected', value: 'Rejected' },
-  { label: 'Withdrawn', key: 'Withdrawn', value: 'Withdrawn' },
+  ...TAB_GROUPS.flatMap(g => g.tabs),
 ]
 
 const statusClass = {
   'Newly Submitted': 'badge-blue',
   'Pending Verification': 'badge-yellow',
-  'Not Yet Reviewed': 'badge-purple',
   'Incomplete': 'badge-red',
   'Approved': 'badge-green',
   'Rejected': 'badge-red',
@@ -165,7 +179,7 @@ function Applications() {
 
       {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">
-        {TABS.slice(1, 5).map(tab => (
+        {TAB_GROUPS[0].tabs.map(tab => (
           <div key={tab.key}
             className={`app-stat-card stat-${tab.key.replace(/\s/g, '-').toLowerCase()}`}>
             <h3>{tabCounts[tab.key] ?? '—'}</h3>
@@ -177,14 +191,26 @@ function Applications() {
       {/* Header */}
       <div className="page-header">
         <div className="tabs">
-          {TABS.map(tab => (
-            <button
-              key={tab.key}
-              className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.key)}>
-              {tab.label}
-              <span className="tab-count">{tabCounts[tab.key] ?? '—'}</span>
-            </button>
+          <button
+            className={`tab-btn ${activeTab === 'All' ? 'active' : ''}`}
+            onClick={() => setActiveTab('All')}>
+            All
+            <span className="tab-count">{tabCounts['All'] ?? '—'}</span>
+          </button>
+          <span className="tab-divider" aria-hidden="true" />
+          {TAB_GROUPS.map(group => (
+            <span key={group.label} className="tab-group">
+              <span className="tab-group-label">{group.label}</span>
+              {group.tabs.map(tab => (
+                <button
+                  key={tab.key}
+                  className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
+                  onClick={() => setActiveTab(tab.key)}>
+                  {tab.label}
+                  <span className="tab-count">{tabCounts[tab.key] ?? '—'}</span>
+                </button>
+              ))}
+            </span>
           ))}
         </div>
         <div className="header-actions">

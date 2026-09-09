@@ -33,65 +33,77 @@
   gap: 16px;
 }
 
-/* ── SECTION TITLE ── */
-.gl-section-title {
+.info-sub {
+  font-size: 13px;
+  color: #888;
+}
+
+.btn-retry {
+  padding: 8px 18px;
+  background: #fee2e2;
+  color: #991b1b;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-retry:hover { background: #fecaca; }
+
+/* ── ADMIN-EDITED CONTENT ── */
+/* Content itself now comes from the DB (see /api/guidelines) and is edited via a
+   plain contentEditable toolbar, so this styles bare tags rather than the fixed
+   classes the old hardcoded page used - whatever structure an admin builds with
+   the editor's Heading/List/Table buttons should look right here. */
+.gl-html-content {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 16px;
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.gl-html-content h2 {
   font-size: 15px;
   font-weight: 700;
   color: #1e293b;
   padding-bottom: 10px;
   border-bottom: 2px solid #f0f0f0;
+  margin-top: 8px;
 }
 
-.gl-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  flex-shrink: 0;
+.gl-html-content h2:first-child { margin-top: 0; }
+
+.gl-html-content h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
 }
 
-.gl-dot.blue   { background: #2563eb; }
-.gl-dot.yellow { background: #f59e0b; }
+.gl-html-content p { margin: 0; }
 
-/* ── LIST ── */
-.gl-list {
+.gl-html-content ul,
+.gl-html-content ol {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-left: 4px;
+  gap: 8px;
+  padding-left: 22px;
 }
 
-.gl-list li {
-  font-size: 14px;
-  color: #374151;
-  line-height: 1.6;
-  padding-left: 16px;
-  position: relative;
-  list-style: none;
-}
+.gl-html-content ul { list-style: disc; }
+.gl-html-content ul li::marker { color: var(--accent); }
+.gl-html-content ol { list-style: decimal; }
 
-.gl-list li::before {
-  content: '●';
-  position: absolute;
-  left: 0;
-  color: var(--accent);
-  font-size: 10px;
-  top: 4px;
-}
-
-/* ── TABLE ── */
-.gl-table-wrapper {
-  overflow-x: auto;
-}
-
-.gl-table {
+.gl-html-content table {
   width: 100%;
   border-collapse: collapse;
+  overflow-x: auto;
+  display: block;
 }
 
-.gl-table th {
+.gl-html-content th {
   text-align: left;
   font-size: 12px;
   color: #888;
@@ -102,121 +114,31 @@
   text-transform: uppercase;
 }
 
-.gl-table td {
+.gl-html-content td {
   padding: 12px 14px;
   font-size: 14px;
   color: #374151;
   border-bottom: 1px solid #f9f9f9;
 }
 
-.gl-table tr:last-child td {
+.gl-html-content tr:last-child td {
   border-bottom: none;
 }
 
-.gl-table tr:hover td {
-  background: #f9fafb;
-}
-
-/* ── STEPS ── */
-.gl-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.gl-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-}
-
-.gl-step-circle {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
-}
-
-.gl-step-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: #1e293b;
-}
-
-.gl-step-desc {
-  font-size: 13px;
-  color: #888;
-  margin-top: 4px;
-  line-height: 1.5;
-}
-
-/* ── WARNING CARD ── */
-.gl-warning-card {
-  border-left: 4px solid #f59e0b;
-}
-
-.gl-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+.gl-html-content blockquote {
   background: #fef3c7;
-  border-radius: 10px;
+  color: #92400e;
+  border-left: 4px solid #f59e0b;
+  border-radius: 8px;
   padding: 14px 16px;
   font-size: 13px;
-  color: #92400e;
-  line-height: 1.6;
 }
 
-.gl-warning span {
-  font-size: 18px;
-  flex-shrink: 0;
-}
+.gl-html-content blockquote p { margin: 0; }
 
-/* ── REMINDERS ── */
-.gl-reminders {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.gl-reminder-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 14px;
-  background: #f9fafb;
-  border-radius: 10px;
-}
-
-.reminder-icon {
-  font-size: 22px;
-  flex-shrink: 0;
-}
-
-.reminder-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1e293b;
-}
-
-.reminder-desc {
-  font-size: 13px;
-  color: #555;
-  margin-top: 4px;
-  line-height: 1.5;
-}
+.gl-html-content a { color: var(--accent); }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 600px) {
-  .gl-table th:nth-child(3),
-  .gl-table td:nth-child(3) {
-    display: none;
-  }
+  .gl-html-content table { font-size: 13px; }
 }

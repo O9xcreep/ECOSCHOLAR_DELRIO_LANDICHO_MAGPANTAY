@@ -1,10 +1,12 @@
 import { useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { API_BASE_URL, setSession } from '../api'
+import { API_BASE_URL } from '../api'
 
 // For a team member an existing admin invited directly (Settings > Team > Add
-// Admin, or Resend Invite) - they got an emailed 6-digit code, not a link, and
-// use it here to prove the email is theirs and choose their own password.
+// Admin, or Resend Invite) - they got an emailed 6-digit code, not a link.
+// Entering it here only proves the email is theirs; choosing a password
+// happens next on /apply-admin, the same page the public "Apply as Admin"
+// flow uses to finish creating an account.
 const css = `
   .rp-page {
     min-height: 100vh;
@@ -65,8 +67,6 @@ function AdminSetup() {
 
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [resendMessage, setResendMessage] = useState('')
@@ -74,32 +74,28 @@ function AdminSetup() {
 
   const handleSubmit = useCallback(async () => {
     setError('')
-    if (!email.trim())        { setError('Email is required'); return }
-    if (!code.trim())         { setError('Enter the code from your email'); return }
-    if (!newPassword)         { setError('Password is required'); return }
-    if (newPassword.length < 8) { setError('Password must be at least 8 characters'); return }
-    if (newPassword !== confirmPassword) { setError('Passwords do not match'); return }
+    if (!email.trim()) { setError('Email is required'); return }
+    if (!code.trim())  { setError('Enter the code from your email'); return }
 
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admins/verify-setup-otp`, {
+      const res = await fetch(`${API_BASE_URL}/api/admins/verify-setup-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), code: code.trim(), new_password: newPassword })
+        body: JSON.stringify({ email: email.trim().toLowerCase(), code: code.trim() })
       })
       const data = await res.json()
       if (!res.ok) {
         setError(data.error || 'Something went wrong. Please try again.')
         return
       }
-      setSession(data.user, data.token)
-      navigate(data.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard')
+      navigate(`/apply-admin?token=${encodeURIComponent(data.token)}`)
     } catch {
       setError('Cannot connect to server. Please try again.')
     } finally {
       setLoading(false)
     }
-  }, [email, code, newPassword, confirmPassword, navigate])
+  }, [email, code, navigate])
 
   const handleResend = useCallback(async () => {
     setResendMessage('')
@@ -125,8 +121,8 @@ function AdminSetup() {
     <div className="rp-page">
       <style>{css}</style>
       <div className="rp-card">
-        <p className="rp-title">Set Up Your Admin Account</p>
-        <p className="rp-sub">Enter the code sent to your email, then choose a password to activate your account.</p>
+        <p className="rp-title">Activate Your Invite</p>
+        <p className="rp-sub">Enter the code sent to your email to continue setting up your account.</p>
 
         {error && <div className="rp-alert error">{error}</div>}
 
@@ -157,32 +153,8 @@ function AdminSetup() {
           />
         </div>
 
-        <div className="rp-field">
-          <label>New Password</label>
-          <input
-            className="rp-input"
-            type="password"
-            value={newPassword}
-            autoComplete="new-password"
-            onChange={e => { setNewPassword(e.target.value); setError('') }}
-            onKeyDown={handleKeyDown}
-          />
-        </div>
-
-        <div className="rp-field">
-          <label>Confirm Password</label>
-          <input
-            className="rp-input"
-            type="password"
-            value={confirmPassword}
-            autoComplete="new-password"
-            onChange={e => { setConfirmPassword(e.target.value); setError('') }}
-            onKeyDown={handleKeyDown}
-          />
-        </div>
-
         <button className="rp-btn" onClick={handleSubmit} disabled={loading}>
-          {loading ? 'Setting up…' : 'Activate Account'}
+          {loading ? 'Verifying…' : 'Continue'}
         </button>
 
         <button className="rp-link" type="button" onClick={handleResend} disabled={resendLoading}>

@@ -1,5 +1,10 @@
-import { useState, useEffect } from 'react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { useState, useEffect, useMemo } from 'react'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell
+} from 'recharts'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { apiFetch, displayStatus } from '../../api'
 import './Dashboard.css'
 
@@ -10,10 +15,20 @@ const statusClass = {
   'Waitlisted': 'badge-yellow',
   'Newly Submitted': 'badge-blue',
   'Pending Verification': 'badge-yellow',
-  'Not Yet Reviewed': 'badge-purple',
   'Incomplete': 'badge-red',
   'Withdrawn': 'badge-gray',
 }
+
+const STATUS_COLORS = {
+  'Approved': '#10b981',
+  'Rejected': '#ef4444',
+  'Newly Submitted': '#2563eb',
+  'Pending Verification': '#f59e0b',
+  'Incomplete': '#ef4444',
+  'Withdrawn': '#94a3b8',
+}
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function Dashboard() {
   const [stats, setStats] = useState({
@@ -32,6 +47,12 @@ function Dashboard() {
   const [scholarsPerYear, setScholarsPerYear] = useState([])
   const [historyLog, setHistoryLog] = useState([])
   const [openingDoc, setOpeningDoc] = useState('')
+
+  // ── Analytics (formerly the standalone Reports page) ──
+  const [allApplicants, setAllApplicants] = useState([])
+  const [cycles, setCycles] = useState([])
+  const [selectedCycle, setSelectedCycle] = useState('all')
+  const [submittedPeriod, setSubmittedPeriod] = useState('monthly') // 'monthly' | 'yearly'
 
   const handleViewFlagDoc = async (applicantId, documentName, key) => {
     if (!applicantId || !documentName) return
@@ -91,6 +112,18 @@ useEffect(() => {
     .then(res => res.json())
     .then(data => setHistoryLog(data.history || []))
     .catch(err => { console.error('History log error:', err); setLoadError(true) })
+
+  // Fetch every applicant across every cycle, for the analytics charts below -
+  // these look at long-term trends, not just the live current-cycle queue.
+  apiFetch('/api/applicants')
+    .then(res => res.json())
+    .then(data => setAllApplicants(data.applicants || []))
+    .catch(err => { console.error('Analytics applicants error:', err); setLoadError(true) })
+
+  apiFetch('/api/program-cycles')
+    .then(res => res.json())
+    .then(data => setCycles(data.cycles || []))
+    .catch(() => {})
 }, [])
 
   const statCircles = [
@@ -99,6 +132,101 @@ useEffect(() => {
     { label: 'Approved', value: stats.approved, tone: 'approved' },
     { label: 'Rejected', value: stats.rejected, tone: 'rejected' },
   ]
+
+  // Every cycle option beyond "All cycles" narrows the already-fetched full list
+  // client-side, rather than re-fetching - the charts already need every
+  // applicant's full record regardless of which cycle is selected.
+  const filtered = useMemo(() => {
+    if (selectedCycle === 'all') return allApplicants
+    if (selectedCycle === 'legacy') return allApplicants.filter(a => !a.cycle_id)
+    return allApplicants.filter(a => a.cycle_id === selectedCycle)
+  }, [allApplicants, selectedCycle])
+
+  const analyticsTotal = filtered.length
+
+  const statusBreakdown = useMemo(() => {
+    const counts = {}
+    for (const a of filtered) {
+      const status = a.application_status || 'Newly Submitted'
+      counts[status] = (counts[status] || 0) + 1
+    }
+    return Object.entries(counts)
+      .map(([name, value]) => ({ name, value, color: STATUS_COLORS[name] || '#94a3b8' }))
+      .sort((a, b) => b.value - a.value)
+  }, [filtered])
+
+  const acceptedVsRejected = useMemo(() => ([
+    { name: 'Approved', count: filtered.filter(a => a.application_status === 'Approved').length, color: '#10b981' },
+    { name: 'Rejected', count: filtered.filter(a => a.application_status === 'Rejected').length, color: '#ef4444' },
+  ]), [filtered])
+
+  const monthlyData = useMemo(() => {
+    const counts = {}
+    for (const a of filtered) {
+      if (!a.submitted_at) continue
+      const d = new Date(a.submitted_at)
+      if (isNaN(d)) continue
+      const key = `${d.getFullYear()}-${d.getMonth()}`
+      counts[key] = (counts[key] || 0) + 1
+    }
+    return Object.entries(counts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, count]) => {
+        const [year, month] = key.split('-')
+        return { label: `${MONTH_NAMES[Number(month)]} '${String(year).slice(2)}`, count }
+      })
+  }, [filtered])
+
+  const yearlyData = useMemo(() => {
+    const counts = {}
+    for (const a of filtered) {
+      if (!a.submitted_at) continue
+      const d = new Date(a.submitted_at)
+      if (isNaN(d)) continue
+      const year = d.getFullYear()
+      counts[year] = (counts[year] || 0) + 1
+    }
+    return Object.entries(counts)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([year, count]) => ({ label: year, count }))
+  }, [filtered])
+
+  const submittedData = submittedPeriod === 'yearly' ? yearlyData : monthlyData
+
+  const handleExportPdf = () => {
+    const doc = new jsPDF()
+    const generatedAt = new Date().toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' })
+
+    doc.setFontSize(16)
+    doc.text('EcoScholar - Applications Report', 14, 18)
+    doc.setFontSize(10)
+    doc.setTextColor(120)
+    doc.text(`Generated ${generatedAt}`, 14, 25)
+
+    autoTable(doc, {
+      startY: 32,
+      head: [['Metric', 'Value']],
+      body: [
+        ['Total Applicants', String(analyticsTotal)],
+        ['Approved', String(acceptedVsRejected[0].count)],
+        ['Rejected', String(acceptedVsRejected[1].count)],
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [61, 111, 163] },
+    })
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [['Status', 'Count', 'Share']],
+      body: statusBreakdown.map(item => [
+        item.name, String(item.value), analyticsTotal ? `${Math.round((item.value / analyticsTotal) * 100)}%` : '0%'
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [61, 111, 163] },
+    })
+
+    doc.save(`ecoscholar-report-${new Date().toISOString().slice(0, 10)}.pdf`)
+  }
 
   return (
     <div className="dashboard">
@@ -148,6 +276,109 @@ useEffect(() => {
         ) : (
           <p className="chart-sub">No approved scholars yet.</p>
         )}
+      </div>
+
+      {/* ── ANALYTICS (formerly the standalone Reports page) ── */}
+      <div className="analytics-header">
+        <h3>Analytics</h3>
+        <div className="analytics-controls">
+          {cycles.length > 0 && (
+            <select
+              className="cycle-select"
+              value={selectedCycle}
+              onChange={e => setSelectedCycle(e.target.value)}>
+              <option value="all">All cycles</option>
+              {cycles.map(c => (
+                <option key={c.id || 'legacy'} value={c.id || 'legacy'}>
+                  {c.label}{c.is_current ? ' (current)' : ''} — {c.applicant_count}
+                </option>
+              ))}
+            </select>
+          )}
+          <button className="btn-export" onClick={handleExportPdf}>Export PDF</button>
+        </div>
+      </div>
+
+      <div className="charts-row">
+        {/* Status Distribution (donut) */}
+        <div className="dash-card">
+          <div className="card-header"><h3>Status distribution</h3></div>
+          <p className="chart-sub-label">Share of all applications</p>
+          {statusBreakdown.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={statusBreakdown}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={80}
+                    paddingAngle={3}
+                    dataKey="value">
+                    {statusBreakdown.map((item, i) => (
+                      <Cell key={i} fill={item.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="donut-legend">
+                {statusBreakdown.map((item, i) => (
+                  <div key={i} className="legend-item">
+                    <span className="legend-dot" style={{ background: item.color }} />
+                    <span>{item.name} ({analyticsTotal ? Math.round((item.value / analyticsTotal) * 100) : 0}%)</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : <p className="chart-sub">No applications yet.</p>}
+        </div>
+
+        {/* Accepted vs Rejected */}
+        <div className="dash-card">
+          <div className="card-header"><h3>Accepted vs Rejected</h3></div>
+          <p className="chart-sub-label">Final decisions only - excludes applications still in review</p>
+          {analyticsTotal > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={acceptedVsRejected}>
+                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {acceptedVsRejected.map((item, i) => (
+                    <Cell key={i} fill={item.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p className="chart-sub">No applications yet.</p>}
+        </div>
+      </div>
+
+      {/* Applications Submitted Over Time */}
+      <div className="dash-card">
+        <div className="card-header">
+          <h3>Applications submitted</h3>
+          <div className="period-toggle">
+            <button
+              className={submittedPeriod === 'monthly' ? 'active' : ''}
+              onClick={() => setSubmittedPeriod('monthly')}>Monthly</button>
+            <button
+              className={submittedPeriod === 'yearly' ? 'active' : ''}
+              onClick={() => setSubmittedPeriod('yearly')}>Yearly</button>
+          </div>
+        </div>
+        {submittedData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={submittedData}>
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="count" fill="#6ee7b7" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : <p className="chart-sub">No applications yet.</p>}
       </div>
 
       {/* Duplicate Alerts */}

@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { getUser, logout, isFullAccess } from '../api'
 import NotificationBell from '../components/NotificationBell'
-import { GraduationCapIcon, HomeIcon, RankingIcon, ApplicationsIcon, ReportsIcon, SettingsIcon } from '../components/NavIcons'
+import { GraduationCapIcon, HomeIcon, RankingIcon, ApplicationsIcon, SettingsIcon } from '../components/NavIcons'
 import './AdminLayout.css'
 
 function AdminLayout() {
@@ -18,10 +18,9 @@ function AdminLayout() {
   }
 
   const navItems = [
-    { to: '/admin/dashboard', label: 'Home', Icon: HomeIcon, show: canReview },
+    { to: '/admin/dashboard', label: 'Dashboard', Icon: HomeIcon, show: canReview },
     { to: '/admin/ranking', label: 'Ranking', Icon: RankingIcon, show: canReview },
     { to: '/admin/applications', label: 'Applications', Icon: ApplicationsIcon, show: canReview },
-    { to: '/admin/reports', label: 'Reports', Icon: ReportsIcon, show: canReview },
     { to: '/admin/settings', label: 'Settings', Icon: SettingsIcon, show: true },
   ].filter(item => item.show)
 

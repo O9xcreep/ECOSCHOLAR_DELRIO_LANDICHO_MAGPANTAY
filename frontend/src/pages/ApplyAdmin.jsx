@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
-import { API_BASE_URL } from '../api'
+import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { API_BASE_URL, setSession } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
 
 // Reached only after verifying a one-time code sent to the applicant's email
@@ -298,12 +298,18 @@ const EMPTY_ADMIN_REQUEST = {
 
 function ApplyAdmin() {
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const token = searchParams.get('token') || ''
 
   // 'checking' | 'invalid' | 'ready'
   const [tokenStatus, setTokenStatus] = useState(() => token ? 'checking' : 'invalid')
   const [tokenError, setTokenError] = useState(() => token ? '' : 'This link is missing its token.')
   const [verifiedEmail, setVerifiedEmail] = useState('')
+  // 'apply' (public request, needs review) or 'invite' (an admin already
+  // created the account and chose its role/permissions - this just needs a
+  // password to activate it, no review step).
+  const [mode, setMode] = useState('apply')
+  const [inviteInfo, setInviteInfo] = useState(null)
 
   const [data, setData] = useState(EMPTY_ADMIN_REQUEST)
   const [error, setError] = useState('')
@@ -318,6 +324,10 @@ function ApplyAdmin() {
         const result = await res.json()
         if (!res.ok) { setTokenStatus('invalid'); setTokenError(result.error || 'This link is invalid.'); return }
         setVerifiedEmail(result.email)
+        setMode(result.mode === 'invite' ? 'invite' : 'apply')
+        if (result.mode === 'invite') {
+          setInviteInfo({ fullName: result.full_name, office: result.office, municipality: result.municipality, role: result.role })
+        }
         setTokenStatus('ready')
       })
       .catch(() => { setTokenStatus('invalid'); setTokenError('Cannot connect to server. Please try again.') })
@@ -327,10 +337,34 @@ function ApplyAdmin() {
     setError('')
     const { fullName, password, confirmPassword, office, municipality, contactNumber } = data
 
-    if (!fullName.trim())      { setError('Full name is required'); return }
     if (!password)             { setError('Password is required'); return }
     if (password.length < 8)  { setError('Password must be at least 8 characters'); return }
     if (password !== confirmPassword) { setError('Passwords do not match'); return }
+
+    if (mode === 'invite') {
+      setLoading(true)
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/admins/complete-invite-setup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, new_password: password })
+        })
+        const result = await res.json()
+        if (!res.ok) {
+          setError(result.error || 'Failed to activate your account. Please try again.')
+          return
+        }
+        setSession(result.user, result.token)
+        navigate(result.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard')
+      } catch {
+        setError('Cannot connect to server. Please try again.')
+      } finally {
+        setLoading(false)
+      }
+      return
+    }
+
+    if (!fullName.trim())      { setError('Full name is required'); return }
     if (!office.trim())        { setError('Office / position is required'); return }
     if (!municipality)         { setError('Municipality is required'); return }
     if (!contactNumber.trim()) { setError('Contact number is required'); return }
@@ -365,7 +399,7 @@ function ApplyAdmin() {
     } finally {
       setLoading(false)
     }
-  }, [data, token])
+  }, [data, token, mode, navigate])
 
   const handleKeyDown = (e) => { if (e.key === 'Enter') handleSubmit() }
 
@@ -423,6 +457,51 @@ function ApplyAdmin() {
                   Back to Sign In
                 </Link>
               </div>
+            ) : mode === 'invite' ? (
+              <>
+                <h2 className="lp-title">Activate Your Account</h2>
+                <p className="lp-sub">
+                  Welcome, <strong>{inviteInfo?.fullName}</strong> — {inviteInfo?.office ? `${inviteInfo.office}, ` : ''}
+                  {inviteInfo?.municipality ? `${inviteInfo.municipality}. ` : ''}
+                  Choose a password for <strong>{verifiedEmail}</strong> to finish setting up your account.
+                </p>
+
+                {error && <div className="lp-alert error">{error}</div>}
+
+                <div className="lp-field">
+                  <label>Password</label>
+                  <input
+                    className="lp-input"
+                    type="password"
+                    placeholder="At least 8 characters"
+                    value={data.password}
+                    autoComplete="new-password"
+                    onChange={e => { setData(p => ({ ...p, password: e.target.value })); setError('') }}
+                    onKeyDown={handleKeyDown}
+                    autoFocus
+                  />
+                </div>
+
+                <div className="lp-field">
+                  <label>Confirm Password</label>
+                  <input
+                    className="lp-input"
+                    type="password"
+                    placeholder="Re-enter your password"
+                    value={data.confirmPassword}
+                    autoComplete="new-password"
+                    onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setError('') }}
+                    onKeyDown={handleKeyDown}
+                  />
+                  {data.confirmPassword && data.confirmPassword !== data.password && (
+                    <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
+                  )}
+                </div>
+
+                <button className="lp-btn" onClick={handleSubmit} disabled={loading}>
+                  {loading ? <><span className="spinner" /> Activating…</> : 'Activate Account'}
+                </button>
+              </>
             ) : (
               <>
                 <h2 className="lp-title">Apply as Admin</h2>

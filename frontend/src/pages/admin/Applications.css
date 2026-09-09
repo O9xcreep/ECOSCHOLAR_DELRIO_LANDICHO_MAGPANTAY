@@ -7,7 +7,7 @@
 /* ── STAT CARDS ── */
 .app-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 
@@ -132,6 +132,34 @@
 
 .tab-btn.active .tab-count {
   background: rgba(255,255,255,0.25);
+}
+
+.tab-divider {
+  width: 1px;
+  align-self: stretch;
+  background: #e5e7eb;
+  margin: 2px 4px;
+}
+
+.tab-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tab-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #aaa;
+  margin-right: 2px;
+}
+
+@media (max-width: 600px) {
+  .tab-divider { display: none; }
+  .tab-group { width: 100%; }
 }
 
 /* ── EXPORT BTN ── */
