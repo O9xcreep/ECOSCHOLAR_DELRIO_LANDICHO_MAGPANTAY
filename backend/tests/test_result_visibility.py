@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 import app as app_module
 
 
+def settings_filter(db):
+    return {'organization_id': app_module.get_default_organization_id(db)}
+
+
 def make_applicant(db, email, user_id, status='Approved'):
     return db.applicants.insert_one({
         'full_name': 'Test Applicant', 'email': email, 'user_id': user_id,
@@ -94,7 +98,7 @@ class TestStudentApplicationMasking:
     def test_approved_hidden_when_results_not_visible(self, client, db, make_user):
         student = make_user(email='stu@test.com', password='TestPass123', role='student')
         make_applicant(db, 'stu@test.com', student['id'], status='Approved')
-        db.settings.update_one({'_id': 'global'}, {'$set': {'results_visible_override': False}}, upsert=True)
+        db.settings.update_one(settings_filter(db), {'$set': {'results_visible_override': False}}, upsert=True)
 
         res = client.post('/api/login', json={'email': 'stu@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
@@ -109,7 +113,7 @@ class TestStudentApplicationMasking:
     def test_rejected_hidden_when_results_not_visible(self, client, db, make_user):
         student = make_user(email='stu2@test.com', password='TestPass123', role='student')
         make_applicant(db, 'stu2@test.com', student['id'], status='Rejected')
-        db.settings.update_one({'_id': 'global'}, {'$set': {'results_visible_override': False}}, upsert=True)
+        db.settings.update_one(settings_filter(db), {'$set': {'results_visible_override': False}}, upsert=True)
 
         res = client.post('/api/login', json={'email': 'stu2@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
@@ -133,7 +137,7 @@ class TestStudentApplicationMasking:
         student = make_user(email='stu4@test.com', password='TestPass123', role='student')
         make_applicant(db, 'stu4@test.com', student['id'], status='Approved')
         future = (datetime.utcnow() + timedelta(days=1))
-        db.settings.update_one({'_id': 'global'},
+        db.settings.update_one(settings_filter(db),
                                 {'$set': {'results_visible_after': future, 'results_visible_override': True}},
                                 upsert=True)
 
@@ -148,7 +152,7 @@ class TestStudentApplicationMasking:
         decision is held back."""
         student = make_user(email='stu5@test.com', password='TestPass123', role='student')
         make_applicant(db, 'stu5@test.com', student['id'], status='Newly Submitted')
-        db.settings.update_one({'_id': 'global'}, {'$set': {'results_visible_override': False}}, upsert=True)
+        db.settings.update_one(settings_filter(db), {'$set': {'results_visible_override': False}}, upsert=True)
 
         res = client.post('/api/login', json={'email': 'stu5@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
@@ -159,7 +163,7 @@ class TestStudentApplicationMasking:
     def test_admin_viewing_via_this_endpoint_is_never_masked(self, client, db, auth_headers, make_user):
         student = make_user(email='stu6@test.com', password='TestPass123', role='student')
         make_applicant(db, 'stu6@test.com', student['id'], status='Approved')
-        db.settings.update_one({'_id': 'global'}, {'$set': {'results_visible_override': False}}, upsert=True)
+        db.settings.update_one(settings_filter(db), {'$set': {'results_visible_override': False}}, upsert=True)
 
         res = client.get('/api/student/application?email=stu6@test.com', headers=auth_headers())
         assert res.get_json()['application']['application_status'] == 'Approved'
@@ -178,7 +182,7 @@ class TestNotificationMasking:
             'academic': {'gpa': 70},
             'application': {'status': 'Newly Submitted', 'submitted_at': datetime.utcnow()},
         }).inserted_id
-        db.settings.update_one({'_id': 'global'}, {'$set': {'results_visible_override': False}}, upsert=True)
+        db.settings.update_one(settings_filter(db), {'$set': {'results_visible_override': False}}, upsert=True)
 
         res = client.put(f'/api/applications/{applicant_id}/verify', headers=auth_headers())
         assert res.status_code in (200, 500)  # model may or may not be loaded in test env

@@ -10,8 +10,9 @@ import app as app_module
 
 
 def set_reset_password(db, password='ResetPass123'):
+    org_id = app_module.get_default_organization_id(db)
     db.settings.update_one(
-        {'_id': 'global'},
+        {'organization_id': org_id},
         {'$set': {'reset_password_hash': app_module.generate_password_hash(password)}},
         upsert=True
     )
@@ -59,6 +60,7 @@ class TestProgramResetEndpoint:
             'full_name': 'LGU Admin', 'email': 'lguadmin@test.com',
             'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
             'status': 'active', 'privacy_consent': True,
+            'organization_id': app_module.get_default_organization_id(db),
         })
         res = client.post('/api/login', json={'email': 'lguadmin@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
@@ -96,10 +98,11 @@ class TestProgramResetEndpoint:
         assert cycle_a['closed_at'] is not None
 
     def test_reset_clears_results_visibility_override(self, client, auth_headers, db):
+        org_id = app_module.get_default_organization_id(db)
         set_reset_password(db, 'CorrectPass1')
-        db.settings.update_one({'_id': 'global'}, {'$set': {'results_visible_override': True}})
+        db.settings.update_one({'organization_id': org_id}, {'$set': {'results_visible_override': True}})
         client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
-        assert db.settings.find_one({'_id': 'global'}).get('results_visible_override') is False
+        assert db.settings.find_one({'organization_id': org_id}).get('results_visible_override') is False
 
     def test_first_reset_backfills_cycle_id_onto_pre_existing_data(self, client, auth_headers, db):
         """Pre-existing applicants (cycle_id: None) must end up pointing at the new
@@ -228,13 +231,14 @@ class TestCurrentCycleScoping:
         set_reset_password(db, 'CorrectPass1')
         client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
 
+        org_id = app_module.get_default_organization_id(db)
         new_id = db.applicants.insert_one({
             'full_name': 'New Eligible', 'email': 'new@test.com', 'ml_score': 50, 'ml_status': 'Eligible',
-            'cycle_id': app_module.get_current_cycle_id(db),
+            'cycle_id': app_module.get_current_cycle_id(db, org_id),
             'application': {'status': 'Newly Submitted'},
         }).inserted_id
 
-        app_module.recompute_approvals(db, limit=1, reviewed_by='tester')
+        app_module.recompute_approvals(db, org_id, limit=1, reviewed_by='tester')
 
         old_status = db.applicants.find_one({'_id': old_id})['application']['status']
         new_status = db.applicants.find_one({'_id': new_id})['application']['status']

@@ -268,8 +268,8 @@ def generate_rejection_reason(breakdown):
 # ── ACCEPTED APPLICANT LIMIT ──
 DEFAULT_APPLICANT_LIMIT = 20
 
-def get_applicant_limit(db):
-    doc = db.settings.find_one({"_id": "global"})
+def get_applicant_limit(db, org_id):
+    doc = db.settings.find_one({"organization_id": org_id})
     return (doc or {}).get("max_accepted", DEFAULT_APPLICANT_LIMIT)
 
 # ── RESULT VISIBILITY (Approved/Rejected status + eligibility details) ──
@@ -283,8 +283,8 @@ GENERIC_REVIEWED_MESSAGE = (
     "by the program - check back or sign in again later."
 )
 
-def are_results_visible(db):
-    settings = db.settings.find_one({"_id": "global"}) or {}
+def are_results_visible(db, org_id):
+    settings = db.settings.find_one({"organization_id": org_id}) or {}
     override = settings.get('results_visible_override')
     if override is not None:
         return bool(override)
@@ -302,11 +302,11 @@ def are_results_visible(db):
 # feature is implicitly "the current cycle" until the first reset closes it out. This
 # is exactly the "implicit Cycle 0" backward-compatibility the feature spec calls for,
 # with no need to backfill millions of old documents with an explicit id.
-def get_current_cycle(db):
-    return db.program_cycles.find_one({"closed_at": None})
+def get_current_cycle(db, org_id):
+    return db.program_cycles.find_one({"closed_at": None, "organization_id": org_id})
 
-def get_current_cycle_id(db):
-    cycle = get_current_cycle(db)
+def get_current_cycle_id(db, org_id):
+    cycle = get_current_cycle(db, org_id)
     return cycle["_id"] if cycle else None
 
 def serialize_cycle(c, applicant_count=None):
@@ -321,20 +321,20 @@ def serialize_cycle(c, applicant_count=None):
         "applicant_count": applicant_count,
     }
 
-def do_program_reset(db, performed_by, new_label=None):
+def do_program_reset(db, org_id, performed_by, new_label=None):
     """Archives the current cycle (or, on a deployment's very first reset, retroactively
     records the implicit pre-tracking cycle as 'Cycle 0') and opens a new one. Nothing is
     deleted - applicants/documents/audit trails all stay exactly where they are; they
     just stop matching get_current_cycle_id() once their cycle's closed_at is set, which
     is what every "current cycle only" query in this file filters on."""
     now = datetime.utcnow()
-    current = get_current_cycle(db)
+    current = get_current_cycle(db, org_id)
     if current:
         db.program_cycles.update_one(
             {"_id": current["_id"]},
             {"$set": {"closed_at": now, "closed_by": performed_by}}
         )
-    elif db.applicants.count_documents({"cycle_id": None}) > 0:
+    elif db.applicants.count_documents({"cycle_id": None, "organization_id": org_id}) > 0:
         # First-ever reset with pre-existing data: give that data a real (now-closed)
         # cycle record, and backfill it onto every cycle_id: None applicant so the
         # data model stays consistent going forward - without this, those applicants
@@ -346,18 +346,18 @@ def do_program_reset(db, performed_by, new_label=None):
             "closed_at": now,
             "started_by": None,
             "closed_by": performed_by,
-            "organization_id": get_default_organization_id(db),
+            "organization_id": org_id,
         }).inserted_id
-        db.applicants.update_many({"cycle_id": None}, {"$set": {"cycle_id": cycle0_id}})
+        db.applicants.update_many({"cycle_id": None, "organization_id": org_id}, {"$set": {"cycle_id": cycle0_id}})
 
-    cycle_count = db.program_cycles.count_documents({})
+    cycle_count = db.program_cycles.count_documents({"organization_id": org_id})
     new_cycle = {
         "label": (new_label or '').strip() or f"Cycle {cycle_count + 1}",
         "started_at": now,
         "closed_at": None,
         "started_by": performed_by,
         "closed_by": None,
-        "organization_id": get_default_organization_id(db),
+        "organization_id": org_id,
     }
     new_cycle_id = db.program_cycles.insert_one(new_cycle).inserted_id
 
@@ -366,14 +366,14 @@ def do_program_reset(db, performed_by, new_label=None):
     # that forgets to re-hide results for the new batch would otherwise leak new
     # decisions the moment the first one is verified.
     db.settings.update_one(
-        {"_id": "global"},
+        {"organization_id": org_id},
         {"$set": {"results_visible_override": False}, "$unset": {"results_visible_after": ""}},
         upsert=True
     )
 
     return new_cycle_id
 
-def recompute_approvals(db, limit, reviewed_by='System'):
+def recompute_approvals(db, org_id, limit, reviewed_by='System'):
     """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score) among
     everyone the classifier found Eligible **in the current cycle**. Run after every
     verify decision and whenever the limit changes, since either can promote or bump
@@ -386,13 +386,14 @@ def recompute_approvals(db, limit, reviewed_by='System'):
         # A withdrawn applicant can still carry ml_status: "Eligible" from a
         # prior verification - excluded here so recompute never overwrites
         # "Withdrawn" back to Approved/Rejected.
-        {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"}, "cycle_id": get_current_cycle_id(db)},
+        {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"},
+         "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id},
         {"ml_score": 1, "application": 1, "full_name": 1, "email": 1, "user_id": 1}
     ))
     eligible.sort(key=lambda a: a.get('ml_score', 0), reverse=True)
 
     now = datetime.utcnow()
-    results_visible = are_results_visible(db)
+    results_visible = are_results_visible(db, org_id)
     for i, applicant in enumerate(eligible):
         should_be = 'Approved' if i < limit else 'Rejected'
         current = (applicant.get('application') or {}).get('status')
@@ -885,7 +886,7 @@ def create_notification(db, user_id, applicant, message, notif_type='status_upda
         "message": message,
         "type": notif_type,
         "is_read": False,
-        "organization_id": get_default_organization_id(db),
+        "organization_id": applicant.get("organization_id") or get_default_organization_id(db),
         "created_at": datetime.utcnow(),
     })
 
@@ -1271,14 +1272,17 @@ def reset_password():
 def get_applicants():
     try:
         db = get_db()
+        org_id = current_organization_oid()
         page_param = request.args.get('page')
         # Opt-in, not opt-out: defaults to every cycle ever (unchanged from before this
         # feature existed) so nothing that already calls this route without the param -
         # Reports, CSV export - silently starts seeing less than it used to. Only the
         # live Applications queue explicitly asks for cycle=current.
-        base_query = {"cycle_id": get_current_cycle_id(db)} if request.args.get('cycle') == 'current' else {}
+        base_query = {"organization_id": org_id}
+        if request.args.get('cycle') == 'current':
+            base_query["cycle_id"] = get_current_cycle_id(db, org_id)
 
-        required_labels = get_required_doc_labels(db)
+        required_labels = get_required_doc_labels(db, org_id)
 
         def serialize_with_status(doc):
             flat = serialize_applicant(doc)
@@ -1408,12 +1412,13 @@ def get_applicant(applicant_id):
             return jsonify({"error": "Invalid applicant id"}), 400
 
         db = get_db()
-        doc = db.applicants.find_one({"_id": applicant_oid})
+        org_id = current_organization_oid()
+        doc = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
         if not doc:
             return jsonify({"applicant": None, "academic": None, "documents": [], "application": None})
 
         flat = serialize_applicant(doc)
-        flat['application_status'] = compute_admin_status(doc, get_required_doc_labels(db))
+        flat['application_status'] = compute_admin_status(doc, get_required_doc_labels(db, org_id))
         return jsonify({
             "applicant": flat,
             "academic": doc.get('academic'),
@@ -1442,7 +1447,8 @@ def submit_application():
 
     try:
         db = get_db()
-        current_cycle_id = get_current_cycle_id(db)
+        org_id = current_organization_oid()
+        current_cycle_id = get_current_cycle_id(db, org_id)
 
         # ── Check duplicate by EMAIL ──
         # Scoped to the current cycle only: someone who already applied in a past,
@@ -1454,7 +1460,8 @@ def submit_application():
         # withdrawing is meant to free the applicant up to submit a fresh one in the
         # same cycle (see the comment on withdraw_application below).
         existing = db.applicants.find_one({
-            "email": email, "cycle_id": current_cycle_id, "application.status": {"$ne": "Withdrawn"}
+            "email": email, "cycle_id": current_cycle_id, "application.status": {"$ne": "Withdrawn"},
+            "organization_id": org_id,
         })
         duplicate_reason = 'email' if existing else None
 
@@ -1468,6 +1475,7 @@ def submit_application():
                     "date_of_birth": dob,
                     "cycle_id": current_cycle_id,
                     "application.status": {"$ne": "Withdrawn"},
+                    "organization_id": org_id,
                 })
                 if existing:
                     duplicate_reason = 'name_and_birthdate'
@@ -1488,7 +1496,7 @@ def submit_application():
                     "reason": duplicate_reason,
                     "flagged_at": datetime.utcnow(),
                     "resolved": False,
-                    "organization_id": get_default_organization_id(db),
+                    "organization_id": org_id,
                 })
             except Exception:
                 pass
@@ -1501,7 +1509,7 @@ def submit_application():
 
         # Validate required fields - religion/citizenship drop out if this LGU
         # has hidden them (see HIDEABLE_BUILTIN_FIELDS / hidden_builtin_fields).
-        hidden_builtin = get_hidden_builtin_fields(db)
+        hidden_builtin = get_hidden_builtin_fields(db, org_id)
         required_fields = [
             'fullName', 'email', 'contactNumber', 'address',
             'gender', 'dob', 'religion', 'citizenship',
@@ -1520,7 +1528,7 @@ def submit_application():
         # Validate custom (LGU-defined) extra fields the same way - required ones
         # must be present. These never feed build_feature_row/the ML model.
         submitted_extra = data.get('extraFields') or {}
-        custom_fields = list(db.form_fields.find({"enabled": True}))
+        custom_fields = list(db.form_fields.find({"enabled": True, "organization_id": org_id}))
         extra_fields_to_store = {}
         for cf in custom_fields:
             value = submitted_extra.get(cf['key'], '')
@@ -1590,7 +1598,7 @@ def submit_application():
             "documents": [],
             "audit_trail": [],
             "extra_fields": extra_fields_to_store,
-            "organization_id": get_default_organization_id(db),
+            "organization_id": org_id,
         }
 
         result = db.applicants.insert_one(applicant_doc)
@@ -1636,7 +1644,7 @@ def update_status(applicant_id):
         db = get_db()
         now = datetime.utcnow()
 
-        applicant = db.applicants.find_one({"_id": applicant_oid})
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
         if not applicant:
             return jsonify({"error": "Applicant not found"}), 404
 
@@ -1681,7 +1689,7 @@ def update_status(applicant_id):
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
-def _verify_and_decide_one(db, applicant_oid, reviewed_by, now):
+def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     """Runs the ML eligibility decision for one applicant - shared by the
     single-applicant and bulk verify routes. Returns (result_dict,
     needs_recompute): needs_recompute is True when this applicant was found
@@ -1689,7 +1697,7 @@ def _verify_and_decide_one(db, applicant_oid, reviewed_by, now):
     afterward. Callers processing several applicants should batch that into
     one recompute_approvals() call rather than one per applicant, since it
     re-evaluates the entire pool every time it runs."""
-    applicant = db.applicants.find_one({"_id": applicant_oid})
+    applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
     if not applicant:
         return {"error": "Applicant not found"}, False
 
@@ -1741,7 +1749,7 @@ def _verify_and_decide_one(db, applicant_oid, reviewed_by, now):
         )
 
         notify_user_id = resolve_notify_user_id(db, applicant)
-        notif_message = (STATUS_MESSAGES[final_status] + ' ' + rejection_reason) if are_results_visible(db) else GENERIC_REVIEWED_MESSAGE
+        notif_message = (STATUS_MESSAGES[final_status] + ' ' + rejection_reason) if are_results_visible(db, org_id) else GENERIC_REVIEWED_MESSAGE
         create_notification(db, notify_user_id, applicant, notif_message, STATUS_NOTIF_TYPE[final_status])
         return {
             "applicant_id": str(applicant_oid), "status": final_status,
@@ -1783,15 +1791,16 @@ def verify_and_decide(applicant_id):
 
     try:
         db = get_db()
+        org_id = current_organization_oid()
         now = datetime.utcnow()
-        result, needs_recompute = _verify_and_decide_one(db, applicant_oid, reviewed_by, now)
+        result, needs_recompute = _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now)
         if "error" in result:
             return jsonify(result), 404 if result["error"] == "Applicant not found" else 409
 
         if needs_recompute:
-            limit = get_applicant_limit(db)
-            recompute_approvals(db, limit, reviewed_by=reviewed_by)
-            applicant = db.applicants.find_one({"_id": applicant_oid})
+            limit = get_applicant_limit(db, org_id)
+            recompute_approvals(db, org_id, limit, reviewed_by=reviewed_by)
+            applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
             result["status"] = applicant['application']['status']
             result["rejection_reason"] = applicant['application'].get('rejection_reason')
 
@@ -1822,6 +1831,7 @@ def bulk_verify_and_decide():
 
     try:
         db = get_db()
+        org_id = current_organization_oid()
         now = datetime.utcnow()
         results = []
         any_needs_recompute = False
@@ -1831,7 +1841,7 @@ def bulk_verify_and_decide():
             if not applicant_oid:
                 results.append({"applicant_id": applicant_id, "error": "Invalid applicant id"})
                 continue
-            result, needs_recompute = _verify_and_decide_one(db, applicant_oid, reviewed_by, now)
+            result, needs_recompute = _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now)
             result["applicant_id"] = applicant_id
             results.append(result)
             any_needs_recompute = any_needs_recompute or needs_recompute
@@ -1840,11 +1850,11 @@ def bulk_verify_and_decide():
         # per eligible applicant - it re-evaluates everyone, so doing it per-item
         # in a batch would be needlessly expensive.
         if any_needs_recompute:
-            limit = get_applicant_limit(db)
-            recompute_approvals(db, limit, reviewed_by=reviewed_by)
+            limit = get_applicant_limit(db, org_id)
+            recompute_approvals(db, org_id, limit, reviewed_by=reviewed_by)
             for r in results:
                 if r.get("status") is None and "error" not in r:
-                    applicant = db.applicants.find_one({"_id": oid(r["applicant_id"])})
+                    applicant = db.applicants.find_one({"_id": oid(r["applicant_id"]), "organization_id": org_id})
                     r["status"] = applicant['application']['status']
                     r["rejection_reason"] = applicant['application'].get('rejection_reason')
 
@@ -1867,7 +1877,7 @@ def get_audit_trail(applicant_id):
             return jsonify({"error": "Invalid applicant id"}), 400
 
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid}, {"audit_trail": 1})
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()}, {"audit_trail": 1})
         trail = (applicant or {}).get('audit_trail', [])
         trail = sorted(trail, key=lambda t: t.get('performed_at') or datetime.min, reverse=True)
         return jsonify({"trail": [serialize_audit_entry(t) for t in trail]})
@@ -1961,10 +1971,11 @@ def upload_document():
 
         try:
             db = get_db()
+            org_id = current_organization_oid()
             now = datetime.utcnow()
 
             applicant = db.applicants.find_one(
-                {"_id": applicant_oid, "documents.document_name": document_name},
+                {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": org_id},
                 {"documents.$": 1}
             )
             old_gridfs_id = None
@@ -1981,7 +1992,7 @@ def upload_document():
             )
 
             result = db.applicants.update_one(
-                {"_id": applicant_oid, "documents.document_name": document_name},
+                {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": org_id},
                 {"$set": {
                     "documents.$.gridfs_id": new_gridfs_id,
                     "documents.$.status": "Uploaded",
@@ -1993,7 +2004,7 @@ def upload_document():
 
             if result.matched_count == 0:
                 db.applicants.update_one(
-                    {"_id": applicant_oid},
+                    {"_id": applicant_oid, "organization_id": org_id},
                     {"$push": {"documents": {
                         "document_name": document_name,
                         "gridfs_id": new_gridfs_id,
@@ -2015,9 +2026,11 @@ def upload_document():
             # DIFFERENT applicant? A byte-for-byte match is a strong indicator of
             # document reuse (shared/borrowed paperwork, or the same fake document
             # submitted under multiple identities). Reuses the existing
-            # duplicate_flags mechanism the Dashboard already surfaces.
+            # duplicate_flags mechanism the Dashboard already surfaces. Scoped to
+            # this LGU only - a cross-tenant match would otherwise leak another
+            # LGU's applicant's name into this one's fraud queue.
             reused = db.applicants.find_one(
-                {"_id": {"$ne": applicant_oid}, "documents.file_hash": file_hash},
+                {"_id": {"$ne": applicant_oid}, "documents.file_hash": file_hash, "organization_id": org_id},
                 {"full_name": 1}
             )
             if reused:
@@ -2029,7 +2042,7 @@ def upload_document():
                         "document_name": document_name,
                         "flagged_at": now,
                         "resolved": False,
-                        "organization_id": get_default_organization_id(db),
+                        "organization_id": org_id,
                     })
                 except Exception:
                     pass
@@ -2040,11 +2053,12 @@ def upload_document():
                 # bytes (so the exact-hash check above misses it) but leave the
                 # visual content essentially unchanged. Only runs when there was no
                 # exact-hash match, since that's already the stronger signal.
+                # Scoped to this LGU only, same reasoning as the exact-hash check.
                 try:
                     this_hash = imagehash.hex_to_hash(phash)
                     best_match_doc, best_match_applicant, best_distance = None, None, None
                     for other in db.applicants.find(
-                        {"_id": {"$ne": applicant_oid}, "documents.phash": {"$exists": True, "$ne": None}},
+                        {"_id": {"$ne": applicant_oid}, "documents.phash": {"$exists": True, "$ne": None}, "organization_id": org_id},
                         {"full_name": 1, "documents.document_name": 1, "documents.phash": 1}
                     ):
                         for d in other.get('documents', []):
@@ -2067,7 +2081,7 @@ def upload_document():
                             "similarity_distance": best_distance,
                             "flagged_at": now,
                             "resolved": False,
-                            "organization_id": get_default_organization_id(db),
+                            "organization_id": org_id,
                         })
                 except Exception:
                     pass
@@ -2100,7 +2114,7 @@ def verify_document_route():
             return jsonify({"error": "Invalid applicant_id"}), 400
 
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid})
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
         if not applicant:
             return jsonify({"error": "Document not found"}), 404
 
@@ -2138,7 +2152,7 @@ def verify_document_route():
                 os.remove(temp_path)
 
         db.applicants.update_one(
-            {"_id": applicant_oid, "documents.document_name": document_name},
+            {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": current_organization_oid()},
             {"$set": {"documents.$.status": "Uploaded"}}
         )
 
@@ -2160,7 +2174,7 @@ def get_documents(applicant_id):
             return jsonify({"error": "Invalid applicant id"}), 400
 
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid}, {"documents": 1, "user_id": 1})
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()}, {"documents": 1, "user_id": 1})
         if not applicant:
             return jsonify({"error": "Applicant not found"}), 404
 
@@ -2190,7 +2204,7 @@ def view_document_file(applicant_id):
 
     try:
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid})
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
         if not applicant:
             return jsonify({"error": "Applicant not found"}), 404
 
@@ -2233,7 +2247,8 @@ def get_student_application():
 
     try:
         db = get_db()
-        query = {"email": email.strip().lower()}
+        org_id = current_organization_oid()
+        query = {"email": email.strip().lower(), "organization_id": org_id}
         # A student only ever sees their CURRENT cycle's application here - once a
         # reset closes their old cycle, this correctly goes back to "No Application
         # Found" so they can start fresh, rather than reopening an archived one every
@@ -2241,7 +2256,7 @@ def get_student_application():
         # they legitimately need to look up a student's latest record regardless of
         # cycle, e.g. from a support/audit context.
         if not is_full_access_role(g.current_user.get('role')):
-            query["cycle_id"] = get_current_cycle_id(db)
+            query["cycle_id"] = get_current_cycle_id(db, org_id)
         applicant = db.applicants.find_one(query, sort=[("_id", -1)])
 
         if not applicant:
@@ -2252,12 +2267,12 @@ def get_student_application():
         # queue - only changes what a raw "Newly Submitted" record displays as,
         # so it can't collide with the Approved/Rejected masking step below.
         if application['application_status'] == 'Newly Submitted':
-            application['application_status'] = compute_display_status(applicant, get_required_doc_labels(db))
+            application['application_status'] = compute_display_status(applicant, get_required_doc_labels(db, org_id))
         # Only mask for the applicant viewing their own record - admins/reviewers
         # calling this same endpoint (e.g. from an admin context) always see the
         # real decision, same as every other admin-facing route.
         if not is_full_access_role(g.current_user.get('role')) and application['application_status'] in ('Approved', 'Rejected'):
-            if not are_results_visible(db):
+            if not are_results_visible(db, org_id):
                 application['application_status'] = 'Pending Verification'
                 application['ml_status'] = 'Pending'
                 application['ml_score'] = 0
@@ -2294,7 +2309,7 @@ def withdraw_application():
 
     try:
         db = get_db()
-        applicant = db.applicants.find_one({"email": email}, sort=[("_id", -1)])
+        applicant = db.applicants.find_one({"email": email, "organization_id": current_organization_oid()}, sort=[("_id", -1)])
         if not applicant:
             return jsonify({"error": "No application found"}), 404
 
@@ -2337,10 +2352,11 @@ def withdraw_application():
 def get_duplicate_flags():
     try:
         db = get_db()
+        org_id = current_organization_oid()
         flags = []
-        for f in db.duplicate_flags.find({"resolved": False}).sort("flagged_at", -1):
-            a1 = db.applicants.find_one({"_id": f.get('applicant_id')}) or {}
-            a2 = db.applicants.find_one({"_id": f.get('duplicate_of_id')}) or {}
+        for f in db.duplicate_flags.find({"resolved": False, "organization_id": org_id}).sort("flagged_at", -1):
+            a1 = db.applicants.find_one({"_id": f.get('applicant_id'), "organization_id": org_id}) or {}
+            a2 = db.applicants.find_one({"_id": f.get('duplicate_of_id'), "organization_id": org_id}) or {}
             flags.append({
                 "id": str(f['_id']),
                 "applicant_id": str(f['applicant_id']) if f.get('applicant_id') else None,
@@ -2374,7 +2390,12 @@ def resolve_flag(flag_id):
             return jsonify({"error": "Invalid flag id"}), 400
 
         db = get_db()
-        db.duplicate_flags.update_one({"_id": flag_oid}, {"$set": {"resolved": True}})
+        result = db.duplicate_flags.update_one(
+            {"_id": flag_oid, "organization_id": current_organization_oid()},
+            {"$set": {"resolved": True}}
+        )
+        if result.matched_count == 0:
+            return jsonify({"error": "Flag not found"}), 404
         return jsonify({"message": "Flag resolved"})
     except Exception as e:
         app.logger.error(str(e))
@@ -2383,18 +2404,18 @@ def resolve_flag(flag_id):
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 # ── ACCEPTED APPLICANT LIMIT SETTING ──
-def serialize_settings(db):
-    doc = db.settings.find_one({"_id": "global"}) or {}
-    current_cycle = get_current_cycle(db)
+def serialize_settings(db, org_id):
+    doc = db.settings.find_one({"organization_id": org_id}) or {}
+    current_cycle = get_current_cycle(db, org_id)
     return {
-        "max_accepted": get_applicant_limit(db),
+        "max_accepted": get_applicant_limit(db, org_id),
         "approved_count": db.applicants.count_documents({
-            "application.status": "Approved", "cycle_id": get_current_cycle_id(db)
+            "application.status": "Approved", "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id
         }),
-        "hidden_builtin_fields": get_hidden_builtin_fields(db),
+        "hidden_builtin_fields": get_hidden_builtin_fields(db, org_id),
         "results_visible_after": iso(doc.get('results_visible_after')),
         "results_visible_override": doc.get('results_visible_override'),
-        "results_visible_now": are_results_visible(db),
+        "results_visible_now": are_results_visible(db, org_id),
         "reset_password_set": bool(doc.get('reset_password_hash')),
         "current_cycle": serialize_cycle(current_cycle) if current_cycle else None,
     }
@@ -2409,7 +2430,7 @@ def get_settings():
     if not (is_full_access_role(g.current_user.get('role')) or has_permission('can_reset_program')):
         return jsonify({"error": "Forbidden"}), 403
     db = get_db()
-    return jsonify(serialize_settings(db))
+    return jsonify(serialize_settings(db, current_organization_oid()))
 
 @app.route('/api/settings', methods=['PUT'])
 @require_role('admin', 'lgu_admin')
@@ -2466,15 +2487,16 @@ def update_settings():
 
     try:
         db = get_db()
+        org_id = current_organization_oid()
         update = {}
         if set_fields:
             update['$set'] = set_fields
         if unset_fields:
             update['$unset'] = unset_fields
-        db.settings.update_one({"_id": "global"}, update, upsert=True)
+        db.settings.update_one({"organization_id": org_id}, update, upsert=True)
         if 'max_accepted' in set_fields:
-            recompute_approvals(db, set_fields['max_accepted'], reviewed_by=g.current_user.get('email', 'Admin'))
-        return jsonify({"message": "Settings updated", **serialize_settings(db)})
+            recompute_approvals(db, org_id, set_fields['max_accepted'], reviewed_by=g.current_user.get('email', 'Admin'))
+        return jsonify({"message": "Settings updated", **serialize_settings(db, org_id)})
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
@@ -2486,13 +2508,14 @@ def update_settings():
 @require_permission('can_review_applicants')
 def list_program_cycles():
     db = get_db()
-    cycles = list(db.program_cycles.find({}).sort('started_at', -1))
+    org_id = current_organization_oid()
+    cycles = list(db.program_cycles.find({"organization_id": org_id}).sort('started_at', -1))
     result = []
     for c in cycles:
-        count = db.applicants.count_documents({"cycle_id": c["_id"]})
+        count = db.applicants.count_documents({"cycle_id": c["_id"], "organization_id": org_id})
         result.append(serialize_cycle(c, applicant_count=count))
 
-    legacy_count = db.applicants.count_documents({"cycle_id": None})
+    legacy_count = db.applicants.count_documents({"cycle_id": None, "organization_id": org_id})
     if legacy_count > 0:
         result.append({
             "id": None, "label": "Before cycle tracking (legacy data)",
@@ -2520,25 +2543,27 @@ def program_reset():
 
     try:
         db = get_db()
-        settings_doc = db.settings.find_one({"_id": "global"}) or {}
+        org_id = current_organization_oid()
+        settings_doc = db.settings.find_one({"organization_id": org_id}) or {}
         reset_hash = settings_doc.get('reset_password_hash')
         if not reset_hash:
             return jsonify({"error": "Set a reset confirmation password in Settings before resetting."}), 400
         if not check_password_hash(reset_hash, password):
             return jsonify({"error": "Incorrect reset confirmation password."}), 403
 
-        outgoing_cycle = get_current_cycle(db)
+        outgoing_cycle = get_current_cycle(db, org_id)
         outgoing_count = db.applicants.count_documents(
-            {"cycle_id": outgoing_cycle["_id"]} if outgoing_cycle else {"cycle_id": None}
+            {"cycle_id": outgoing_cycle["_id"], "organization_id": org_id} if outgoing_cycle
+            else {"cycle_id": None, "organization_id": org_id}
         )
 
         performed_by = g.current_user.get('email', 'Admin')
-        new_cycle_id = do_program_reset(db, performed_by, new_label=label)
+        new_cycle_id = do_program_reset(db, org_id, performed_by, new_label=label)
 
         return jsonify({
             "message": "Program reset complete. A new cycle has started.",
             "archived_applicant_count": outgoing_count,
-            **serialize_settings(db),
+            **serialize_settings(db, org_id),
             "new_cycle_id": str(new_cycle_id),
         })
     except Exception as e:
@@ -2564,8 +2589,8 @@ HIDEABLE_BUILTIN_FIELDS = {
     'citizenship': 'Citizenship',
 }
 
-def get_hidden_builtin_fields(db):
-    doc = db.settings.find_one({"_id": "global"})
+def get_hidden_builtin_fields(db, org_id):
+    doc = db.settings.find_one({"organization_id": org_id})
     return (doc or {}).get("hidden_builtin_fields", [])
 
 def serialize_form_field(f):
@@ -2585,11 +2610,12 @@ def serialize_form_field(f):
 @require_auth
 def list_form_fields():
     db = get_db()
-    query = {} if is_full_access_role(g.current_user.get('role')) else {"enabled": True}
+    org_id = current_organization_oid()
+    query = {"organization_id": org_id} if is_full_access_role(g.current_user.get('role')) else {"enabled": True, "organization_id": org_id}
     fields = list(db.form_fields.find(query).sort([("section", 1), ("order", 1)]))
     return jsonify({
         "fields": [serialize_form_field(f) for f in fields],
-        "hidden_builtin_fields": get_hidden_builtin_fields(db),
+        "hidden_builtin_fields": get_hidden_builtin_fields(db, org_id),
         "hideable_builtin_fields": HIDEABLE_BUILTIN_FIELDS,
     })
 
@@ -2618,7 +2644,8 @@ def create_form_field():
         return jsonify({"error": "Select fields need at least one option"}), 400
 
     db = get_db()
-    if db.form_fields.find_one({"key": key}):
+    org_id = current_organization_oid()
+    if db.form_fields.find_one({"key": key, "organization_id": org_id}):
         return jsonify({"error": "A custom field with this key already exists"}), 409
 
     doc = {
@@ -2629,9 +2656,9 @@ def create_form_field():
         "required": bool(data.get('required', False)),
         "enabled": True,
         "section": section,
-        "order": db.form_fields.count_documents({"section": section}),
+        "order": db.form_fields.count_documents({"section": section, "organization_id": org_id}),
         "created_at": datetime.utcnow(),
-        "organization_id": get_default_organization_id(db),
+        "organization_id": org_id,
     }
     result = db.form_fields.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -2662,11 +2689,12 @@ def update_form_field(field_id):
         return jsonify({"error": "No valid fields provided"}), 400
 
     db = get_db()
-    result = db.form_fields.update_one({"_id": field_oid}, {"$set": set_fields})
+    org_id = current_organization_oid()
+    result = db.form_fields.update_one({"_id": field_oid, "organization_id": org_id}, {"$set": set_fields})
     if result.matched_count == 0:
         return jsonify({"error": "Field not found"}), 404
 
-    updated = db.form_fields.find_one({"_id": field_oid})
+    updated = db.form_fields.find_one({"_id": field_oid, "organization_id": org_id})
     return jsonify({"field": serialize_form_field(updated)})
 
 @app.route('/api/form-fields/<field_id>', methods=['DELETE'])
@@ -2677,7 +2705,7 @@ def delete_form_field(field_id):
         return jsonify({"error": "Invalid field id"}), 400
 
     db = get_db()
-    result = db.form_fields.delete_one({"_id": field_oid})
+    result = db.form_fields.delete_one({"_id": field_oid, "organization_id": current_organization_oid()})
     if result.deleted_count == 0:
         return jsonify({"error": "Field not found"}), 404
     return jsonify({"message": "Field deleted"})
@@ -2727,8 +2755,8 @@ def serialize_doc_requirement(d):
 # Approved/Rejected/Withdrawn are real decisions and pass through unchanged.
 COMPUTED_STATUSES = {'Newly Submitted', 'Pending Verification', 'Incomplete'}
 
-def get_required_doc_labels(db):
-    return {r['label'] for r in get_doc_requirements_collection(db).find({"required": True, "enabled": True})}
+def get_required_doc_labels(db, org_id):
+    return {r['label'] for r in get_doc_requirements_collection(db, org_id).find({"required": True, "enabled": True, "organization_id": org_id})}
 
 def compute_display_status(doc, required_labels):
     raw = (doc.get('application') or {}).get('status')
@@ -2777,25 +2805,26 @@ def build_status_query_fragment(statuses):
         return clauses[0]
     return {"$or": clauses}
 
-def get_doc_requirements_collection(db):
-    """Lazy-seeds the default requirements on first use so existing deployments
-    (and fresh ones) start with the same documents the form always had."""
-    if db.document_requirements.count_documents({}) == 0:
+def get_doc_requirements_collection(db, org_id):
+    """Lazy-seeds the default requirements on first use per organization, so a
+    newly-created LGU starts with the same documents the form always had -
+    scoped by organization_id since a bare count_documents({}) would only ever
+    seed once platform-wide, leaving every LGU after the first with none."""
+    if db.document_requirements.count_documents({"organization_id": org_id}) == 0:
         now = datetime.utcnow()
-        org_id = get_default_organization_id(db)
         db.document_requirements.insert_many([
             {**d, "enabled": True, "order": i, "created_at": now, "organization_id": org_id}
             for i, d in enumerate(DEFAULT_DOC_REQUIREMENTS)
         ])
-    elif db.document_requirements.count_documents({"label": SELFIE_DOC_LABEL}) == 0:
+    elif db.document_requirements.count_documents({"label": SELFIE_DOC_LABEL, "organization_id": org_id}) == 0:
         # Backfill for deployments seeded before the selfie step existed.
         db.document_requirements.insert_one({
             "label": SELFIE_DOC_LABEL,
             "required": True,
             "enabled": True,
-            "order": db.document_requirements.count_documents({}),
+            "order": db.document_requirements.count_documents({"organization_id": org_id}),
             "created_at": datetime.utcnow(),
-            "organization_id": get_default_organization_id(db),
+            "organization_id": org_id,
         })
     return db.document_requirements
 
@@ -2803,8 +2832,9 @@ def get_doc_requirements_collection(db):
 @require_auth
 def list_doc_requirements():
     db = get_db()
-    coll = get_doc_requirements_collection(db)
-    query = {} if is_full_access_role(g.current_user.get('role')) else {"enabled": True}
+    org_id = current_organization_oid()
+    coll = get_doc_requirements_collection(db, org_id)
+    query = {"organization_id": org_id} if is_full_access_role(g.current_user.get('role')) else {"enabled": True, "organization_id": org_id}
     docs = list(coll.find(query).sort("order", 1))
     return jsonify({"requirements": [serialize_doc_requirement(d) for d in docs]})
 
@@ -2817,17 +2847,18 @@ def create_doc_requirement():
         return jsonify({"error": "Label is required"}), 400
 
     db = get_db()
-    coll = get_doc_requirements_collection(db)
-    if coll.find_one({"label": label}):
+    org_id = current_organization_oid()
+    coll = get_doc_requirements_collection(db, org_id)
+    if coll.find_one({"label": label, "organization_id": org_id}):
         return jsonify({"error": "A document requirement with this label already exists"}), 409
 
     doc = {
         "label": label,
         "required": bool(data.get('required', False)),
         "enabled": True,
-        "order": coll.count_documents({}),
+        "order": coll.count_documents({"organization_id": org_id}),
         "created_at": datetime.utcnow(),
-        "organization_id": get_default_organization_id(db),
+        "organization_id": org_id,
     }
     result = coll.insert_one(doc)
     doc["_id"] = result.inserted_id
@@ -2856,12 +2887,13 @@ def update_doc_requirement(req_id):
         return jsonify({"error": "No valid fields provided"}), 400
 
     db = get_db()
-    coll = get_doc_requirements_collection(db)
-    result = coll.update_one({"_id": req_oid}, {"$set": set_fields})
+    org_id = current_organization_oid()
+    coll = get_doc_requirements_collection(db, org_id)
+    result = coll.update_one({"_id": req_oid, "organization_id": org_id}, {"$set": set_fields})
     if result.matched_count == 0:
         return jsonify({"error": "Requirement not found"}), 404
 
-    updated = coll.find_one({"_id": req_oid})
+    updated = coll.find_one({"_id": req_oid, "organization_id": org_id})
     return jsonify({"requirement": serialize_doc_requirement(updated)})
 
 @app.route('/api/document-requirements/<req_id>', methods=['DELETE'])
@@ -2872,7 +2904,7 @@ def delete_doc_requirement(req_id):
         return jsonify({"error": "Invalid requirement id"}), 400
 
     db = get_db()
-    result = db.document_requirements.delete_one({"_id": req_oid})
+    result = db.document_requirements.delete_one({"_id": req_oid, "organization_id": current_organization_oid()})
     if result.deleted_count == 0:
         return jsonify({"error": "Requirement not found"}), 404
     return jsonify({"message": "Requirement deleted"})
@@ -2944,7 +2976,7 @@ def sanitize_basic_html(html):
 @require_auth
 def get_guidelines():
     db = get_db()
-    doc = db.settings.find_one({"_id": "global"}) or {}
+    doc = db.settings.find_one({"organization_id": current_organization_oid()}) or {}
     return jsonify({"html": doc.get("guidelines_html", DEFAULT_GUIDELINES_HTML)})
 
 @app.route('/api/guidelines', methods=['PUT'])
@@ -2958,8 +2990,9 @@ def update_guidelines():
         return jsonify({"error": "Guidelines content is too long"}), 400
 
     db = get_db()
-    db.settings.update_one({"_id": "global"}, {"$set": {"guidelines_html": sanitize_basic_html(html)}}, upsert=True)
-    return jsonify({"message": "Guidelines updated", "html": db.settings.find_one({"_id": "global"})["guidelines_html"]})
+    org_id = current_organization_oid()
+    db.settings.update_one({"organization_id": org_id}, {"$set": {"guidelines_html": sanitize_basic_html(html)}}, upsert=True)
+    return jsonify({"message": "Guidelines updated", "html": db.settings.find_one({"organization_id": org_id})["guidelines_html"]})
 
 def serialize_admin(u):
     doc = {
@@ -3695,7 +3728,10 @@ def reject_admin_request(request_id):
 def get_stats():
     try:
         db = get_db()
-        base = {"cycle_id": get_current_cycle_id(db)} if request.args.get('cycle') == 'current' else {}
+        org_id = current_organization_oid()
+        base = {"organization_id": org_id}
+        if request.args.get('cycle') == 'current':
+            base["cycle_id"] = get_current_cycle_id(db, org_id)
         total = db.applicants.count_documents(base)
         approved = db.applicants.count_documents({**base, "application.status": "Approved"})
         rejected = db.applicants.count_documents({**base, "application.status": "Rejected"})
@@ -3723,7 +3759,10 @@ def scholars_per_year():
     try:
         db = get_db()
         pipeline = [
-            {"$match": {"application.status": "Approved", "academic.academic_year": {"$ne": None}}},
+            {"$match": {
+                "application.status": "Approved", "academic.academic_year": {"$ne": None},
+                "organization_id": current_organization_oid(),
+            }},
             {"$group": {"_id": "$academic.academic_year", "count": {"$sum": 1}}},
             {"$sort": {"_id": 1}},
         ]
@@ -3743,6 +3782,7 @@ def get_history_log():
         limit = min(max(int(request.args.get('limit', 20)), 1), 100)
         db = get_db()
         pipeline = [
+            {"$match": {"organization_id": current_organization_oid()}},
             {"$unwind": "$audit_trail"},
             {"$match": {"audit_trail.new_status": {"$in": ["Approved", "Rejected"]}}},
             {"$sort": {"audit_trail.performed_at": -1}},
@@ -3804,7 +3844,7 @@ def score_applicant(applicant_id):
             return jsonify({"error": "Invalid applicant id"}), 400
 
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid})
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
 
         if not applicant:
             return jsonify({"error": "Applicant not found"}), 404
@@ -3847,9 +3887,10 @@ def rank_applicants():
 
     try:
         db = get_db()
-        query = {"application.status": {"$nin": ["Rejected", "Newly Submitted"]}}
+        org_id = current_organization_oid()
+        query = {"application.status": {"$nin": ["Rejected", "Newly Submitted"]}, "organization_id": org_id}
         if request.args.get('cycle') == 'current':
-            query["cycle_id"] = get_current_cycle_id(db)
+            query["cycle_id"] = get_current_cycle_id(db, org_id)
         applicants = list(db.applicants.find(query))
 
         ranked = []

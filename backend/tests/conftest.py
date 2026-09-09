@@ -50,6 +50,39 @@ import app as app_module
 from werkzeug.security import generate_password_hash
 
 
+# Multi-tenancy Phase C scopes almost every applicants query by organization_id
+# (see app.py). Most of this suite predates that and inserts applicant test
+# fixtures directly via db.applicants.insert_one(...)/insert_many(...) with no
+# organization_id at all, which those scoped queries then simply don't match.
+# Rather than editing every one of those call sites across the whole suite,
+# auto-tag with the default org at insert time here - mongomock keeps the same
+# Collection object across drop_collection() calls (verified: dropping clears
+# data, not object identity), so patching once at import time is durable for
+# the whole run. A test that deliberately wants an UNTAGGED applicant (a
+# legacy-data edge case) can still pass organization_id explicitly, since
+# setdefault only fills it in when absent.
+def _auto_tag_organization_id(collection):
+    original_insert_one = collection.insert_one
+    original_insert_many = collection.insert_many
+
+    def insert_one(document, *args, **kwargs):
+        document.setdefault('organization_id', app_module.get_default_organization_id(app_module._mongo_db))
+        return original_insert_one(document, *args, **kwargs)
+
+    def insert_many(documents, *args, **kwargs):
+        org_id = app_module.get_default_organization_id(app_module._mongo_db)
+        for doc in documents:
+            doc.setdefault('organization_id', org_id)
+        return original_insert_many(documents, *args, **kwargs)
+
+    collection.insert_one = insert_one
+    collection.insert_many = insert_many
+
+
+_auto_tag_organization_id(app_module._mongo_db.applicants)
+_auto_tag_organization_id(app_module._mongo_db.document_requirements)
+
+
 @pytest.fixture(autouse=True)
 def clean_db():
     """Every test gets a blank database - drop all collections before, not

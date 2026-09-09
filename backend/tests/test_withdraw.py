@@ -140,7 +140,7 @@ class TestRecomputeExcludesWithdrawn:
             'ml_status': 'Eligible', 'ml_score': 99,
             'application': {'status': 'Withdrawn'},
         })
-        app_module.recompute_approvals(db, limit=10)
+        app_module.recompute_approvals(db, app_module.get_default_organization_id(db), limit=10)
 
         updated = db.applicants.find_one({'email': 'stale@test.com'})
         assert updated['application']['status'] == 'Withdrawn'

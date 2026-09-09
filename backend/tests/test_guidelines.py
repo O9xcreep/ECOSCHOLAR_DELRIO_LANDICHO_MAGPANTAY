@@ -1,7 +1,13 @@
 # -*- coding: utf-8 -*-
 """Application Guidelines: student-facing read, admin-only edit, stored as a
-single HTML blob on the global settings doc instead of hardcoded in the
+single HTML blob on the org's settings doc instead of hardcoded in the
 frontend."""
+import app as app_module
+
+
+def get_settings_doc(db):
+    org_id = app_module.get_default_organization_id(db)
+    return db.settings.find_one({'organization_id': org_id})
 
 
 class TestGetGuidelines:
@@ -35,7 +41,7 @@ class TestUpdateGuidelines:
         assert res.status_code == 200
         assert 'New Rules' in res.get_json()['html']
 
-        stored = db.settings.find_one({'_id': 'global'})
+        stored = get_settings_doc(db)
         assert 'New Rules' in stored['guidelines_html']
 
         read_res = client.get('/api/guidelines', headers=auth_headers('student'))
@@ -61,7 +67,7 @@ class TestUpdateGuidelines:
         res = client.put('/api/guidelines', headers=auth_headers(),
                           json={'html': '<p>Hello</p><script>alert(1)</script>'})
         assert res.status_code == 200
-        stored = db.settings.find_one({'_id': 'global'})['guidelines_html']
+        stored = get_settings_doc(db)['guidelines_html']
         assert '<script>' not in stored
         assert 'Hello' in stored
 
@@ -69,12 +75,12 @@ class TestUpdateGuidelines:
         res = client.put('/api/guidelines', headers=auth_headers(),
                           json={'html': '<img src="x" onerror="alert(1)">'})
         assert res.status_code == 200
-        stored = db.settings.find_one({'_id': 'global'})['guidelines_html']
+        stored = get_settings_doc(db)['guidelines_html']
         assert 'onerror' not in stored
 
     def test_javascript_href_neutralized(self, client, db, auth_headers):
         res = client.put('/api/guidelines', headers=auth_headers(),
                           json={'html': '<a href="javascript:alert(1)">click</a>'})
         assert res.status_code == 200
-        stored = db.settings.find_one({'_id': 'global'})['guidelines_html']
+        stored = get_settings_doc(db)['guidelines_html']
         assert 'javascript:' not in stored
