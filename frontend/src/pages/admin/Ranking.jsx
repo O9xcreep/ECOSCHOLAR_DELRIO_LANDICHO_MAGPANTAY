@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, displayStatus } from '../../api'
 import { UsersIcon, CheckCircleIcon, ClockIcon, LayersIcon } from '../../components/NavIcons'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/bg2.jpg'
 import './Ranking.css'
 
@@ -72,8 +73,7 @@ function Ranking() {
   const waitlisted = ranked.slice(savedLimit)
 
   return (
-    <div className="ranking-page page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="ranking-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
       {/* Header */}
       <div className="ranking-header">
@@ -165,7 +165,7 @@ function Ranking() {
       ) : (
         <>
           {/* Within Slots Table */}
-          <div className="ranking-card">
+          <Reveal className="ranking-card">
             <div className="ranking-card-header">
               <h3>Within Scholarship Slots (Top {slots})</h3>
               <span className="badge badge-green">{withinSlots.length} scholars</span>
@@ -238,11 +238,11 @@ function Ranking() {
               </tbody>
             </table>
             </div>
-          </div>
+          </Reveal>
 
           {/* Waitlisted Table */}
           {waitlisted.length > 0 && (
-            <div className="ranking-card">
+            <Reveal className="ranking-card">
               <div className="ranking-card-header">
                 <h3>Waitlisted Applicants</h3>
                 <span className="badge badge-yellow">
@@ -299,7 +299,7 @@ function Ranking() {
                 </tbody>
               </table>
               </div>
-            </div>
+            </Reveal>
           )}
         </>
       )}

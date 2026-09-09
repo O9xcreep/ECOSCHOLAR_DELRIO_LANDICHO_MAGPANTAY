@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch } from '../../api'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/bg2.jpg'
 import './Guidelines.css'
 
@@ -21,8 +22,7 @@ function Guidelines() {
   useEffect(load, [])
 
   return (
-    <div className="guidelines-page page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="guidelines-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
       {/* Header */}
       <div className="gl-header">
@@ -32,7 +32,7 @@ function Guidelines() {
         </p>
       </div>
 
-      <div className="gl-card">
+      <Reveal className="gl-card">
         {loading ? (
           <p className="info-sub">Loading guidelines...</p>
         ) : loadError ? (
@@ -43,7 +43,7 @@ function Guidelines() {
         ) : (
           <div className="gl-html-content" dangerouslySetInnerHTML={{ __html: html }} />
         )}
-      </div>
+      </Reveal>
 
     </div>
   )

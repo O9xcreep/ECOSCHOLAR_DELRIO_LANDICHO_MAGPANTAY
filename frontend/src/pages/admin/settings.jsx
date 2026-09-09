@@ -4,6 +4,7 @@ import writeExcelFile from 'write-excel-file/browser'
 import { apiFetch, getUser, setSession, logout, isFullAccess } from '../../api'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/bg3.jpg'
 import './settings.css'
 
@@ -1317,8 +1318,7 @@ function Settings() {
   )
 
   return (
-    <div className="settings-page page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="settings-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
       <div className="settings-header">
         <div>
           <h2 className="page-title">Settings</h2>
@@ -1337,10 +1337,12 @@ function Settings() {
         ))}
       </div>
 
-      {activeTab === 'Profile' && <ProfileTab />}
-      {activeTab === 'Security' && <SecurityTab />}
-      {activeTab === 'System' && <SystemTab />}
-      {activeTab === 'Team' && <TeamTab />}
+      <Reveal key={activeTab}>
+        {activeTab === 'Profile' && <ProfileTab />}
+        {activeTab === 'Security' && <SecurityTab />}
+        {activeTab === 'System' && <SystemTab />}
+        {activeTab === 'Team' && <TeamTab />}
+      </Reveal>
     </div>
   )
 }

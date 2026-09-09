@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/bg1.jpg'
 import './ApplicantDetails.css'
 
@@ -187,8 +188,7 @@ function ApplicantDetails() {
 
   if (loading) {
     return (
-      <div className="av-container page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+      <div className="av-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
         <div className="av-loading">Loading your application...</div>
       </div>
     )
@@ -196,8 +196,7 @@ function ApplicantDetails() {
 
   if (loadError) {
     return (
-      <div className="av-container page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+      <div className="av-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
         <div className="av-empty">
           <h2>Couldn't Load Your Details</h2>
           <p>Check your connection and try again.</p>
@@ -209,8 +208,7 @@ function ApplicantDetails() {
 
   if (!application) {
     return (
-      <div className="av-container page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+      <div className="av-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
         <div className="av-empty">
           <h2>No Application Found</h2>
           <p>You haven't submitted a scholarship application yet.</p>
@@ -232,8 +230,7 @@ function ApplicantDetails() {
   const totalRequired = checklistDocs.filter(d => d.required).length
 
   return (
-    <div className="av-container page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="av-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
       {/* Header */}
       <div className="av-header">
@@ -443,7 +440,7 @@ function ApplicantDetails() {
       </div>
 
       {/* Documents */}
-      <div className="av-card">
+      <Reveal className="av-card">
         <h3 className="av-card-title">Documents</h3>
 
         <div className="doc-stats">
@@ -525,7 +522,7 @@ function ApplicantDetails() {
         <div className="doc-note">
           <p>Fields marked with <strong>*</strong> are required. Make sure all required documents are uploaded.</p>
         </div>
-      </div>
+      </Reveal>
 
       {/* Footer */}
       {withdrawError && <p className="av-withdraw-error">{withdrawError}</p>}

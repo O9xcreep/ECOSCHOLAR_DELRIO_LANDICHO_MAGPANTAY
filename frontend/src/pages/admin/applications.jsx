@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, displayStatus } from '../../api'
 import { InboxIcon, ClockIcon, AlertCircleIcon } from '../../components/NavIcons'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/admin-bg.jpg'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
@@ -106,7 +107,7 @@ function ApplicationsTableCard({
   const allSelected = reviewable && ids.length > 0 && ids.every(id => selected.includes(id))
 
   return (
-    <div className="table-card">
+    <Reveal className="table-card">
       {title && (
         <div className="table-card-header">
           <h3>{title}</h3>
@@ -237,7 +238,7 @@ function ApplicationsTableCard({
           <button className="page-btn" onClick={onNextPage} disabled={page >= pages}>Next</button>
         </div>
       </div>
-    </div>
+    </Reveal>
   )
 }
 
@@ -445,8 +446,7 @@ function Applications() {
   const reviewableIds = applications.filter(a => REVIEWABLE_STATUSES.includes(a.application_status)).map(a => a.id)
 
   return (
-    <div className="applications-page page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="applications-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
       {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">

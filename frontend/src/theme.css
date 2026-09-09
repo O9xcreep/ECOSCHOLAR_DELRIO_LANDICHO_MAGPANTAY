@@ -35,10 +35,10 @@
 /* ── GLOBAL MICRO-INTERACTIONS ──
  * Applies to the admin/student app shell (not the pre-login pages, which have
  * their own scoped <style> blocks and *-resets). A smooth focus glow on every
- * field, a light press-down on every button, and a fade-slide-up entrance for
- * page bodies (opt in per page via .page-enter) - small, consistent touches
- * rather than a single flashy effect, so it reads as "polished" rather than
- * "look at this animation".
+ * field and a light press-down on every button - page enter/leave transitions
+ * live in AdminLayout.jsx/StudentLayout.jsx via framer-motion instead of CSS,
+ * since a real exit animation needs the outgoing page to stay mounted for a
+ * moment, which plain CSS can't do on an unmount.
  */
 input, select, textarea {
   transition: border-color .18s ease, box-shadow .18s ease;
@@ -59,36 +59,30 @@ button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-@keyframes pageFadeSlideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.page-enter {
-  animation: pageFadeSlideUp .35s cubic-bezier(.4,0,.2,1) both;
-}
-
-/* Per-page hero banner photo, set via the --page-bg-image custom property
- * (each page imports its own image - see Dashboard.jsx/applications.jsx/etc)
- * and rendered as the first element inside the page. A tinting a whole
- * card-covered page turns into a flat wash - almost none of the photo is
- * ever actually visible between opaque cards - so instead each page gets one
- * dedicated strip where the photo is genuinely visible, and every card below
- * it stays exactly as before. */
-.page-hero {
-  height: 130px;
+/* Per-page background photo, set via the --page-bg-image custom property on
+ * the page's own root element (each page imports its own image - see
+ * Dashboard.jsx/applications.jsx/etc). Light enough that the photo is
+ * genuinely visible (not just a flat tint), while every card floating on top
+ * stays fully opaque on its own - only page titles/subtitles sit directly on
+ * the photo, so those get a soft white text-shadow below as a legibility
+ * safety net regardless of how busy the underlying photo is. */
+.page-bg {
+  padding: 24px;
   border-radius: 18px;
   background:
-    linear-gradient(to bottom, rgba(20,30,45,.15), rgba(20,30,45,.4)),
-    var(--page-bg-image) center / cover no-repeat;
-  box-shadow: var(--shadow);
+    linear-gradient(rgba(234,240,247,.62), rgba(234,240,247,.62)),
+    var(--page-bg-image) center top / cover no-repeat;
 }
 
 @media (max-width: 768px) {
-  .page-hero { height: 90px; }
+  .page-bg { padding: 14px; }
+}
+
+.page-title, .dash-title, .sd-title, .av-title,
+.page-sub, .dash-sub {
+  text-shadow: 0 1px 2px rgba(255,255,255,.85), 0 1px 12px rgba(255,255,255,.6);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .page-enter { animation: none; }
   button:active:not(:disabled) { transform: none; }
 }

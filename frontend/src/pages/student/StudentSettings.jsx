@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, setSession, logout } from '../../api'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/bg4.jpg'
 import './StudentSettings.css'
 
@@ -266,8 +267,7 @@ function StudentSettings() {
   const [activeTab, setActiveTab] = useState('Profile')
 
   return (
-    <div className="student-settings-page page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="student-settings-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
       <div className="settings-header">
         <h2 className="page-title">Settings</h2>
         <p className="page-sub">Manage your account and preferences</p>
@@ -284,8 +284,10 @@ function StudentSettings() {
         ))}
       </div>
 
-      {activeTab === 'Profile' && <ProfileTab />}
-      {activeTab === 'Security' && <SecurityTab />}
+      <Reveal key={activeTab}>
+        {activeTab === 'Profile' && <ProfileTab />}
+        {activeTab === 'Security' && <SecurityTab />}
+      </Reveal>
     </div>
   )
 }

@@ -6,6 +6,7 @@ import {
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { apiFetch, displayStatus, getUser } from '../../api'
+import Reveal from '../../components/Reveal'
 import pageBg from '../../assets/bg4.jpg'
 import './Dashboard.css'
 
@@ -231,8 +232,7 @@ useEffect(() => {
   }
 
   return (
-    <div className="dashboard page-enter">
-      <div className="page-hero" style={{ '--page-bg-image': `url(${pageBg})` }} />
+    <div className="dashboard page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
       {/* Header */}
       <div className="dash-header">
@@ -263,7 +263,7 @@ useEffect(() => {
       )}
 
       {/* Scholars Approved Per Year */}
-      <div className="dash-card">
+      <Reveal className="dash-card">
         <div className="card-header">
           <h3>Scholars Approved Per Academic Year</h3>
         </div>
@@ -279,7 +279,7 @@ useEffect(() => {
         ) : (
           <p className="chart-sub">No approved scholars yet.</p>
         )}
-      </div>
+      </Reveal>
 
       {/* ── ANALYTICS (formerly the standalone Reports page) ── */}
       <div className="analytics-header">
@@ -302,7 +302,7 @@ useEffect(() => {
         </div>
       </div>
 
-      <div className="charts-row">
+      <Reveal className="charts-row">
         {/* Status Distribution (donut) */}
         <div className="dash-card">
           <div className="card-header"><h3>Status distribution</h3></div>
@@ -357,10 +357,10 @@ useEffect(() => {
             </ResponsiveContainer>
           ) : <p className="chart-sub">No applications yet.</p>}
         </div>
-      </div>
+      </Reveal>
 
       {/* Applications Submitted Over Time */}
-      <div className="dash-card">
+      <Reveal className="dash-card">
         <div className="card-header">
           <h3>Applications submitted</h3>
           <div className="period-toggle">
@@ -382,7 +382,7 @@ useEffect(() => {
             </BarChart>
           </ResponsiveContainer>
         ) : <p className="chart-sub">No applications yet.</p>}
-      </div>
+      </Reveal>
 
       {/* Duplicate Alerts */}
       {duplicateFlags.length > 0 && (

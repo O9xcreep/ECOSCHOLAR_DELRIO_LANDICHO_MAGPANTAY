@@ -1,11 +1,23 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { getUser, logout } from '../api'
 import NotificationBell from '../components/NotificationBell'
 import { GraduationCapIcon, HomeIcon, ApplicationsIcon, GuidelinesIcon, SettingsIcon } from '../components/NavIcons'
 import './StudentLayout.css'
 
+// Page enter/leave: fades + a small vertical slide, keyed by pathname so
+// switching between Dashboard/Applicant Details/Guidelines/Settings
+// crossfades instead of a hard cut - the sidebar/topbar stay mounted
+// throughout, only this inner content remounts.
+const pageVariants = {
+  initial: { opacity: 0, y: 14 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.28, ease: [0.4, 0, 0.2, 1] } },
+  exit: { opacity: 0, y: -10, transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } },
+}
+
 function StudentLayout() {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = getUser() || {}
 
   const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : 'S'
@@ -75,7 +87,17 @@ function StudentLayout() {
 
         {/* PAGE CONTENT */}
         <main className="student-main-content">
-          <Outlet />
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={location.pathname}
+              variants={pageVariants}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+            >
+              <Outlet />
+            </motion.div>
+          </AnimatePresence>
         </main>
 
         {/* BOTTOM NAV (mobile) */}
