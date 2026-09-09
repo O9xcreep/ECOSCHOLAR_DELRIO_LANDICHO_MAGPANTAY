@@ -44,6 +44,69 @@ class TestWithdraw:
         assert res.status_code == 400
 
 
+class TestCannotWithdrawAfterScoring:
+    """Once the eligibility model has decided Approved/Rejected, that's final -
+    same as it can no longer be edited, it can no longer be withdrawn either."""
+
+    def test_cannot_withdraw_approved(self, client, db, make_user):
+        user = make_user(email='withdraw-approved@test.com', role='student')
+        db.applicants.insert_one({
+            'full_name': 'X', 'email': 'withdraw-approved@test.com',
+            'application': {'status': 'Approved'}, 'academic': {}, 'user_id': user['id'],
+        })
+        login = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
+        token = login.get_json()['token']
+
+        res = client.put('/api/student/application/withdraw', headers={'Authorization': f'Bearer {token}'})
+        assert res.status_code == 400
+        updated = db.applicants.find_one({'email': 'withdraw-approved@test.com'})
+        assert updated['application']['status'] == 'Approved'
+
+    def test_cannot_withdraw_rejected(self, client, db, make_user):
+        user = make_user(email='withdraw-rejected@test.com', role='student')
+        db.applicants.insert_one({
+            'full_name': 'X', 'email': 'withdraw-rejected@test.com',
+            'application': {'status': 'Rejected'}, 'academic': {}, 'user_id': user['id'],
+        })
+        login = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
+        token = login.get_json()['token']
+
+        res = client.put('/api/student/application/withdraw', headers={'Authorization': f'Bearer {token}'})
+        assert res.status_code == 400
+        updated = db.applicants.find_one({'email': 'withdraw-rejected@test.com'})
+        assert updated['application']['status'] == 'Rejected'
+
+    def test_cannot_withdraw_waitlisted(self, client, db, make_user):
+        """Waitlisted is a display-only label - the stored status is Rejected
+        with ml_status Eligible, so this is exercised by the Rejected case
+        above too, but tested explicitly since it's a distinct student-visible
+        state (see displayStatus on the frontend)."""
+        user = make_user(email='withdraw-waitlisted@test.com', role='student')
+        db.applicants.insert_one({
+            'full_name': 'X', 'email': 'withdraw-waitlisted@test.com', 'ml_status': 'Eligible',
+            'application': {'status': 'Rejected'}, 'academic': {}, 'user_id': user['id'],
+        })
+        login = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
+        token = login.get_json()['token']
+
+        res = client.put('/api/student/application/withdraw', headers={'Authorization': f'Bearer {token}'})
+        assert res.status_code == 400
+
+    def test_can_still_withdraw_incomplete(self, client, db, make_user):
+        """Sanity check the fix is scoped to Approved/Rejected only - every
+        pre-scoring status must remain withdrawable."""
+        user = make_user(email='withdraw-incomplete@test.com', role='student')
+        db.applicants.insert_one({
+            'full_name': 'X', 'email': 'withdraw-incomplete@test.com',
+            'application': {'status': 'Incomplete'}, 'academic': {}, 'user_id': user['id'],
+        })
+        login = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
+        token = login.get_json()['token']
+
+        res = client.put('/api/student/application/withdraw', headers={'Authorization': f'Bearer {token}'})
+        assert res.status_code == 200
+
+
 class TestWithdrawnCannotBeOverridden:
     def test_status_change_blocked_on_withdrawn(self, client, db, auth_headers):
         applicant_id = db.applicants.insert_one({

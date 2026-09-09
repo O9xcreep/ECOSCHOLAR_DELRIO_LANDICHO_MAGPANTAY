@@ -84,6 +84,35 @@ _auto_tag_organization_id(app_module._mongo_db.document_requirements)
 
 
 @pytest.fixture(autouse=True)
+def block_real_http_calls(monkeypatch):
+    """This suite is documented (see the module docstring above) as never
+    needing network access - mongomock covers the database side, but nothing
+    stopped a test from making a REAL outbound HTTP call using whatever real
+    credentials happen to be sitting in .env (app.py's load_dotenv() loads it
+    unconditionally, even under pytest). That's exactly what happened once: a
+    test that meant to exercise the "provider not configured" skip path
+    forgot to also pin EMAIL_PROVIDER, fell through to a real, fully-configured
+    Mailjet account, and sent one real email, burning real quota right after
+    being asked not to.
+
+    Blocking requests.post/get by default turns any future version of that
+    mistake into an immediate, loud test failure instead of a silent real API
+    call. A test that needs to exercise a real HTTP call path still can -
+    unittest.mock.patch(.object) fully overrides this for its own scope and
+    restores back to this blocker afterward, same as it would restore the
+    real function."""
+    def _blocked(*args, **kwargs):
+        raise RuntimeError(
+            "A real outbound HTTP call was attempted during a test (requests."
+            "post/get). This suite must never make real network calls - mock "
+            "it explicitly with unittest.mock.patch.object(app_module.requests, "
+            "'post', ...)."
+        )
+    monkeypatch.setattr(app_module.requests, 'post', _blocked)
+    monkeypatch.setattr(app_module.requests, 'get', _blocked)
+
+
+@pytest.fixture(autouse=True)
 def clean_db():
     """Every test gets a blank database - drop all collections before, not
     after, so a failed test's leftover data never leaks into the next one.

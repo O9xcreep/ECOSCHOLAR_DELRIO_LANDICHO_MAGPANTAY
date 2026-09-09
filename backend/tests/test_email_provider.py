@@ -10,10 +10,13 @@ import app as app_module
 
 
 class TestEmailProviderDispatch:
-    def test_defaults_to_resend(self):
-        assert app_module.EMAIL_PROVIDER == 'resend'
-
     def test_resend_skipped_when_not_configured(self, monkeypatch):
+        # Every test in this file pins EMAIL_PROVIDER explicitly via monkeypatch -
+        # app_module.EMAIL_PROVIDER is read from the real .env at import time
+        # (app.py calls load_dotenv() unconditionally, even under pytest), so a
+        # dev machine mid-migration to Mailjet has this set to "mailjet" for
+        # real. Never rely on whatever happens to be loaded.
+        monkeypatch.setattr(app_module, 'EMAIL_PROVIDER', 'resend')
         monkeypatch.setattr(app_module, 'RESEND_API_KEY', '')
         monkeypatch.setattr(app_module, 'SMTP_FROM_EMAIL', 'x@test.com')
         assert app_module.send_email('to@test.com', 'Subject', '<p>Hi</p>') is False

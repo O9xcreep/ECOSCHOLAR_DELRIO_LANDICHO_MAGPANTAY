@@ -224,6 +224,10 @@ function ApplicantDetails() {
 
   const status = application.application_status || 'Pending'
   const displayed = displayStatus(status, application.ml_status)
+  // Once reviewed (or withdrawn), documents are frozen - same rule the backend
+  // enforces on POST /api/upload. Editing a decided/dead application's files
+  // would change what was actually reviewed without a new review happening.
+  const docsLocked = status === 'Approved' || status === 'Rejected' || status === 'Withdrawn'
   const selfie = docs.find(d => d.document_name === SELFIE_DOC_LABEL)
   const checklistDocs = docs.filter(d => d.document_name !== SELFIE_DOC_LABEL)
   const uploaded = checklistDocs.filter(d => d.status === 'Uploaded').length
@@ -318,22 +322,26 @@ function ApplicantDetails() {
               <span className={`badge ${getStatusClass(selfie.status)}`}>
                 {selfie.status}
               </span>
-              <button className="btn-upload"
-                onClick={() => document.getElementById(`doc-${selfie.id}`).click()}>
-                {selfie.status === 'Uploaded' ? 'Replace Photo' : 'Upload Photo'}
-              </button>
-              {selfie.status === 'Uploaded' && (
-                <button className="btn-remove" onClick={() => handleRemove(selfie.id)}>
-                  Remove
-                </button>
+              {!docsLocked && (
+                <>
+                  <button className="btn-upload"
+                    onClick={() => document.getElementById(`doc-${selfie.id}`).click()}>
+                    {selfie.status === 'Uploaded' ? 'Replace Photo' : 'Upload Photo'}
+                  </button>
+                  {selfie.status === 'Uploaded' && (
+                    <button className="btn-remove" onClick={() => handleRemove(selfie.id)}>
+                      Remove
+                    </button>
+                  )}
+                  <input
+                    type="file"
+                    id={`doc-${selfie.id}`}
+                    style={{ display: 'none' }}
+                    accept="image/*"
+                    onChange={e => handleUpload(selfie.id, e.target.files[0])}
+                  />
+                </>
               )}
-              <input
-                type="file"
-                id={`doc-${selfie.id}`}
-                style={{ display: 'none' }}
-                accept="image/*"
-                onChange={e => handleUpload(selfie.id, e.target.files[0])}
-              />
             </div>
           </div>
         </div>
@@ -470,9 +478,9 @@ function ApplicantDetails() {
             <div
               key={doc.id}
               className={`doc-item ${dragOver === doc.id ? 'drag-over' : ''}`}
-              onDragOver={e => { e.preventDefault(); setDragOver(doc.id) }}
+              onDragOver={e => { if (!docsLocked) { e.preventDefault(); setDragOver(doc.id) } }}
               onDragLeave={() => setDragOver(null)}
-              onDrop={e => handleDrop(doc.id, e)}>
+              onDrop={e => { if (!docsLocked) handleDrop(doc.id, e) }}>
 
               <div className="doc-info">
                 <div>
@@ -497,7 +505,7 @@ function ApplicantDetails() {
                 <span className={`badge ${getStatusClass(doc.status)}`}>
                   {doc.status}
                 </span>
-                {doc.status === 'Uploaded' ? (
+                {docsLocked ? null : doc.status === 'Uploaded' ? (
                   <button className="btn-remove" onClick={() => handleRemove(doc.id)}>
                     Remove
                   </button>
@@ -538,6 +546,10 @@ function ApplicantDetails() {
           <button className="av-btn-primary" onClick={() => navigate('/student/application')}>
             Submit New Application
           </button>
+        ) : status === 'Approved' || status === 'Rejected' ? (
+          <span style={{ fontSize: '13px', color: '#6b7280' }}>
+            This application has already been scored and can no longer be withdrawn.
+          </span>
         ) : (
           <button className="av-btn-danger" onClick={handleWithdraw} disabled={withdrawing}>
             {withdrawing ? 'Withdrawing…' : 'Withdraw Application'}

@@ -2137,6 +2137,21 @@ def upload_document():
             org_id = current_organization_oid()
             now = datetime.utcnow()
 
+            # Once an application has been reviewed (Approved/Rejected) or
+            # withdrawn, its documents are frozen - same reasoning as blocking
+            # withdraw after scoring: allowing a swap after the decision was
+            # made would let a student silently change what the model/admin
+            # actually reviewed. A Withdrawn applicant submits a fresh
+            # application instead of editing the old one's documents.
+            status_doc = db.applicants.find_one(
+                {"_id": applicant_oid, "organization_id": org_id}, {"application.status": 1}
+            )
+            if not status_doc:
+                return jsonify({"error": "Applicant not found"}), 404
+            current_status = (status_doc.get('application') or {}).get('status')
+            if current_status in ('Approved', 'Rejected', 'Withdrawn'):
+                return jsonify({"error": "This application has already been reviewed and its documents can no longer be changed."}), 400
+
             applicant = db.applicants.find_one(
                 {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": org_id},
                 {"documents.$": 1}
@@ -2473,7 +2488,10 @@ def get_student_application():
 # work elsewhere in this codebase is trying to catch). Withdrawing is
 # non-destructive: it sets a status, not a delete, so the record stays
 # visible to admins and in the audit trail. There's no "undo" - a student who
-# changes their mind submits a fresh application instead.
+# changes their mind submits a fresh application instead. Once the eligibility
+# model has scored the application (Approved/Rejected, including the
+# Waitlisted case - stored as Rejected with ml_status Eligible), that decision
+# is final and can't be withdrawn either - same as it can't be edited.
 @app.route('/api/student/application/withdraw', methods=['PUT'])
 @require_auth
 def withdraw_application():
@@ -2491,6 +2509,8 @@ def withdraw_application():
         current_status = (applicant.get('application') or {}).get('status')
         if current_status == 'Withdrawn':
             return jsonify({"error": "This application has already been withdrawn"}), 400
+        if current_status in ('Approved', 'Rejected'):
+            return jsonify({"error": "This application has already been scored and can no longer be withdrawn."}), 400
 
         now = datetime.utcnow()
         db.applicants.update_one(
@@ -2933,6 +2953,13 @@ DEFAULT_DOC_REQUIREMENTS = [
     {"label": "Proof of Income", "required": True},
     {"label": SELFIE_DOC_LABEL, "required": True},
 ]
+# Matched by label rather than a stored flag - every org's document_requirements
+# is seeded from this exact list (get_doc_requirements_collection), so no
+# migration is needed for existing data. An LGU can still hide one (disable it
+# or uncheck "Required") but can't delete it outright - the eligibility
+# model's document-completeness computation and OCR verification both assume
+# these exist by label (SELFIE_DOC_LABEL/ID_DOC_LABEL especially).
+DEFAULT_DOC_LABELS = {d["label"] for d in DEFAULT_DOC_REQUIREMENTS}
 
 def serialize_doc_requirement(d):
     return {
@@ -2941,6 +2968,7 @@ def serialize_doc_requirement(d):
         "required": d.get("required", False),
         "enabled": d.get("enabled", True),
         "order": d.get("order", 0),
+        "is_default": d.get("label") in DEFAULT_DOC_LABELS,
     }
 
 # Admin-facing status flags computed from document-upload completeness, never
@@ -3110,6 +3138,13 @@ def delete_doc_requirement(req_id):
     org_id = current_organization_oid()
     if form_is_locked(db, org_id):
         return jsonify({"error": FORM_LOCKED_ERROR}), 409
+
+    existing = db.document_requirements.find_one({"_id": req_oid, "organization_id": org_id})
+    if not existing:
+        return jsonify({"error": "Requirement not found"}), 404
+    if existing.get("label") in DEFAULT_DOC_LABELS:
+        return jsonify({"error": "Default document requirements can't be deleted - disable it or uncheck \"Required\" instead."}), 400
+
     result = db.document_requirements.delete_one({"_id": req_oid, "organization_id": org_id})
     if result.deleted_count == 0:
         return jsonify({"error": "Requirement not found"}), 404
@@ -3154,14 +3189,14 @@ DEFAULT_GUIDELINES_HTML = """
 <li><strong>Provide Academic Information:</strong> Enter your school, course, GWA, and semester details in Step 2.</li>
 <li><strong>Upload Required Documents:</strong> Upload all required supporting documents in Step 3 before submitting.</li>
 <li><strong>Submit Application:</strong> Click Submit Application. Your application will be reviewed by the scholarship committee.</li>
-<li><strong>Wait for Results:</strong> You will be notified via email once your application has been reviewed.</li>
+<li><strong>Wait for Results:</strong> You'll be notified once your application is reviewed. Depending on how your LGU has configured result visibility, you may see the decision immediately or only after the program's application period ends.</li>
 </ol>
 <h2>Important Reminders</h2>
-<blockquote><p><strong>Double-Check Your Data:</strong> Once you click <strong>Submit Application</strong> on Step 3, your files and details are sent directly to the screening committee. You will not be able to edit your entries while the review is active.</p></blockquote>
+<blockquote><p><strong>Editing After Submission:</strong> You can withdraw your application and submit a corrected one at any time before it's reviewed - for example, if you notice a mistake, or if the LGU asks you to fix something with a specific document. Once your application has been Approved or Rejected, that decision is final: it can no longer be withdrawn, and its documents can no longer be changed.</p></blockquote>
 <ul>
-<li><strong>Deadline:</strong> Applications close on June 30, 2026. Late submissions will not be accepted unless the system allows late applications.</li>
+<li><strong>Deadline:</strong> Check the deadline shown on your Dashboard or Application page - it's set by your LGU and applications stop being accepted automatically once it passes.</li>
 <li><strong>Data Privacy:</strong> All information submitted is protected under the Data Privacy Act of 2012 (RA 10173). Your data will only be used for scholarship evaluation.</li>
-<li><strong>Need Help?</strong> Contact the scholarship office at scholarship@ecoscolar.edu.ph or visit City Hall during office hours (8AM - 5PM, Mon-Fri).</li>
+<li><strong>Need Help?</strong> Contact your LGU's scholarship office using the details they've provided, or visit their office during business hours.</li>
 </ul>
 """.strip()
 

@@ -1,0 +1,26 @@
+.guide-body {
+  font-size: 13.5px;
+  color: var(--text-secondary, #6b7a8d);
+  line-height: 1.65;
+}
+
+.guide-body p {
+  margin-bottom: 10px;
+}
+
+.guide-body p:last-child {
+  margin-bottom: 0;
+}
+
+.guide-body ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guide-body strong {
+  color: var(--text-primary, #1e293b);
+}

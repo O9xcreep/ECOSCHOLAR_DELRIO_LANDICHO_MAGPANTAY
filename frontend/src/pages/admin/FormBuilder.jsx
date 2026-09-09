@@ -101,7 +101,12 @@ function FormBuilder() {
 
   const deleteDocRequirement = async (doc) => {
     if (!window.confirm(`Delete the "${doc.label}" document requirement? Applicants who already uploaded it will keep the file, but it will no longer appear on the checklist.`)) return
-    await apiFetch(`/api/document-requirements/${doc.id}`, { method: 'DELETE' })
+    const res = await apiFetch(`/api/document-requirements/${doc.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.error || 'Failed to delete document requirement')
+      return
+    }
     setDocRequirements(prev => prev.filter(d => d.id !== doc.id))
   }
 
@@ -183,7 +188,12 @@ function FormBuilder() {
 
   const deleteField = async (field) => {
     if (!window.confirm(`Delete the "${field.label}" field? Existing applicants who filled it in will keep that data, but it will no longer appear on the form.`)) return
-    await apiFetch(`/api/form-fields/${field.id}`, { method: 'DELETE' })
+    const res = await apiFetch(`/api/form-fields/${field.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.error || 'Failed to delete field')
+      return
+    }
     setFields(prev => prev.filter(f => f.id !== field.id))
   }
 
@@ -458,7 +468,11 @@ function FormBuilder() {
                   />
                   <span className="slider" />
                 </label>
-                <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)} disabled={formLocked}>Delete</button>
+                {doc.is_default ? (
+                  <span className="fb-locked-tag" title="Default document requirements can't be deleted - disable it or uncheck &quot;Required&quot; instead.">Default</span>
+                ) : (
+                  <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)} disabled={formLocked}>Delete</button>
+                )}
               </div>
             ))}
           </div>

@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, setSession, logout } from '../../api'
 import Reveal from '../../components/Reveal'
+import Credits from '../../components/Credits'
 import pageBg from '../../assets/bg4.jpg'
 import './StudentSettings.css'
 
-const TABS = ['Profile', 'Security']
+const TABS = ['Profile', 'Security', 'Credits']
 
 // ── PROFILE TAB ──
 function ProfileTab() {
@@ -287,6 +288,7 @@ function StudentSettings() {
       <Reveal key={activeTab}>
         {activeTab === 'Profile' && <ProfileTab />}
         {activeTab === 'Security' && <SecurityTab />}
+        {activeTab === 'Credits' && <Credits />}
       </Reveal>
     </div>
   )

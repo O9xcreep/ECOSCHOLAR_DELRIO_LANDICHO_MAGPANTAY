@@ -4,11 +4,13 @@ import writeExcelFile from 'write-excel-file/browser'
 import { apiFetch, getUser, setSession, logout, isFullAccess } from '../../api'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
+import AdminGuide from './AdminGuide'
 import Reveal from '../../components/Reveal'
+import Credits from '../../components/Credits'
 import pageBg from '../../assets/bg3.jpg'
 import './settings.css'
 
-const ALL_TABS = ['Profile', 'Security', 'System', 'Team']
+const ALL_TABS = ['Profile', 'Security', 'System', 'Team', 'Guide', 'Credits']
 
 // ── PROFILE TAB ──
 function ProfileTab() {
@@ -1427,6 +1429,8 @@ function Settings() {
         {activeTab === 'Security' && <SecurityTab />}
         {activeTab === 'System' && <SystemTab />}
         {activeTab === 'Team' && <TeamTab />}
+        {activeTab === 'Guide' && <AdminGuide />}
+        {activeTab === 'Credits' && <Credits />}
       </Reveal>
     </div>
   )
