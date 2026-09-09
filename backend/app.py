@@ -812,10 +812,15 @@ def serialize_applicant(doc):
         "citizenship": doc.get('citizenship'),
         "father_name": doc.get('father_name'),
         "father_occupation": doc.get('father_occupation'),
+        "father_education": doc.get('father_education'),
         "mother_name": doc.get('mother_name'),
         "mother_occupation": doc.get('mother_occupation'),
-        "household_income": doc.get('household_income'),
+        "mother_education": doc.get('mother_education'),
+        "household_income": doc.get('monthly_income'),
         "family_size": doc.get('family_size'),
+        "num_siblings": doc.get('num_siblings'),
+        "num_siblings_studying": doc.get('num_siblings_studying'),
+        "housing_situation": doc.get('housing_situation'),
         "barangay": doc.get('barangay'),
         "ml_score": doc.get('ml_score', 0),
         "ml_status": doc.get('ml_status', 'Pending'),
@@ -2653,6 +2658,8 @@ def create_form_field():
     options = data.get('options') or []
     if field_type == 'select' and (not isinstance(options, list) or not options):
         return jsonify({"error": "Select fields need at least one option"}), 400
+    if field_type == 'checkbox' and options and not isinstance(options, list):
+        return jsonify({"error": "Checkbox options must be a list"}), 400
 
     db = get_db()
     org_id = current_organization_oid()
@@ -2663,7 +2670,7 @@ def create_form_field():
         "key": key,
         "label": label,
         "type": field_type,
-        "options": options if field_type == 'select' else [],
+        "options": options if field_type in ('select', 'checkbox') else [],
         "required": bool(data.get('required', False)),
         "enabled": True,
         "section": section,
@@ -3777,28 +3784,6 @@ def get_stats():
             "under_review": under_review
         })
 
-    except Exception as e:
-        app.logger.error(str(e))
-        if DEBUG:
-            raise
-        return jsonify({"error": "Something went wrong. Please try again."}), 500
-
-# ── SCHOLARS APPROVED PER ACADEMIC YEAR ──
-@app.route('/api/stats/scholars-per-year', methods=['GET'])
-@require_permission('can_review_applicants')
-def scholars_per_year():
-    try:
-        db = get_db()
-        pipeline = [
-            {"$match": {
-                "application.status": "Approved", "academic.academic_year": {"$ne": None},
-                "organization_id": current_organization_oid(),
-            }},
-            {"$group": {"_id": "$academic.academic_year", "count": {"$sum": 1}}},
-            {"$sort": {"_id": 1}},
-        ]
-        results = list(db.applicants.aggregate(pipeline))
-        return jsonify({"scholars_per_year": [{"year": r["_id"], "count": r["count"]} for r in results]})
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:

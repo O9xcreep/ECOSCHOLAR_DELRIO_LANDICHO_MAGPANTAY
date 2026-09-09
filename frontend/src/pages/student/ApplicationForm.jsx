@@ -124,7 +124,7 @@ function validateCustomFields(customFields, section, extraFieldsData) {
     .filter(f => f.section === section && f.enabled && f.required)
     .forEach(f => {
       const value = extraFieldsData[f.key]
-      if (value === undefined || value === null || value === '') {
+      if (value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)) {
         errors[f.key] = `${f.label} is required`
       }
     })
@@ -201,16 +201,36 @@ function CustomFieldsSection({ customFields, section, values, onChange, errors }
                 {f.options.map(o => <option key={o} value={o}>{o}</option>)}
               </select>
             ) : f.type === 'checkbox' ? (
-              <div className="radio-group">
-                <label className="radio-option">
-                  <input
-                    type="checkbox"
-                    checked={values[f.key] === 'Yes'}
-                    onChange={e => onChange(f.key, e.target.checked ? 'Yes' : 'No')}
-                  />
-                  <span>Yes</span>
-                </label>
-              </div>
+              f.options && f.options.length > 0 ? (
+                <div className="radio-group">
+                  {f.options.map(o => {
+                    const selected = Array.isArray(values[f.key]) ? values[f.key] : []
+                    return (
+                      <label key={o} className="radio-option">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(o)}
+                          onChange={e => onChange(f.key, e.target.checked
+                            ? [...selected, o]
+                            : selected.filter(v => v !== o))}
+                        />
+                        <span>{o}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              ) : (
+                <div className="radio-group">
+                  <label className="radio-option">
+                    <input
+                      type="checkbox"
+                      checked={values[f.key] === 'Yes'}
+                      onChange={e => onChange(f.key, e.target.checked ? 'Yes' : 'No')}
+                    />
+                    <span>Yes</span>
+                  </label>
+                </div>
+              )
             ) : f.type === 'textarea' ? (
               <textarea
                 className={errors[f.key] ? 'input-error' : ''}

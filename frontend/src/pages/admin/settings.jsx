@@ -409,7 +409,14 @@ function SystemTab() {
       if (exportFrom) applicants = applicants.filter(a => a.submitted_at && a.submitted_at.slice(0, 10) >= exportFrom)
       if (exportTo) applicants = applicants.filter(a => a.submitted_at && a.submitted_at.slice(0, 10) <= exportTo)
 
-      const headerRow = ['Full Name', 'Email', 'City', 'Course', 'GWA', 'ML Score', 'ML Status', 'Application Status', 'Submitted At']
+      const headerRow = [
+        'Full Name', 'Email', 'City', 'Course', 'GWA', 'ML Score', 'ML Status', 'Application Status', 'Submitted At',
+        // Eligibility model input features (see build_feature_row on the backend) -
+        // included so an export can be reviewed/audited alongside the ML decision.
+        'Monthly Household Income', 'Family Size', 'Number of Siblings', 'Siblings Studying',
+        "Father's Occupation", "Father's Education", "Mother's Occupation", "Mother's Education",
+        'Housing Situation',
+      ]
       const sheetData = [
         headerRow,
         ...applicants.map(a => ([
@@ -422,6 +429,15 @@ function SystemTab() {
           a.ml_status || '',
           a.application_status || '',
           a.submitted_at || '',
+          a.household_income != null ? Number(a.household_income) : '',
+          a.family_size != null ? Number(a.family_size) : '',
+          a.num_siblings != null ? Number(a.num_siblings) : '',
+          a.num_siblings_studying != null ? Number(a.num_siblings_studying) : '',
+          a.father_occupation || '',
+          a.father_education || '',
+          a.mother_occupation || '',
+          a.mother_education || '',
+          a.housing_situation || '',
         ]))
       ]
 
@@ -518,8 +534,10 @@ function SystemTab() {
       <div className="settings-card">
         <h4 className="card-label">Data Export</h4>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
-          Download applicants as an Excel (.xlsx) file, optionally narrowed to a
-          submission date range - pick a past cycle for a quick range, or set custom dates.
+          Download applicants as an Excel (.xlsx) file, including the eligibility model's
+          input features (household income, family size, parents' education/occupation,
+          housing situation, etc.), optionally narrowed to a submission date range - pick a
+          past cycle for a quick range, or set custom dates.
         </p>
         <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
           <div>

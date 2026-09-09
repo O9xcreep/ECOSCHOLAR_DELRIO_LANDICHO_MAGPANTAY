@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
   PieChart, Pie, Cell
 } from 'recharts'
 import jsPDF from 'jspdf'
@@ -47,7 +47,6 @@ function Dashboard() {
   const user = JSON.parse(localStorage.getItem('user') || '{}')
 
   const [duplicateFlags, setDuplicateFlags] = useState([])
-  const [scholarsPerYear, setScholarsPerYear] = useState([])
   const [historyLog, setHistoryLog] = useState([])
   const [openingDoc, setOpeningDoc] = useState('')
 
@@ -56,6 +55,7 @@ function Dashboard() {
   const [cycles, setCycles] = useState([])
   const [selectedCycle, setSelectedCycle] = useState('all')
   const [submittedPeriod, setSubmittedPeriod] = useState('monthly') // 'monthly' | 'yearly'
+  const [decidedPeriod, setDecidedPeriod] = useState('monthly') // 'monthly' | 'yearly'
 
   const handleViewFlagDoc = async (applicantId, documentName, key) => {
     if (!applicantId || !documentName) return
@@ -103,12 +103,6 @@ useEffect(() => {
     .then(res => res.json())
     .then(data => setDuplicateFlags(data.flags || []))
     .catch(err => { console.error('Flags error:', err); setLoadError(true) })
-
-  // Fetch scholars approved per academic year
-  apiFetch('/api/stats/scholars-per-year')
-    .then(res => res.json())
-    .then(data => setScholarsPerYear(data.scholars_per_year || []))
-    .catch(err => { console.error('Scholars per year error:', err); setLoadError(true) })
 
   // Fetch recent decision history log
   apiFetch('/api/history-log?limit=10')
@@ -158,43 +152,48 @@ useEffect(() => {
       .sort((a, b) => b.value - a.value)
   }, [filtered])
 
-  const acceptedVsRejected = useMemo(() => ([
-    { name: 'Approved', count: filtered.filter(a => a.application_status === 'Approved').length, color: '#10b981' },
-    { name: 'Rejected', count: filtered.filter(a => a.application_status === 'Rejected').length, color: '#ef4444' },
-  ]), [filtered])
-
-  const monthlyData = useMemo(() => {
-    const counts = {}
-    for (const a of filtered) {
-      if (!a.submitted_at) continue
-      const d = new Date(a.submitted_at)
+  // Groups a list into monthly/yearly buckets by a given date field - shared by
+  // both time-series charts below (Applications submitted, Scholars approved
+  // and rejected) so the bucketing/labeling logic only lives in one place.
+  const bucketByPeriod = (items, period, dateField) => {
+    // Numeric sort key (year, or year*12+month) so buckets sort chronologically -
+    // a plain string sort would put "2025-10" before "2025-9".
+    const buckets = {}
+    for (const item of items) {
+      const raw = item[dateField]
+      if (!raw) continue
+      const d = new Date(raw)
       if (isNaN(d)) continue
-      const key = `${d.getFullYear()}-${d.getMonth()}`
-      counts[key] = (counts[key] || 0) + 1
+      const key = period === 'yearly' ? d.getFullYear() : d.getFullYear() * 12 + d.getMonth()
+      if (!buckets[key]) buckets[key] = []
+      buckets[key].push(item)
     }
-    return Object.entries(counts)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, count]) => {
-        const [year, month] = key.split('-')
-        return { label: `${MONTH_NAMES[Number(month)]} '${String(year).slice(2)}`, count }
-      })
-  }, [filtered])
+    return Object.keys(buckets).map(Number).sort((a, b) => a - b).map(key => ({
+      label: period === 'yearly' ? String(key) : `${MONTH_NAMES[key % 12]} '${String(Math.floor(key / 12)).slice(2)}`,
+      items: buckets[key],
+    }))
+  }
 
-  const yearlyData = useMemo(() => {
-    const counts = {}
-    for (const a of filtered) {
-      if (!a.submitted_at) continue
-      const d = new Date(a.submitted_at)
-      if (isNaN(d)) continue
-      const year = d.getFullYear()
-      counts[year] = (counts[year] || 0) + 1
-    }
-    return Object.entries(counts)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([year, count]) => ({ label: year, count }))
-  }, [filtered])
+  const submittedData = useMemo(() => (
+    bucketByPeriod(filtered, submittedPeriod, 'submitted_at')
+      .map(b => ({ label: b.label, count: b.items.length }))
+  ), [filtered, submittedPeriod])
 
-  const submittedData = submittedPeriod === 'yearly' ? yearlyData : monthlyData
+  const decidedApplicants = useMemo(
+    () => filtered.filter(a => a.application_status === 'Approved' || a.application_status === 'Rejected'),
+    [filtered]
+  )
+
+  // Keyed by reviewed_at (when the decision was made), not submitted_at - this
+  // chart is about when applicants were approved/rejected, not when they applied.
+  const decidedData = useMemo(() => (
+    bucketByPeriod(decidedApplicants, decidedPeriod, 'reviewed_at')
+      .map(b => ({
+        label: b.label,
+        Approved: b.items.filter(a => a.application_status === 'Approved').length,
+        Rejected: b.items.filter(a => a.application_status === 'Rejected').length,
+      }))
+  ), [decidedApplicants, decidedPeriod])
 
   const handleExportPdf = () => {
     const doc = new jsPDF()
@@ -212,8 +211,8 @@ useEffect(() => {
       head: [['Metric', 'Value']],
       body: [
         ['Total Applicants', String(analyticsTotal)],
-        ['Approved', String(acceptedVsRejected[0].count)],
-        ['Rejected', String(acceptedVsRejected[1].count)],
+        ['Approved', String(decidedApplicants.filter(a => a.application_status === 'Approved').length)],
+        ['Rejected', String(decidedApplicants.filter(a => a.application_status === 'Rejected').length)],
       ],
       theme: 'grid',
       headStyles: { fillColor: [61, 111, 163] },
@@ -257,25 +256,6 @@ useEffect(() => {
           ))}
         </div>
       )}
-
-      {/* Scholars Approved Per Year */}
-      <Reveal className="dash-card">
-        <div className="card-header">
-          <h3>Scholars Approved Per Academic Year</h3>
-        </div>
-        {scholarsPerYear.length > 0 ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={scholarsPerYear}>
-              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-              <Tooltip />
-              <Bar dataKey="count" name="Scholars" fill="var(--accent)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <p className="chart-sub">No approved scholars yet.</p>
-        )}
-      </Reveal>
 
       {/* ── ANALYTICS (formerly the standalone Reports page) ── */}
       <div className="analytics-header">
@@ -334,24 +314,32 @@ useEffect(() => {
           ) : <p className="chart-sub">No applications yet.</p>}
         </div>
 
-        {/* Accepted vs Rejected */}
+        {/* Scholars Approved and Rejected */}
         <div className="dash-card">
-          <div className="card-header"><h3>Accepted vs Rejected</h3></div>
+          <div className="card-header">
+            <h3>Scholars Approved and Rejected</h3>
+            <div className="period-toggle">
+              <button
+                className={decidedPeriod === 'monthly' ? 'active' : ''}
+                onClick={() => setDecidedPeriod('monthly')}>Monthly</button>
+              <button
+                className={decidedPeriod === 'yearly' ? 'active' : ''}
+                onClick={() => setDecidedPeriod('yearly')}>Yearly</button>
+            </div>
+          </div>
           <p className="chart-sub-label">Final decisions only - excludes applications still in review</p>
-          {analyticsTotal > 0 ? (
+          {decidedData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={acceptedVsRejected}>
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+              <BarChart data={decidedData}>
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                  {acceptedVsRejected.map((item, i) => (
-                    <Cell key={i} fill={item.color} />
-                  ))}
-                </Bar>
+                <Legend />
+                <Bar dataKey="Approved" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Rejected" fill="#ef4444" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : <p className="chart-sub">No applications yet.</p>}
+          ) : <p className="chart-sub">No decided applications yet.</p>}
         </div>
       </Reveal>
 

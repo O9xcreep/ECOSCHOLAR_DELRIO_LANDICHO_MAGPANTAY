@@ -188,7 +188,7 @@ function FormBuilder() {
           type: newField.type,
           section: newField.section,
           required: newField.required,
-          options: newField.type === 'select'
+          options: (newField.type === 'select' || newField.type === 'checkbox')
             ? newField.options.split(',').map(o => o.trim()).filter(Boolean)
             : []
         })
@@ -281,7 +281,7 @@ function FormBuilder() {
                       {field.required && <span className="fb-required-star"> *</span>}
                     </p>
                     <p className="fb-field-meta">
-                      {field.type}{field.type === 'select' && field.options.length > 0
+                      {field.type}{(field.type === 'select' || field.type === 'checkbox') && field.options.length > 0
                         ? ` · ${field.options.join(', ')}` : ''}
                     </p>
                   </div>
@@ -352,7 +352,7 @@ function FormBuilder() {
                 </select>
               </div>
 
-              {newField.type === 'select' && (
+              {(newField.type === 'select' || newField.type === 'checkbox') && (
                 <div className="fb-form-field fb-form-field-wide">
                   <label>Options (comma-separated)</label>
                   <input
@@ -361,6 +361,12 @@ function FormBuilder() {
                     value={newField.options}
                     onChange={e => setNewField(p => ({ ...p, options: e.target.value }))}
                   />
+                  {newField.type === 'checkbox' && (
+                    <span className="fb-hint">
+                      Leave blank for a simple Yes/No checkbox, or list options to let
+                      applicants select multiple (e.g. a checklist)
+                    </span>
+                  )}
                 </div>
               )}
 

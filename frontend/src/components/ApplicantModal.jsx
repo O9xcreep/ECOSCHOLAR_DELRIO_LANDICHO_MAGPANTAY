@@ -8,6 +8,12 @@ import './ApplicantModal.css'
 const SELFIE_DOC_LABEL = 'Selfie / Face Photo'
 const ID_DOC_LABEL = 'School ID'
 
+// A multi-option checkbox field stores its answer as an array - empty means
+// "nothing selected", same as an empty string for every other field type.
+function hasValue(v) {
+  return Array.isArray(v) ? v.length > 0 : Boolean(v)
+}
+
 const MOCK_BREAKDOWN = [
   { label: 'GPA Score', value: 95, color: '#10b981' },
   { label: 'Income Score', value: 88, color: '#0891b2' },
@@ -463,19 +469,19 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           </div>
 
           {/* LGU-defined custom fields, if this LGU has any configured */}
-          {profile.extra_fields && Object.keys(profile.extra_fields).some(k => profile.extra_fields[k]) && (
+          {profile.extra_fields && Object.keys(profile.extra_fields).some(k => hasValue(profile.extra_fields[k])) && (
             <div className="modal-section">
               <h3 className="section-title">Additional Information</h3>
               <div className="info-grid">
                 {Object.entries(profile.extra_fields)
-                  .filter(([, value]) => value)
+                  .filter(([, value]) => hasValue(value))
                   .map(([key, value]) => {
                     const def = customFieldDefs.find(f => f.key === key)
                     const label = def ? def.label : key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
                     return (
                       <div key={key} className="info-field">
                         <label>{label}</label>
-                        <p>{String(value)}</p>
+                        <p>{Array.isArray(value) ? value.join(', ') : String(value)}</p>
                       </div>
                     )
                   })}
