@@ -61,16 +61,15 @@ button:active:not(:disabled) {
 
 /* Per-page background photo, set via the --page-bg-image custom property on
  * the page's own root element (each page imports its own image - see
- * Dashboard.jsx/applications.jsx/etc). Light enough that the photo is
- * genuinely visible (not just a flat tint), while every card floating on top
- * stays fully opaque on its own - only page titles/subtitles sit directly on
- * the photo, so those get a soft white text-shadow below as a legibility
- * safety net regardless of how busy the underlying photo is. */
+ * Dashboard.jsx/applications.jsx/etc). Only page titles/subtitles sit
+ * directly on the photo (everything else is on a card), so those get a soft
+ * white text-shadow below as a legibility safety net regardless of how busy
+ * the underlying photo is. */
 .page-bg {
   padding: 24px;
   border-radius: 18px;
   background:
-    linear-gradient(rgba(234,240,247,.62), rgba(234,240,247,.62)),
+    linear-gradient(rgba(234,240,247,.5), rgba(234,240,247,.5)),
     var(--page-bg-image) center top / cover no-repeat;
 }
 
@@ -81,6 +80,22 @@ button:active:not(:disabled) {
 .page-title, .dash-title, .sd-title, .av-title,
 .page-sub, .dash-sub {
   text-shadow: 0 1px 2px rgba(255,255,255,.85), 0 1px 12px rgba(255,255,255,.6);
+}
+
+/* Every card floating on a .page-bg page was fully opaque, which meant the
+ * photo only ever showed in the thin gaps between cards - practically
+ * invisible on a page that's mostly cards. Turns every card surface into a
+ * light frosted-glass panel instead (semi-transparent + backdrop blur) so
+ * the photo shows through everywhere, text stays readable, and the override
+ * needs no changes in each page's own CSS - !important is deliberate here,
+ * it's a theme-level override layer, not organic component styling. Buttons/
+ * selects/inputs are excluded on purpose - shrinking their contrast reads as
+ * "disabled", not "glassy". */
+.dash-card, .table-card, .ranking-card, .settings-card, .fb-card, .ge-card,
+.av-card, .av-empty, .gl-card, .sd-card, .sd-stat-card {
+  background: rgba(255,255,255,.72) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 @media (prefers-reduced-motion: reduce) {
