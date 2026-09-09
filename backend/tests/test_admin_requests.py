@@ -327,13 +327,22 @@ class TestTwoPersonApprovalForManageMembers:
     def _peer_headers(self, client, make_user, email='peeradmin@test.com', role='lgu_admin', permissions=None):
         """A non-Super-Admin approver - an org's own lgu_admin or a lgu_member
         granted can_manage_members - the actual peer-review case this whole
-        class is testing. (Super Admin's own single-approval bypass is
-        covered separately below.)"""
+        class is testing. (Super Admin's own single-approval bypass, and the
+        sole-founder bootstrap bypass, are covered separately below.)"""
         user = make_user(email=email, role=role, permissions=permissions)
         token = client.post('/api/login', json={'email': user['email'], 'password': user['password']}).get_json()['token']
         return {'Authorization': f'Bearer {token}'}, user
 
+    def _seed_second_member(self, make_user, email='placeholder-member@test.com'):
+        """The two-person gate only makes sense once a genuine second person
+        could possibly give that second approval - a fresh org with only its
+        founder doesn't have one yet (see the sole-founder bootstrap test
+        below). Call this first so these tests exercise the real peer-review
+        case: an org that already has more than one member."""
+        make_user(email=email, role='lgu_member')
+
     def test_granting_can_manage_members_does_not_create_account_on_first_approval(self, client, db, make_user):
+        self._seed_second_member(make_user)
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers, _ = self._peer_headers(client, make_user)
@@ -353,6 +362,7 @@ class TestTwoPersonApprovalForManageMembers:
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
         headers1, admin1 = self._peer_headers(client, make_user, email='admin1@test.com', role='lgu_admin')
+        self._seed_second_member(make_user)
         client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=headers1,
                     json={'permissions': {'can_manage_members': True}})
 
@@ -370,6 +380,7 @@ class TestTwoPersonApprovalForManageMembers:
         assert updated['second_approval']['admin_id'] == str(admin2['id'])
 
     def test_same_admin_cannot_give_both_approvals(self, client, db, make_user):
+        self._seed_second_member(make_user)
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers, _ = self._peer_headers(client, make_user)
@@ -382,6 +393,7 @@ class TestTwoPersonApprovalForManageMembers:
         assert db.users.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_rejecting_a_pending_second_approval_request_works(self, client, db, make_user):
+        self._seed_second_member(make_user)
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers, _ = self._peer_headers(client, make_user)
@@ -393,6 +405,27 @@ class TestTwoPersonApprovalForManageMembers:
         assert res.status_code == 200
         assert db.admin_requests.find_one({'_id': req['_id']})['status'] == 'rejected'
         assert db.users.find_one({'email': APPLICANT_EMAIL}) is None
+
+    def test_sole_founder_single_approval_bootstraps_a_second_member(self, client, db, make_user):
+        """The bootstrap deadlock: right after founding, an org has exactly
+        one member (the founder). Requiring a *different* second admin to
+        approve the very first can_manage_members grant would be impossible
+        to satisfy, so the founder's single approval finalizes it instead -
+        same reasoning as the founding-org and Super Admin exceptions above.
+        Once this second member exists, the normal two-person rule applies
+        again for any request after this one (see test_second_different_admin_finalizes_it,
+        which seeds a second member before its own first approval)."""
+        submit_request(client, db)
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        headers, _ = self._peer_headers(client, make_user, email='founder@test.com', role='lgu_admin')
+
+        res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=headers,
+                           json={'permissions': {'can_manage_members': True}})
+        assert res.status_code == 201
+        created = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert created is not None
+        assert created['permissions']['can_manage_members'] is True
+        assert db.admin_requests.find_one({'_id': req['_id']})['status'] == 'approved'
 
     def test_super_admin_single_approval_finalizes_can_manage_members_grant(self, client, db, auth_headers):
         """The platform Super Admin is a higher trust tier that already
@@ -411,6 +444,34 @@ class TestTwoPersonApprovalForManageMembers:
         assert created is not None
         assert created['permissions']['can_manage_members'] is True
         assert db.admin_requests.find_one({'_id': req['_id']})['status'] == 'approved'
+
+    def test_sole_admin_can_self_resolve_an_already_stuck_pending_second_approval(self, client, db, make_user):
+        """Defensive recovery case: a request already sitting in
+        pending_second_approval (first_approval given by admin X), where X is
+        STILL the org's only member - e.g. data from before this fix existed,
+        or a second member's account was removed after the first approval.
+        Refusing X's own second attempt here would leave it stuck forever
+        with no possible different approver, so it's allowed to finalize."""
+        submit_request(client, db)
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        headers, admin = self._peer_headers(client, make_user, email='sole-admin@test.com', role='lgu_admin')
+
+        # Simulate the already-stuck state directly, bypassing the (now
+        # bootstrap-exempted) normal first-approval call.
+        db.admin_requests.update_one({'_id': req['_id']}, {'$set': {
+            'status': 'pending_second_approval',
+            'first_approval': {
+                'admin_id': str(admin['id']), 'admin_name': admin['email'],
+                'permissions_granted': {'can_manage_members': True, 'can_review_applicants': False, 'can_reset_program': False},
+                'approved_at': None,
+            },
+        }})
+
+        res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=headers)
+        assert res.status_code == 201
+        created = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert created is not None
+        assert created['permissions']['can_manage_members'] is True
 
     def test_permissions_without_can_manage_members_still_need_only_one_approval(self, client, db, auth_headers):
         """Regression check: the common case (review-only access) must not be

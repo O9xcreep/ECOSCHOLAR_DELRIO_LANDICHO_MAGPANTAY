@@ -3658,7 +3658,16 @@ def approve_admin_request(request_id):
     # that same grant, not re-choosing permissions from scratch.
     if req.get("status") == "pending_second_approval":
         first_approval = req.get("first_approval") or {}
-        if first_approval.get("admin_id") == current_admin_id:
+        org_member_count = db.users.count_documents({
+            "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": req.get("organization_id"),
+        })
+        # Normally the same admin can't give both approvals - but if the org
+        # still has no one else (the bootstrap case: this admin gave the
+        # first approval back when they were the org's only member, and
+        # still are), refusing them here would leave the request stuck
+        # forever with no possible second approver. Once a genuine second
+        # member exists, this exception no longer applies.
+        if first_approval.get("admin_id") == current_admin_id and org_member_count > 1:
             return jsonify({"error": "You already gave the first approval for this request - a different admin has to give the second."}), 400
 
         admin_doc = create_admin_from_approved_request(req, 'lgu_member', first_approval.get("permissions_granted"))
@@ -3685,7 +3694,19 @@ def approve_admin_request(request_id):
     # security theater, not a real additional check, so Super Admin's single
     # approval finalizes the account immediately just like the founding-org
     # path above.
-    if permissions.get('can_manage_members') and g.current_user.get('role') != 'admin':
+    #
+    # A brand-new org's founder is a harder case: right after founding, the
+    # org has exactly one member (the founder), so demanding a *different*
+    # second admin to approve the very first can_manage_members grant is
+    # impossible to satisfy - the request would sit stuck forever. Once a
+    # second team member exists, this exception no longer applies and the
+    # normal two-person rule kicks back in for every grant after that.
+    org_member_count = db.users.count_documents({
+        "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": req.get("organization_id"),
+    })
+    is_sole_member = org_member_count <= 1
+
+    if permissions.get('can_manage_members') and g.current_user.get('role') != 'admin' and not is_sole_member:
         db.admin_requests.update_one({"_id": request_oid}, {"$set": {
             "status": "pending_second_approval",
             "first_approval": {
