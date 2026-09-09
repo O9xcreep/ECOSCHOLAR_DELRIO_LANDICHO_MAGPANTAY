@@ -317,7 +317,7 @@ function FormBuilder() {
                 <label>Field Key</label>
                 <input
                   type="text"
-                  placeholder="e.g. facebook_account"
+                  placeholder="Enter field key"
                   value={newField.key}
                   onChange={e => setNewField(p => ({ ...p, key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') }))}
                 />
@@ -328,7 +328,7 @@ function FormBuilder() {
                 <label>Label (shown to applicants)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Facebook Account Name"
+                  placeholder="Enter Label"
                   value={newField.label}
                   onChange={e => setNewField(p => ({ ...p, label: e.target.value }))}
                 />
@@ -357,7 +357,7 @@ function FormBuilder() {
                   <label>Options (comma-separated)</label>
                   <input
                     type="text"
-                    placeholder="e.g. Yes, No, Not Applicable"
+                    placeholder="Yes, No, Not Applicable"
                     value={newField.options}
                     onChange={e => setNewField(p => ({ ...p, options: e.target.value }))}
                   />
@@ -443,7 +443,7 @@ function FormBuilder() {
                 <label>Document Label</label>
                 <input
                   type="text"
-                  placeholder="e.g. Certificate of Good Moral Character"
+                  placeholder="Certificate of Good Moral Character"
                   value={newDoc.label}
                   onChange={e => setNewDoc(p => ({ ...p, label: e.target.value }))}
                 />
