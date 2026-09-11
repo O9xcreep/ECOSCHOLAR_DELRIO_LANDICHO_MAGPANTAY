@@ -25,9 +25,21 @@ const MOCK_BREAKDOWN = [
 function mergeDocuments(documents, requiredDocTypes) {
   return requiredDocTypes.map(docType => {
     const uploaded = documents.find(d => d.document_name === docType.label)
-    if (uploaded) return { label: docType.label, status: uploaded.status || 'Uploaded' }
-    return { label: docType.label, status: docType.required ? 'Missing' : 'Not Required' }
+    if (uploaded) return { label: docType.label, status: uploaded.status || 'Uploaded', ocr_status: uploaded.ocr_status }
+    return { label: docType.label, status: docType.required ? 'Missing' : 'Not Required', ocr_status: null }
   })
+}
+
+// The ML decision must not run until every required document has actually been
+// OCR-verified (see check_ready_for_ml_decision in backend/app.py) - mirrors that
+// gate here so the "Verify Documents & Decide Eligibility" button only appears
+// once it would actually succeed, instead of letting the admin click it and get
+// a 409 back. The selfie is excluded - it's never OCR-verified, only manually
+// compared against the ID photo (same exception the backend gate makes).
+function allRequiredDocsVerified(documents, requiredDocTypes) {
+  const required = requiredDocTypes.filter(r => r.required && r.label !== SELFIE_DOC_LABEL)
+  if (required.length === 0) return true
+  return mergeDocuments(documents, required).every(doc => doc.status === 'Uploaded' && doc.ocr_status)
 }
 
 function ScoreBar({ label, value, color }) {
@@ -205,6 +217,13 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
       })
       const data = await response.json()
       setOcrResult(data)
+
+      // Refresh so the doc's ocr_status (and the Verify & Decide gate below)
+      // reflect this result immediately, without needing to reopen the modal.
+      apiFetch(`/api/documents/${applicantId}`)
+        .then(res => res.json())
+        .then(docsData => setDocuments(docsData.documents || []))
+        .catch(() => {})
     } catch {
       setOcrResult({ status: 'Error', error: 'Cannot connect to server' })
     }
@@ -595,6 +614,15 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                     <span className={`doc-badge ${getDocBadge(doc.status)}`}>
                       {doc.status}
                     </span>
+                    {doc.status === 'Uploaded' && (
+                      <span className={`doc-badge ${
+                        doc.ocr_status === 'Verified' ? 'badge-green' :
+                        doc.ocr_status === 'Partially Verified' ? 'badge-yellow' :
+                        doc.ocr_status === 'Failed Verification' ? 'badge-red' : 'badge-gray'
+                      }`}>
+                        {doc.ocr_status || 'Not verified yet'}
+                      </span>
+                    )}
                   </div>
                   <div className="doc-item-actions">
                     {(doc.status === 'Submitted' || doc.status === 'Uploaded') && (
@@ -778,12 +806,17 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                 {updating ? 'Sending...' : 'Request Changes'}
               </button>
             )}
-            {isPending && (
+            {isPending && allRequiredDocsVerified(documents, requiredDocTypes) && (
               <button className="btn-approve-modal"
                 disabled={updating}
                 onClick={handleVerifyAndDecide}>
                 {updating ? 'Deciding...' : 'Verify Documents & Decide Eligibility'}
               </button>
+            )}
+            {isPending && !allRequiredDocsVerified(documents, requiredDocTypes) && (
+              <span style={{ fontSize: '13px', color: '#4b5563' }}>
+                Verify every document above (OCR) before deciding eligibility.
+              </span>
             )}
             {isWithdrawn && (
               <span style={{ fontSize: '13px', color: '#4b5563' }}>

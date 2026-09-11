@@ -75,6 +75,24 @@ class TestScoreApplicantGate:
         assert body['blocked'] is True
         assert 'fraud' in body['reason'].lower()
 
+    def test_selfie_does_not_need_ocr_verification(self, client, db, auth_headers):
+        """The selfie is required but is never run through OCR (it's a face photo,
+        manually compared against the ID in the UI - see ApplicantModal.jsx) - the
+        gate must not demand ocr_status on it, or every applicant would be
+        permanently blocked with no way to satisfy the gate through the UI."""
+        seed_required_docs(db)
+        docs = uploaded_docs()
+        for d in docs:
+            if d['document_name'] == app_module.SELFIE_DOC_LABEL:
+                d.pop('ocr_status', None)
+                d.pop('ocr_confidence', None)
+                d.pop('ocr_flags', None)
+        applicant_id = make_ml_ready_applicant(db, documents=docs)
+        res = client.get(f'/api/score-applicant/{applicant_id}', headers=auth_headers())
+        body = res.get_json()
+        assert res.status_code == 200
+        assert not body.get('blocked')
+
     def test_not_blocked_once_verified_and_flags_resolved(self, client, db, auth_headers):
         seed_required_docs(db)
         applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs())

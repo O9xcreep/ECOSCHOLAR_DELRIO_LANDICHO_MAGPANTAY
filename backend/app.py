@@ -957,6 +957,7 @@ def serialize_document(d):
         "document_name": d.get('document_name'),
         "status": d.get('status', 'Missing'),
         "uploaded_at": iso(d.get('uploaded_at')),
+        "ocr_status": d.get('ocr_status'),
     }
 
 def serialize_audit_entry(a):
@@ -3098,7 +3099,13 @@ def check_ready_for_ml_decision(db, applicant, org_id):
     if missing:
         return False, f"Missing required documents: {', '.join(sorted(missing))}"
 
-    unverified = [label for label in required_labels if not uploaded[label].get('ocr_status')]
+    # The selfie is deliberately never OCR-verified (it's a face photo, shown
+    # side-by-side with the ID for the admin to manually compare - see
+    # ApplicantModal.jsx) - only the OCR-able documents need ocr_status set.
+    unverified = [
+        label for label in required_labels
+        if label != SELFIE_DOC_LABEL and not uploaded[label].get('ocr_status')
+    ]
     if unverified:
         return False, f"These documents still need OCR verification before scoring: {', '.join(sorted(unverified))}"
 
