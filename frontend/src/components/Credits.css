@@ -24,8 +24,41 @@
 
 .credits-group li {
   display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.credits-logo {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: #f5f6f8;
+  border: 1px solid #ececef;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.credits-logo img {
+  display: block;
+}
+
+.credits-logo-generic {
+  color: #9aa4b2;
+}
+
+.credits-logo-generic svg {
+  width: 16px;
+  height: 16px;
+}
+
+.credits-text {
+  display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
 .credits-group li strong {
