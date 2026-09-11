@@ -433,6 +433,7 @@ useEffect(() => {
           <div className="duplicate-list">
             {duplicateFlags.map((flag, i) => {
               const isDocFlag = flag.reason === 'duplicate_document' || flag.reason === 'near_duplicate_document'
+              const isMetadataFlag = flag.reason === 'suspicious_metadata'
               return (
               <div key={i} className="duplicate-row">
                 <div className="duplicate-info">
@@ -445,6 +446,8 @@ useEffect(() => {
                         ? `"${flag.document_name}" is the exact same file already uploaded by ${flag.duplicate_of_name || 'another applicant'}`
                         : flag.reason === 'near_duplicate_document'
                         ? `"${flag.document_name}" looks like a near-identical copy of "${flag.duplicate_of_document_name || flag.document_name}" uploaded by ${flag.duplicate_of_name || 'another applicant'} (similarity distance: ${flag.similarity_distance} - lower means more alike)`
+                        : isMetadataFlag
+                        ? (flag.details || []).join(' ') || `"${flag.document_name}" has suspicious file metadata`
                         : `Same name + birthdate as existing applicant`}
                     </p>
                     <p className="duplicate-date">
@@ -453,7 +456,7 @@ useEffect(() => {
                           month: 'short', day: 'numeric', year: 'numeric'
                         })}
                     </p>
-                    {isDocFlag && (
+                    {(isDocFlag || isMetadataFlag) && (
                       <div className="duplicate-view-actions">
                         <button
                           className="btn-view-flag-doc"
@@ -461,12 +464,14 @@ useEffect(() => {
                           onClick={() => handleViewFlagDoc(flag.applicant_id, flag.document_name, `a-${flag.id}`)}>
                           {openingDoc === `a-${flag.id}` ? 'Opening...' : `View ${flag.applicant_name}'s document`}
                         </button>
-                        <button
-                          className="btn-view-flag-doc"
-                          disabled={openingDoc === `b-${flag.id}`}
-                          onClick={() => handleViewFlagDoc(flag.duplicate_of_id, flag.duplicate_of_document_name || flag.document_name, `b-${flag.id}`)}>
-                          {openingDoc === `b-${flag.id}` ? 'Opening...' : `View ${flag.duplicate_of_name || 'other applicant'}'s document`}
-                        </button>
+                        {isDocFlag && (
+                          <button
+                            className="btn-view-flag-doc"
+                            disabled={openingDoc === `b-${flag.id}`}
+                            onClick={() => handleViewFlagDoc(flag.duplicate_of_id, flag.duplicate_of_document_name || flag.document_name, `b-${flag.id}`)}>
+                            {openingDoc === `b-${flag.id}` ? 'Opening...' : `View ${flag.duplicate_of_name || 'other applicant'}'s document`}
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

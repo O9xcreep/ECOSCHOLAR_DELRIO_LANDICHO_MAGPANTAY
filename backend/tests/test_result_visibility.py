@@ -172,6 +172,14 @@ class TestStudentApplicationMasking:
 class TestNotificationMasking:
     def test_rejection_notification_generic_when_hidden(self, client, db, auth_headers, make_user):
         student = make_user(email='stu7@test.com', password='TestPass123', role='student')
+        # Documents must be OCR-verified before the ML decision can run (see
+        # check_ready_for_ml_decision) - seed one required doc, already uploaded
+        # and verified, so this test can reach the notification-masking logic
+        # under test instead of being blocked by the document gate.
+        db.document_requirements.insert_many([
+            {'label': 'Form A', 'required': True, 'enabled': True},
+            {'label': app_module.SELFIE_DOC_LABEL, 'required': True, 'enabled': True},
+        ])
         applicant_id = db.applicants.insert_one({
             'full_name': 'Test', 'email': 'stu7@test.com', 'user_id': student['id'],
             'gender': 'Female', 'family_size': 4, 'num_siblings': 1, 'num_siblings_studying': 1,
@@ -181,6 +189,10 @@ class TestNotificationMasking:
             'has_other_scholarship': False,
             'academic': {'gpa': 70},
             'application': {'status': 'Newly Submitted', 'submitted_at': datetime.utcnow()},
+            'documents': [
+                {'document_name': 'Form A', 'status': 'Uploaded', 'ocr_status': 'Verified'},
+                {'document_name': app_module.SELFIE_DOC_LABEL, 'status': 'Uploaded', 'ocr_status': 'Verified'},
+            ],
         }).inserted_id
         db.settings.update_one(settings_filter(db), {'$set': {'results_visible_override': False}}, upsert=True)
 

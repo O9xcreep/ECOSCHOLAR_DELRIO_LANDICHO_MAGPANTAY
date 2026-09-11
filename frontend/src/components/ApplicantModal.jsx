@@ -118,7 +118,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   apiFetch(`/api/score-applicant/${applicant.id}`)
     .then(res => res.json())
     .then(data => {
-      if (data.ml_score !== undefined) {
+      if (data.ml_score !== undefined || data.blocked) {
         setMlData(data)
       }
     })
@@ -386,6 +386,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           {/* ML Score */}
           <div className="modal-section">
             <h3 className="section-title">ML Eligibility Score</h3>
+            {mlData?.blocked ? (
+              <div className="ml-score-card">
+                <p className="ml-note">Score pending — {mlData.reason}</p>
+              </div>
+            ) : (
             <div className="ml-score-card">
               <div className="ml-score-main">
                 <div className="ml-score-circle"
@@ -414,6 +419,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                 ))}
               </div>
             </div>
+            )}
           </div>
 
           {/* Personal Info */}

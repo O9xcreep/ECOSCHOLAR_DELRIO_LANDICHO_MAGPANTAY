@@ -5,6 +5,7 @@ import hashlib
 import threading
 import imagehash
 import pdf2image
+import pypdf
 import requests
 from PIL import Image
 from datetime import datetime, timedelta
@@ -545,6 +546,42 @@ def compute_perceptual_hash(file_bytes, filename):
 # two different documents of the same type (e.g. two different students' report cards)
 # routinely score 20+.
 NEAR_DUPLICATE_THRESHOLD = 8
+
+# Substrings of image/PDF editing-tool names that shouldn't legitimately appear in the
+# metadata of a scanned/photographed government or school form.
+EDITING_TOOL_SIGNATURES = ('photoshop', 'gimp', 'canva', 'illustrator', 'snapseed', 'picsart', 'lightroom')
+
+def extract_metadata_flags(file_bytes, filename):
+    """Best-effort forensic check of embedded file metadata (EXIF Software tag for
+    images, Producer/Creator for PDFs) for signs the document was produced or edited
+    with an image-editing tool rather than scanned/photographed/generated as a form.
+    Deliberately does NOT flag missing metadata (messaging apps strip EXIF on send,
+    which is extremely common and not itself suspicious) - only an explicit editing-tool
+    signature. Returns a list of human-readable flag strings (empty if nothing found or
+    on any failure reading the file)."""
+    flags = []
+    try:
+        ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+        if ext == 'pdf':
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            meta = reader.metadata or {}
+            producer = f"{meta.get('/Producer') or ''} {meta.get('/Creator') or ''}".strip()
+            if producer and any(tool in producer.lower() for tool in EDITING_TOOL_SIGNATURES):
+                flags.append(
+                    f"PDF metadata shows it was produced/edited with '{producer}', "
+                    f"not a scan or form generator - worth a manual check."
+                )
+        else:
+            image = Image.open(io.BytesIO(file_bytes))
+            software = image.getexif().get(0x0131, '')  # Software tag
+            if software and any(tool in software.lower() for tool in EDITING_TOOL_SIGNATURES):
+                flags.append(
+                    f"Image metadata shows it was processed with '{software}', "
+                    f"suggesting possible editing - worth a manual check."
+                )
+    except Exception:
+        pass
+    return flags
 
 def safe_mime_for(filename):
     ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
@@ -1877,6 +1914,10 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     if (applicant.get('application') or {}).get('status') == 'Withdrawn':
         return {"error": "This application was withdrawn by the applicant and can't be modified."}, False
 
+    ready, reason = check_ready_for_ml_decision(db, applicant, org_id)
+    if not ready:
+        return {"error": reason}, False
+
     row, ok = build_feature_row(applicant)
     if not ok:
         return {
@@ -2173,6 +2214,7 @@ def upload_document():
             file_bytes = file.read()
             file_hash = hashlib.sha256(file_bytes).hexdigest()
             phash = compute_perceptual_hash(file_bytes, filename)
+            metadata_flags = extract_metadata_flags(file_bytes, filename)
 
             new_gridfs_id = _fs.put(
                 file_bytes, filename=unique_filename,
@@ -2187,6 +2229,7 @@ def upload_document():
                     "documents.$.uploaded_at": now,
                     "documents.$.file_hash": file_hash,
                     "documents.$.phash": phash,
+                    "documents.$.metadata_flags": metadata_flags,
                 }}
             )
 
@@ -2200,6 +2243,7 @@ def upload_document():
                         "uploaded_at": now,
                         "file_hash": file_hash,
                         "phash": phash,
+                        "metadata_flags": metadata_flags,
                     }}}
                 )
 
@@ -2274,6 +2318,26 @@ def upload_document():
                 except Exception:
                     pass
 
+            # ── Fraud signal: document metadata (EXIF Software tag / PDF Producer)
+            # names an image-editing tool, suggesting the file was edited rather than
+            # scanned/photographed/generated as a form. Reuses the same duplicate_flags
+            # mechanism as the checks above so it plugs into the existing alert/resolve
+            # workflow; duplicate_of_id is None since there's no other applicant involved.
+            if metadata_flags:
+                try:
+                    db.duplicate_flags.insert_one({
+                        "applicant_id": applicant_oid,
+                        "duplicate_of_id": None,
+                        "reason": "suspicious_metadata",
+                        "document_name": document_name,
+                        "details": metadata_flags,
+                        "flagged_at": now,
+                        "resolved": False,
+                        "organization_id": org_id,
+                    })
+                except Exception:
+                    pass
+
             return jsonify({
                 "message": "File uploaded successfully",
                 "filename": unique_filename
@@ -2340,9 +2404,23 @@ def verify_document_route():
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
+        # Surface metadata-forensics flags (from upload time, Part A) alongside the
+        # OCR content flags, so an admin sees both in one place.
+        result['flags'] = list(result['flags']) + list(doc.get('metadata_flags') or [])
+
+        # Persist the OCR outcome so it can be gated on later (e.g. before the ML
+        # scoring/decision endpoints run) - previously this was computed and returned
+        # to the frontend but never saved, so there was no durable record that a
+        # document had actually been checked.
         db.applicants.update_one(
             {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": current_organization_oid()},
-            {"$set": {"documents.$.status": "Uploaded"}}
+            {"$set": {
+                "documents.$.status": "Uploaded",
+                "documents.$.ocr_status": result['status'],
+                "documents.$.ocr_confidence": result['confidence'],
+                "documents.$.ocr_flags": result['flags'],
+                "documents.$.ocr_checked_at": datetime.utcnow(),
+            }}
         )
 
         return jsonify(result)
@@ -2585,6 +2663,7 @@ def get_duplicate_flags():
                 "similarity_distance": f.get('similarity_distance'),
                 "duplicate_of_name": a2.get('full_name'),
                 "duplicate_of_email": a2.get('email'),
+                "details": f.get('details'),
             })
         return jsonify({"flags": flags})
     except Exception as e:
@@ -3002,6 +3081,31 @@ COMPUTED_STATUSES = {'Newly Submitted', 'Pending Verification', 'Incomplete'}
 
 def get_required_doc_labels(db, org_id):
     return {r['label'] for r in get_doc_requirements_collection(db, org_id).find({"required": True, "enabled": True, "organization_id": org_id})}
+
+def check_ready_for_ml_decision(db, applicant, org_id):
+    """Gate for the ML scoring/decision endpoints: every required document must
+    have actually been through OCR verification (not just uploaded), and any
+    fraud flag on this applicant (duplicate/near-duplicate documents, suspicious
+    metadata, matching name+birthdate or email at submission) must have been
+    resolved by an admin first. Deliberately does NOT require ocr_status to be
+    'Verified' - a 'Partially Verified' or 'Failed Verification' result is meant
+    to prompt a manual look (see ocr.py), not block the decision outright; this
+    only requires that the check was actually run."""
+    required_labels = get_required_doc_labels(db, org_id)
+    uploaded = {d.get('document_name'): d for d in applicant.get('documents', []) if d.get('status') == 'Uploaded'}
+
+    missing = required_labels - uploaded.keys()
+    if missing:
+        return False, f"Missing required documents: {', '.join(sorted(missing))}"
+
+    unverified = [label for label in required_labels if not uploaded[label].get('ocr_status')]
+    if unverified:
+        return False, f"These documents still need OCR verification before scoring: {', '.join(sorted(unverified))}"
+
+    if db.duplicate_flags.find_one({"applicant_id": applicant['_id'], "resolved": False, "organization_id": org_id}):
+        return False, "This applicant has unresolved fraud flags that must be reviewed before a decision can be made."
+
+    return True, None
 
 def compute_display_status(doc, required_labels):
     raw = (doc.get('application') or {}).get('status')
@@ -4102,6 +4206,19 @@ def score_applicant(applicant_id):
 
         if not applicant:
             return jsonify({"error": "Applicant not found"}), 404
+
+        org_id = current_organization_oid()
+        ready, reason = check_ready_for_ml_decision(db, applicant, org_id)
+        if not ready:
+            # This is an automatic preview fetched on every modal open, not an
+            # explicit action - report it as blocked (200) rather than erroring,
+            # so the frontend can just show why no score is available yet.
+            return jsonify({
+                "applicant_id": applicant_id,
+                "ml_score": None,
+                "blocked": True,
+                "reason": reason,
+            })
 
         row, ok = build_feature_row(applicant)
         if not ok:
