@@ -198,7 +198,11 @@ class TestCheckDocumentsRoute:
         body = res.get_json()
         assert res.status_code == 200
         assert any('could not be OCR-checked' in w for w in body['warnings'])
-        assert len(body['results']) == 2  # Form A + Form B, not the selfie
+        # Form A + Form B are checked concurrently (not the selfie) - each result
+        # must still be correctly attributed to its own document, regression check
+        # for a temp-file collision that once let concurrent checks corrupt each
+        # other when they shared one filename.
+        assert {r['document_name'] for r in body['results']} == {'Form A', 'Form B'}
 
     def test_no_warnings_when_already_verified(self, client, db, auth_headers):
         seed_required_docs(db)

@@ -3,6 +3,8 @@ import io
 import secrets
 import hashlib
 import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 import imagehash
 import pdf2image
 import pypdf
@@ -1920,10 +1922,12 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     # then let the LGU see the results as warnings rather than gating on them -
     # whether a document is genuine is their call, not an algorithm's.
     required_labels = get_required_doc_labels(db, org_id)
-    for d in applicant.get('documents', []):
-        if (d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
-                and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')):
-            run_ocr_check(db, applicant, applicant_oid, d['document_name'], org_id)
+    to_check = [
+        d['document_name'] for d in applicant.get('documents', [])
+        if d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
+        and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')
+    ]
+    run_ocr_checks_concurrently(db, applicant, applicant_oid, to_check, org_id)
     applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
     warnings = collect_verification_warnings(db, applicant, org_id)
 
@@ -2362,13 +2366,13 @@ def upload_document():
 
     return jsonify({"error": "File type not allowed"}), 400
 
-def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
-    """Runs OCR + the content/fraud cross-checks on one already-uploaded document
-    and persists the outcome. OCR here is advisory, not a gate - it surfaces
-    confidence/flags for a human to weigh, it never blocks anything on its own
-    (see collect_verification_warnings). Returns the result dict (extended with
-    'document_name'), or {'document_name', 'error': ...} if the file couldn't be
-    read (missing from storage, corrupt, etc.) - never raises."""
+def compute_ocr_result(applicant, applicant_oid, document_name):
+    """Runs OCR + the content/fraud cross-checks on one already-uploaded document.
+    Read-only w.r.t. the database (only reads the GridFS file bytes) - safe to
+    call from multiple threads at once, see run_ocr_checks_concurrently below.
+    Returns the result dict (extended with 'document_name'), or
+    {'document_name', 'error': ...} if the file couldn't be read (missing from
+    storage, corrupt, etc.) - never raises."""
     doc = next((d for d in applicant.get('documents', []) if d.get('document_name') == document_name), None)
     if not doc or not doc.get('gridfs_id'):
         return {"document_name": document_name, "error": "Document not found"}
@@ -2380,8 +2384,15 @@ def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
 
     # OCR needs a real file path, so write GridFS bytes to a scratch temp
     # file for the duration of processing only - nothing is kept on disk.
+    # Unique per (applicant, document, call) - several documents for the same
+    # applicant can be OCR'd concurrently, so a filename shared across them
+    # would let two calls stomp on each other's temp file mid-read.
     ext = os.path.splitext(grid_out.filename)[1] or '.bin'
-    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_verify_{applicant_oid}{ext}")
+    safe_doc_name = re.sub(r'[^A-Za-z0-9_-]', '_', document_name)
+    temp_path = os.path.join(
+        app.config['UPLOAD_FOLDER'],
+        f"temp_verify_{applicant_oid}_{safe_doc_name}_{uuid.uuid4().hex}{ext}"
+    )
     with open(temp_path, 'wb') as f:
         f.write(grid_out.read())
 
@@ -2406,9 +2417,16 @@ def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
     # content flags, so a reviewer sees both in one place.
     result['flags'] = list(result['flags']) + list(doc.get('metadata_flags') or [])
     result['document_name'] = document_name
+    return result
 
+def persist_ocr_result(db, applicant_oid, org_id, result):
+    """Saves one compute_ocr_result() outcome. A file-not-found/missing-doc
+    error has nothing to persist - it just means this document stays
+    unchecked, which collect_verification_warnings already reports."""
+    if 'error' in result:
+        return
     db.applicants.update_one(
-        {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": org_id},
+        {"_id": applicant_oid, "documents.document_name": result['document_name'], "organization_id": org_id},
         {"$set": {
             "documents.$.status": "Uploaded",
             "documents.$.ocr_status": result['status'],
@@ -2417,7 +2435,33 @@ def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
             "documents.$.ocr_checked_at": datetime.utcnow(),
         }}
     )
+
+def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
+    """Single-document OCR check (used by POST /api/verify-document): compute,
+    then persist. OCR here is advisory, not a gate - it surfaces confidence/
+    flags for a human to weigh, it never blocks anything on its own (see
+    collect_verification_warnings)."""
+    result = compute_ocr_result(applicant, applicant_oid, document_name)
+    persist_ocr_result(db, applicant_oid, org_id, result)
     return result
+
+def run_ocr_checks_concurrently(db, applicant, applicant_oid, document_names, org_id):
+    """Runs OCR for several of one applicant's documents at once instead of one
+    after another - each check mostly waits on the Tesseract subprocess (the
+    GIL is released for that wait), so a small thread pool cuts the total wait
+    roughly in proportion to how many documents need checking. All the actual
+    database writes happen afterward, sequentially on the calling thread -
+    compute_ocr_result never touches the database, so there's nothing to race."""
+    if not document_names:
+        return []
+    with ThreadPoolExecutor(max_workers=min(4, len(document_names))) as pool:
+        results = list(pool.map(
+            lambda name: compute_ocr_result(applicant, applicant_oid, name),
+            document_names
+        ))
+    for result in results:
+        persist_ocr_result(db, applicant_oid, org_id, result)
+    return results
 
 # ── OCR VERIFY DOCUMENT ── admin-only: OCR only ever runs on the admin verification
 # side, never during a student's own application (see the removed /api/ocr-autofill).
@@ -2475,11 +2519,12 @@ def check_documents_route(applicant_id):
             return jsonify({"error": "Applicant not found"}), 404
 
         required_labels = get_required_doc_labels(db, org_id)
-        results = []
-        for d in applicant.get('documents', []):
-            if (d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
-                    and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')):
-                results.append(run_ocr_check(db, applicant, applicant_oid, d['document_name'], org_id))
+        to_check = [
+            d['document_name'] for d in applicant.get('documents', [])
+            if d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
+            and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')
+        ]
+        results = run_ocr_checks_concurrently(db, applicant, applicant_oid, to_check, org_id)
 
         applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
         warnings = collect_verification_warnings(db, applicant, org_id)

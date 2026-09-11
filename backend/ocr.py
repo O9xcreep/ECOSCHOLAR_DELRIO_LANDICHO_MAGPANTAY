@@ -10,18 +10,27 @@ if os.path.exists(_tesseract_cmd):
     pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
 
 MIN_DIMENSION = 1600  # upscale below this so small phone photos have enough resolution to OCR well
+MAX_DIMENSION = 2400  # downscale above this - modern phone photos (4000px+) cost real OCR time
+                       # with no accuracy benefit past this point, since text height is what matters
+MAX_PDF_PAGES = 3      # these are single-purpose forms/certificates, not long documents - caps a
+                       # runaway multi-page upload from turning one OCR check into a minute-long wait
 
 def preprocess_image(img):
     """Clean up a scanned/photographed document before OCR: grayscale, stretch
-    contrast, binarize, and upscale small images. Cheap, no new dependencies,
-    and the single biggest lever for accuracy on real phone-camera photos."""
+    contrast, binarize, and rescale to a size Tesseract handles well. Cheap, no
+    new dependencies, and the single biggest lever for accuracy AND speed on
+    real phone-camera photos."""
     img = ImageOps.exif_transpose(img)  # respect phone camera rotation metadata
     img = img.convert('L')  # grayscale
     img = ImageOps.autocontrast(img, cutoff=1)
 
     width, height = img.size
-    if max(width, height) < MIN_DIMENSION:
-        scale = MIN_DIMENSION / max(width, height)
+    longest = max(width, height)
+    if longest < MIN_DIMENSION:
+        scale = MIN_DIMENSION / longest
+        img = img.resize((int(width * scale), int(height * scale)), Image.LANCZOS)
+    elif longest > MAX_DIMENSION:
+        scale = MAX_DIMENSION / longest
         img = img.resize((int(width * scale), int(height * scale)), Image.LANCZOS)
 
     # Simple binarization - push faded/uneven scan backgrounds to white, text to black
@@ -41,7 +50,7 @@ def extract_text_from_image(image_path):
 def extract_text_from_pdf(pdf_path):
     """Extract text from PDF file"""
     try:
-        pages = pdf2image.convert_from_path(pdf_path, dpi=300)
+        pages = pdf2image.convert_from_path(pdf_path, dpi=200, first_page=1, last_page=MAX_PDF_PAGES)
         full_text = ''
         for page in pages:
             page = preprocess_image(page)
