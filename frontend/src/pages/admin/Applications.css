@@ -192,8 +192,15 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.app-table {
-  min-width: 640px;
+/* Only enforced above ~640px - below that (see the empty-row fix in the
+   RESPONSIVE block) a forced min-width made even a one-line "No applicants
+   found." message get cut off with no visible hint that it needed a
+   horizontal swipe to read. Real, wide data rows still get their own
+   horizontal scroll from .table-scroll when they don't fit. */
+@media (min-width: 641px) {
+  .app-table {
+    min-width: 640px;
+  }
 }
 
 .app-table {

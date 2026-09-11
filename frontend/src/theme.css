@@ -109,7 +109,7 @@ button:active:not(:disabled) {
  * (student and admin) reads as one consistent "book cover" visual family
  * instead of the stat tiles being the only bordered surface in the app. */
 .dash-card, .table-card, .ranking-card, .settings-card, .fb-card, .ge-card,
-.av-card, .av-empty, .gl-card, .sd-card {
+.av-card, .av-empty, .gl-card, .sd-card, .step-content, .success-screen {
   background: rgba(255,255,255,.72) !important;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);

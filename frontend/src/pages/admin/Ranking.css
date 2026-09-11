@@ -28,6 +28,7 @@
 .ranking-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -122,21 +123,6 @@
 }
 
 /* ── ML NOTE ── */
-.ml-note-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  background: var(--accent-light);
-  border: 1px solid var(--accent-light);
-  border-radius: 12px;
-  padding: 14px 18px;
-  font-size: 13px;
-  color: #374151;
-  line-height: 1.6;
-}
-
-.ml-note-box span { font-size: 20px; flex-shrink: 0; }
-
 /* ── CARD ── */
 .ranking-card {
   background: white;

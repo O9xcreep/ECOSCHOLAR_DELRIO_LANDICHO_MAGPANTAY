@@ -66,7 +66,12 @@
   font-size: 18px;
   font-weight: 700;
   color: #1e293b;
-  overflow-wrap: anywhere;
+  /* break-word (not "anywhere") - a normal name should wrap at the space
+     between words first; "anywhere" was breaking every short name into one
+     character per line the moment the header got even a little tight, e.g.
+     on a phone screen. Only an actually unbreakable string (no spaces) falls
+     back to breaking mid-word, which is what this is really here for. */
+  overflow-wrap: break-word;
 }
 
 .modal-course {
@@ -471,6 +476,24 @@
   }
   .ml-score-card {
     flex-direction: column;
+  }
+
+  .modal-overlay {
+    padding: 8px;
+  }
+
+  /* The avatar + name/course/email block and the status badge + close button
+     used to fight for space on one row - name, badge and button all cramped
+     into a phone-width header. Wrapping to two rows gives the name column
+     enough room to actually wrap at word boundaries instead of overflowing. */
+  .modal-header {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 16px;
+  }
+
+  .modal-header-right {
+    margin-left: auto;
   }
 }
 

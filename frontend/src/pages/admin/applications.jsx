@@ -123,6 +123,12 @@ function ApplicationsTableCard({
           <p style={{ marginBottom: '14px' }}>Couldn't load applications. Check your connection and try again.</p>
           <button className="btn-retry" onClick={onRetry}>Retry</button>
         </div>
+      ) : apps.length === 0 ? (
+        // Rendered outside the table entirely - a table wide enough for 7
+        // columns of real data forced even this one-line message into the
+        // same width, which on a narrow phone screen cut it off with no
+        // visible hint that it needed a horizontal swipe to read.
+        <div className="empty-row">No applicants found.</div>
       ) : (
         <div className="table-scroll">
         <table className="app-table">
@@ -143,14 +149,7 @@ function ApplicationsTableCard({
             </tr>
           </thead>
           <tbody>
-            {apps.length === 0 ? (
-              <tr>
-                <td colSpan={reviewable ? 8 : 7} className="empty-row">
-                  No applicants found.
-                </td>
-              </tr>
-            ) : (
-              apps.map((app, i) => {
+            {apps.map((app, i) => {
                 const displayed = reviewable ? app.application_status : displayStatus(app.application_status, app.ml_status)
                 return (
                 <tr key={app.id}
@@ -221,7 +220,7 @@ function ApplicationsTableCard({
                 </tr>
                 )
               })
-            )}
+            }
           </tbody>
         </table>
         </div>
@@ -340,19 +339,18 @@ function Applications() {
     [fetchSection, decidedPage]
   )
 
-  // Lightweight counts for the tab badges/stat cards - only reads `total`
-  // from each response, doesn't fetch full applicant records.
+  // Lightweight counts for the tab badges/stat cards - one request that computes
+  // every tab's count in a single pass server-side, instead of one request per
+  // tab (several of which used to independently re-scan and recompute status
+  // for the same "Newly Submitted" pool - see /api/applicants/status-counts).
   const fetchTabCounts = useCallback(async () => {
-    const entries = await Promise.all(TABS.map(async tab => {
-      try {
-        const res = await apiFetch(`/api/applicants?page=1&limit=1&cycle=current&status=${encodeURIComponent(tab.value)}`)
-        const data = await res.json()
-        return [tab.key, data.total || 0]
-      } catch {
-        return [tab.key, 0]
-      }
-    }))
-    setTabCounts(Object.fromEntries(entries))
+    try {
+      const res = await apiFetch('/api/applicants/status-counts?cycle=current')
+      const data = await res.json()
+      setTabCounts(data)
+    } catch {
+      setTabCounts({})
+    }
   }, [])
 
   useEffect(() => {

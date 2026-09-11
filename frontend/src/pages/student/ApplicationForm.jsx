@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, displayStatus } from '../../api'
+import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
 
 // ── DATA ──
@@ -942,7 +943,7 @@ function ApplicationForm() {
   // ── EXISTING APPLICATION SCREEN ──
   if (existingApplication) {
   return (
-    <div className="form-container">
+    <div className="form-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
       <div className="success-screen">
         <h2>Duplicate Application Detected</h2>
 
@@ -1018,13 +1019,13 @@ function ApplicationForm() {
 }
 
   if (!cycleCheckDone) {
-    return <div className="form-container"><p>Loading...</p></div>
+    return <div className="form-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}><p>Loading...</p></div>
   }
 
   // ── SUCCESS SCREEN ──
   if (submitSuccess) {
     return (
-      <div className="form-container">
+      <div className="form-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
         <div className="success-screen">
           <h2>Application Submitted</h2>
           <p>Your scholarship application has been successfully submitted.</p>
@@ -1043,7 +1044,7 @@ function ApplicationForm() {
   }
 
   return (
-    <div className="form-container">
+    <div className="form-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
       <StepIndicator currentStep={currentStep} />
 
       {currentStep === 1 &&

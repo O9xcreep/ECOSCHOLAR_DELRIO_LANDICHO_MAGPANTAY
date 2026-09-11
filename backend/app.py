@@ -1526,6 +1526,44 @@ def get_applicants():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
+# ── APPLICANT TAB/BADGE COUNTS (ALL AT ONCE) ── the Applications page needs a
+# count per tab (Newly Submitted, Pending Verification, Incomplete, Waitlisted,
+# Approved, Rejected, Withdrawn, All). Naively that's one GET /api/applicants
+# per tab - and three of those (Newly Submitted, Pending Verification,
+# Incomplete) each independently re-fetch the entire "Newly Submitted" pool and
+# recompute compute_admin_status() for every document in it, since those three
+# aren't real stored values Mongo can count directly (see COMPUTED_STATUSES).
+# Fetched in parallel that's still the same pool scanned and recomputed 3-4x
+# over on every page load. This does it once.
+@app.route('/api/applicants/status-counts', methods=['GET'])
+@require_permission('can_review_applicants')
+def applicant_status_counts():
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        base_query = {"organization_id": org_id}
+        if request.args.get('cycle') == 'current':
+            base_query["cycle_id"] = get_current_cycle_id(db, org_id)
+
+        required_labels = get_required_doc_labels(db, org_id)
+
+        counts = {s: 0 for s in COMPUTED_STATUSES}
+        newly_submitted_query = dict(base_query, **{"application.status": "Newly Submitted"})
+        for doc in db.applicants.find(newly_submitted_query, {"documents": 1, "application": 1}):
+            counts[compute_admin_status(doc, required_labels)] += 1
+
+        for status in ("Waitlisted", "Approved", "Rejected", "Withdrawn"):
+            status_query = dict(base_query, **build_status_query_fragment([status]))
+            counts[status] = db.applicants.count_documents(status_query)
+
+        counts["All"] = sum(counts.values())
+        return jsonify(counts)
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
 # ── GET SINGLE APPLICANT ──
 @app.route('/api/applicants/<applicant_id>', methods=['GET'])
 @require_permission('can_review_applicants')

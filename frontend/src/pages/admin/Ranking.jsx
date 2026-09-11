@@ -188,18 +188,6 @@ function Ranking() {
         <StatTile value={slots} label="Available Slots" color="#3d6fa3" index={3} />
       </div>
 
-      {/* ML Note */}
-      <div className="ml-note-box">
-        <p>
-          Rank is the eligibility model's <strong>Total Score</strong> (Random
-          Forest Regressor), computed from GPA, household income, family size,
-          siblings, parents' education and occupation, and housing situation.
-          The <strong>Status</strong> column (Approved/Rejected) comes from the
-          separate XGBoost classifier once an admin verifies documents -
-          they can disagree on a given applicant, which is expected.
-        </p>
-      </div>
-
       {loading ? (
         <div className="ranking-loading">
           Generating ML rankings...
