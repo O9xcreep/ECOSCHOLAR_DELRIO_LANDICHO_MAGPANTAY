@@ -518,56 +518,6 @@
   background: var(--accent-light);
 }
 
-.ocr-loading {
-  text-align: center;
-  padding: 16px;
-  color: var(--accent);
-  font-size: 14px;
-  background: var(--accent-light);
-  border-radius: 10px;
-  margin-top: 12px;
-}
-
-.ocr-result {
-  margin-top: 12px;
-  border-radius: 10px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.ocr-verified  { background: #f0fdf4; border: 1px solid #bbf7d0; }
-.ocr-partial   { background: #fffbeb; border: 1px solid #fde68a; }
-.ocr-failed    { background: #fef2f2; border: 1px solid #fecaca; }
-
-.ocr-result-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ocr-result-header h4 {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1e293b;
-  flex: 1;
-}
-
-.ocr-confidence {
-  font-size: 12px;
-  color: #555;
-  font-weight: 600;
-}
-
-.ocr-status-badge {
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .ocr-fraud-flags {
   display: flex;
   flex-direction: column;
@@ -586,40 +536,6 @@
   font-weight: 500;
 }
 
-.ocr-checks {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ocr-check-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #374151;
-}
-
-.ocr-text-preview {
-  background: white;
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.ocr-text-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #4d4d4d;
-  margin-bottom: 6px;
-  text-transform: uppercase;
-}
-
-.ocr-text {
-  font-size: 12px;
-  color: #555;
-  line-height: 1.6;
-  font-family: monospace;
-}
 
 .update-success {
   padding: 8px 16px;

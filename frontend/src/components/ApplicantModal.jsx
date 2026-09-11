@@ -30,18 +30,6 @@ function mergeDocuments(documents, requiredDocTypes) {
   })
 }
 
-// The ML decision must not run until every required document has actually been
-// OCR-verified (see check_ready_for_ml_decision in backend/app.py) - mirrors that
-// gate here so the "Verify Documents & Decide Eligibility" button only appears
-// once it would actually succeed, instead of letting the admin click it and get
-// a 409 back. The selfie is excluded - it's never OCR-verified, only manually
-// compared against the ID photo (same exception the backend gate makes).
-function allRequiredDocsVerified(documents, requiredDocTypes) {
-  const required = requiredDocTypes.filter(r => r.required && r.label !== SELFIE_DOC_LABEL)
-  if (required.length === 0) return true
-  return mergeDocuments(documents, required).every(doc => doc.status === 'Uploaded' && doc.ocr_status)
-}
-
 function ScoreBar({ label, value, color }) {
   return (
     <div className="score-bar-row">
@@ -59,10 +47,10 @@ function ScoreBar({ label, value, color }) {
 
 function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
-  const [ocrResult, setOcrResult] = useState(null)
-  const [verifying, setVerifying] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [updateSuccess, setUpdateSuccess] = useState('')
+  const [runningOcr, setRunningOcr] = useState(false)
+  const [ocrCheckWarnings, setOcrCheckWarnings] = useState(null)
   const [auditTrail, setAuditTrail] = useState([])
   const [loadingAudit, setLoadingAudit] = useState(false)
   const [mlData, setMlData] = useState(null)
@@ -126,11 +114,12 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     })
     .catch(() => setLoadingAudit(false))
 
-  // Fetch real ML score (only meaningful once documents have been verified)
+  // Fetch real ML score - a preview only, the official decision happens when
+  // the admin taps "Start Eligibility" below
   apiFetch(`/api/score-applicant/${applicant.id}`)
     .then(res => res.json())
     .then(data => {
-      if (data.ml_score !== undefined || data.blocked) {
+      if (data.ml_score !== undefined) {
         setMlData(data)
       }
     })
@@ -203,31 +192,26 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   // drive actual behavior (buttons, overrides) off the real stored status.
   const displayCurrentStatus = displayStatus(currentStatus, applicant.ml_status)
 
-  const handleVerifyDoc = async (doc, applicantId) => {
-    setVerifying(true)
-    setOcrResult(null)
+  const handleRunOcrCheck = async () => {
+    setRunningOcr(true)
     try {
-      const response = await apiFetch('/api/verify-document', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          applicant_id: applicantId || 1,
-          document_name: doc.label || doc.document_name
-        })
+      const response = await apiFetch(`/api/applications/${profile.id}/check-documents`, {
+        method: 'POST'
       })
       const data = await response.json()
-      setOcrResult(data)
-
-      // Refresh so the doc's ocr_status (and the Verify & Decide gate below)
-      // reflect this result immediately, without needing to reopen the modal.
-      apiFetch(`/api/documents/${applicantId}`)
-        .then(res => res.json())
-        .then(docsData => setDocuments(docsData.documents || []))
-        .catch(() => {})
+      if (response.ok) {
+        setOcrCheckWarnings(data.warnings || [])
+        apiFetch(`/api/documents/${profile.id}`)
+          .then(res => res.json())
+          .then(docsData => setDocuments(docsData.documents || []))
+          .catch(() => {})
+      } else {
+        alert(data.error || 'Could not run the OCR check')
+      }
     } catch {
-      setOcrResult({ status: 'Error', error: 'Cannot connect to server' })
+      alert('Cannot connect to server')
     }
-    setVerifying(false)
+    setRunningOcr(false)
   }
 
   const handleViewDoc = async (doc) => {
@@ -320,8 +304,10 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
   const handleVerifyAndDecide = async () => {
     if (!window.confirm(
-      "Confirm the submitted documents are correct and complete. " +
-      "The eligibility model will then decide Approved/Rejected automatically."
+      "This will let the eligibility model decide Approved/Rejected (any documents " +
+      "not yet OCR-checked will be checked automatically first). Any issues found " +
+      "will be shown for your review - you can still Reconsider/Revoke afterward " +
+      "if you disagree. Continue?"
     )) return
 
     setUpdating(true)
@@ -334,11 +320,21 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
       if (response.ok) {
         setMlData(data)
         setUpdateSuccess(data.status)
+        // Reflect the OCR checks that just ran as part of this one tap.
+        apiFetch(`/api/documents/${applicant.id}`)
+          .then(res => res.json())
+          .then(docsData => setDocuments(docsData.documents || []))
+          .catch(() => {})
         if (onStatusChange) await onStatusChange()
-        setTimeout(() => {
-          onClose()
-          setUpdateSuccess('')
-        }, 1200)
+        // Give the admin time to read any warnings instead of auto-closing
+        // straight past them - only close automatically when there's nothing
+        // to review.
+        if (!(data.warnings || []).length) {
+          setTimeout(() => {
+            onClose()
+            setUpdateSuccess('')
+          }, 1200)
+        }
       } else {
         alert(data.error || 'Could not decide eligibility for this applicant')
       }
@@ -405,11 +401,6 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           {/* ML Score */}
           <div className="modal-section">
             <h3 className="section-title">ML Eligibility Score</h3>
-            {mlData?.blocked ? (
-              <div className="ml-score-card">
-                <p className="ml-note">Score pending — {mlData.reason}</p>
-              </div>
-            ) : (
             <div className="ml-score-card">
               <div className="ml-score-main">
                 <div className="ml-score-circle"
@@ -428,7 +419,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                   <p className="ml-note">
                     {mlData?.regressor_cutoff !== undefined
                       ? `Score cutoff for reference: ${mlData.regressor_cutoff}`
-                      : 'Preview only - verify documents to make this the official decision'}
+                      : 'Preview only - tap "Start Eligibility" to make this the official decision'}
                   </p>
                 </div>
               </div>
@@ -438,6 +429,13 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                 ))}
               </div>
             </div>
+            {(mlData?.warnings || []).length > 0 && (
+              <div className="ocr-fraud-flags" style={{ marginTop: '10px' }}>
+                <p className="ml-status-label">Worth a look before deciding:</p>
+                {mlData.warnings.map((w, i) => (
+                  <p key={i} className="ocr-fraud-flag">⚠ {w}</p>
+                ))}
+              </div>
             )}
           </div>
 
@@ -605,7 +603,15 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
           {/* Documents */}
           <div className="modal-section">
-            <h3 className="section-title">Submitted Documents</h3>
+            <div className="section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Submitted Documents</span>
+              <button
+                className="btn-verify-doc"
+                disabled={runningOcr}
+                onClick={handleRunOcrCheck}>
+                {runningOcr ? 'Running OCR...' : 'Run OCR Check'}
+              </button>
+            </div>
             <div className="docs-grid">
               {mergeDocuments(documents, requiredDocTypes.filter(r => r.label !== SELFIE_DOC_LABEL)).map((doc, i) => (
                 <div key={i} className="doc-item">
@@ -633,66 +639,21 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                         {viewingDoc === (doc.label || doc.document_name) ? 'Opening...' : 'View'}
                       </button>
                     )}
-                    {isPending && (doc.status === 'Submitted' || doc.status === 'Uploaded') && (
-                      <button
-                        className="btn-verify-doc"
-                        onClick={() => handleVerifyDoc(doc, profile.id)}>
-                        Verify
-                      </button>
-                    )}
                   </div>
                 </div>
               ))}
             </div>
 
-            {verifying && (
-              <div className="ocr-loading">Running OCR verification...</div>
-            )}
-
-            {ocrResult && (
-              <div className={`ocr-result ${
-                ocrResult.status === 'Verified' ? 'ocr-verified' :
-                ocrResult.status === 'Partially Verified' ? 'ocr-partial' :
-                'ocr-failed'
-              }`}>
-                <div className="ocr-result-header">
-                  <h4>OCR Verification Result</h4>
-                  <span className="ocr-confidence">Confidence: {ocrResult.confidence}%</span>
-                  <span className={`ocr-status-badge ${
-                    ocrResult.status === 'Verified' ? 'badge-green' :
-                    ocrResult.status === 'Partially Verified' ? 'badge-yellow' :
-                    'badge-red'
-                  }`}>
-                    {ocrResult.status}
-                  </span>
-                </div>
-                {(ocrResult.flags || []).length > 0 && (
-                  <div className="ocr-fraud-flags">
-                    {ocrResult.flags.map((flag, i) => (
-                      <p key={i} className="ocr-fraud-flag">⚠ {flag}</p>
-                    ))}
-                  </div>
-                )}
-                <div className="ocr-checks">
-                  {(ocrResult.checks || []).map((check, i) => (
-                    <div key={i} className="ocr-check-item">
-                      <span style={{ color: check.passed ? '#10b981' : '#ef4444', fontWeight: 600 }}>
-                        {check.passed ? 'Pass' : 'Fail'}
-                      </span>
-                      <span>{check.check}</span>
-                    </div>
+            {ocrCheckWarnings !== null && (
+              ocrCheckWarnings.length > 0 ? (
+                <div className="ocr-fraud-flags" style={{ marginTop: '10px' }}>
+                  {ocrCheckWarnings.map((w, i) => (
+                    <p key={i} className="ocr-fraud-flag">⚠ {w}</p>
                   ))}
                 </div>
-                {ocrResult.extracted_text && (
-                  <div className="ocr-text-preview">
-                    <p className="ocr-text-label">Extracted text preview:</p>
-                    <p className="ocr-text">{ocrResult.extracted_text.slice(0, 200)}...</p>
-                  </div>
-                )}
-                {ocrResult.error && (
-                  <p style={{ color: '#ef4444', fontSize: '13px' }}>{ocrResult.error}</p>
-                )}
-              </div>
+              ) : (
+                <p className="ml-note" style={{ marginTop: '10px' }}>No issues found.</p>
+              )
             )}
           </div>
 
@@ -806,17 +767,12 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                 {updating ? 'Sending...' : 'Request Changes'}
               </button>
             )}
-            {isPending && allRequiredDocsVerified(documents, requiredDocTypes) && (
+            {isPending && (
               <button className="btn-approve-modal"
                 disabled={updating}
                 onClick={handleVerifyAndDecide}>
-                {updating ? 'Deciding...' : 'Verify Documents & Decide Eligibility'}
+                {updating ? 'Starting...' : 'Start Eligibility'}
               </button>
-            )}
-            {isPending && !allRequiredDocsVerified(documents, requiredDocTypes) && (
-              <span style={{ fontSize: '13px', color: '#4b5563' }}>
-                Verify every document above (OCR) before deciding eligibility.
-              </span>
             )}
             {isWithdrawn && (
               <span style={{ fontSize: '13px', color: '#4b5563' }}>

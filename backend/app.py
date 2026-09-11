@@ -1915,9 +1915,17 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     if (applicant.get('application') or {}).get('status') == 'Withdrawn':
         return {"error": "This application was withdrawn by the applicant and can't be modified."}, False
 
-    ready, reason = check_ready_for_ml_decision(db, applicant, org_id)
-    if not ready:
-        return {"error": reason}, False
+    # One tap does it all: OCR-check every uploaded required document that hasn't
+    # been checked yet (the selfie is manually compared instead, never OCR'd),
+    # then let the LGU see the results as warnings rather than gating on them -
+    # whether a document is genuine is their call, not an algorithm's.
+    required_labels = get_required_doc_labels(db, org_id)
+    for d in applicant.get('documents', []):
+        if (d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
+                and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')):
+            run_ocr_check(db, applicant, applicant_oid, d['document_name'], org_id)
+    applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+    warnings = collect_verification_warnings(db, applicant, org_id)
 
     row, ok = build_feature_row(applicant)
     if not ok:
@@ -1971,6 +1979,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
             "ml_score": ml_score, "ml_status": ml_status,
             "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
             "rejection_reason": rejection_reason, "reviewed_by": reviewed_by,
+            "warnings": warnings,
         }, False
 
     # Eligible on its own - but whether it's actually Approved depends on how
@@ -1989,6 +1998,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
         "ml_score": ml_score, "ml_status": ml_status,
         "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
         "rejection_reason": None, "reviewed_by": reviewed_by,
+        "warnings": warnings,
     }, True
 
 # ── VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
@@ -2352,8 +2362,68 @@ def upload_document():
 
     return jsonify({"error": "File type not allowed"}), 400
 
+def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
+    """Runs OCR + the content/fraud cross-checks on one already-uploaded document
+    and persists the outcome. OCR here is advisory, not a gate - it surfaces
+    confidence/flags for a human to weigh, it never blocks anything on its own
+    (see collect_verification_warnings). Returns the result dict (extended with
+    'document_name'), or {'document_name', 'error': ...} if the file couldn't be
+    read (missing from storage, corrupt, etc.) - never raises."""
+    doc = next((d for d in applicant.get('documents', []) if d.get('document_name') == document_name), None)
+    if not doc or not doc.get('gridfs_id'):
+        return {"document_name": document_name, "error": "Document not found"}
+
+    try:
+        grid_out = _fs.get(doc['gridfs_id'])
+    except gridfs.errors.NoFile:
+        return {"document_name": document_name, "error": "File not found on server"}
+
+    # OCR needs a real file path, so write GridFS bytes to a scratch temp
+    # file for the duration of processing only - nothing is kept on disk.
+    ext = os.path.splitext(grid_out.filename)[1] or '.bin'
+    temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_verify_{applicant_oid}{ext}")
+    with open(temp_path, 'wb') as f:
+        f.write(grid_out.read())
+
+    try:
+        academic = applicant.get('academic') or {}
+        applicant_data = {
+            "full_name": applicant.get('full_name', ''),
+            "school": academic.get('school', ''),
+            "course": academic.get('course', ''),
+            "address": applicant.get('address') or '',
+            "monthly_income": applicant.get('monthly_income'),
+            "gpa": academic.get('gpa'),
+        }
+
+        extracted_text = extract_text(temp_path)
+        result = verify_document(document_name, extracted_text, applicant_data)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+    # Surface metadata-forensics flags (from upload time) alongside the OCR
+    # content flags, so a reviewer sees both in one place.
+    result['flags'] = list(result['flags']) + list(doc.get('metadata_flags') or [])
+    result['document_name'] = document_name
+
+    db.applicants.update_one(
+        {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": org_id},
+        {"$set": {
+            "documents.$.status": "Uploaded",
+            "documents.$.ocr_status": result['status'],
+            "documents.$.ocr_confidence": result['confidence'],
+            "documents.$.ocr_flags": result['flags'],
+            "documents.$.ocr_checked_at": datetime.utcnow(),
+        }}
+    )
+    return result
+
 # ── OCR VERIFY DOCUMENT ── admin-only: OCR only ever runs on the admin verification
 # side, never during a student's own application (see the removed /api/ocr-autofill).
+# Kept as a standalone endpoint for re-checking one document on demand - the
+# dedicated "Run OCR Check" button (check_documents_route, below) and "Start
+# Eligibility" (via _verify_and_decide_one) both run this per-document helper too.
 @app.route('/api/verify-document', methods=['POST'])
 @require_permission('can_review_applicants')
 @limiter.limit("20 per minute")
@@ -2368,63 +2438,52 @@ def verify_document_route():
             return jsonify({"error": "Invalid applicant_id"}), 400
 
         db = get_db()
-        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
+        org_id = current_organization_oid()
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
         if not applicant:
             return jsonify({"error": "Document not found"}), 404
 
-        doc = next((d for d in applicant.get('documents', []) if d.get('document_name') == document_name), None)
-        if not doc or not doc.get('gridfs_id'):
-            return jsonify({"error": "Document not found"}), 404
-
-        try:
-            grid_out = _fs.get(doc['gridfs_id'])
-        except gridfs.errors.NoFile:
-            return jsonify({"error": "File not found on server"}), 404
-
-        # OCR needs a real file path, so write GridFS bytes to a scratch temp
-        # file for the duration of processing only - nothing is kept on disk.
-        ext = os.path.splitext(grid_out.filename)[1] or '.bin'
-        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], f"temp_verify_{applicant_id}{ext}")
-        with open(temp_path, 'wb') as f:
-            f.write(grid_out.read())
-
-        try:
-            academic = applicant.get('academic') or {}
-            applicant_data = {
-                "full_name": applicant.get('full_name', ''),
-                "school": academic.get('school', ''),
-                "course": academic.get('course', ''),
-                "address": applicant.get('address') or '',
-                "monthly_income": applicant.get('monthly_income'),
-                "gpa": academic.get('gpa'),
-            }
-
-            extracted_text = extract_text(temp_path)
-            result = verify_document(document_name, extracted_text, applicant_data)
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-
-        # Surface metadata-forensics flags (from upload time, Part A) alongside the
-        # OCR content flags, so an admin sees both in one place.
-        result['flags'] = list(result['flags']) + list(doc.get('metadata_flags') or [])
-
-        # Persist the OCR outcome so it can be gated on later (e.g. before the ML
-        # scoring/decision endpoints run) - previously this was computed and returned
-        # to the frontend but never saved, so there was no durable record that a
-        # document had actually been checked.
-        db.applicants.update_one(
-            {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": current_organization_oid()},
-            {"$set": {
-                "documents.$.status": "Uploaded",
-                "documents.$.ocr_status": result['status'],
-                "documents.$.ocr_confidence": result['confidence'],
-                "documents.$.ocr_flags": result['flags'],
-                "documents.$.ocr_checked_at": datetime.utcnow(),
-            }}
-        )
-
+        result = run_ocr_check(db, applicant, applicant_oid, document_name, org_id)
+        if 'error' in result:
+            return jsonify(result), 404
         return jsonify(result)
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── OCR-CHECK ALL DOCUMENTS FOR ONE APPLICANT ── the dedicated "run OCR" action:
+# checks every uploaded required document that hasn't been OCR-checked yet, in one
+# tap, so the admin can review the results before separately deciding eligibility
+# (see /api/applications/<id>/verify, which also runs this as a fallback for
+# anything still unchecked when eligibility is decided).
+@app.route('/api/applications/<applicant_id>/check-documents', methods=['POST'])
+@require_permission('can_review_applicants')
+@limiter.limit("10 per minute")
+def check_documents_route(applicant_id):
+    try:
+        applicant_oid = oid(applicant_id)
+        if not applicant_oid:
+            return jsonify({"error": "Invalid applicant id"}), 400
+
+        db = get_db()
+        org_id = current_organization_oid()
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+        if not applicant:
+            return jsonify({"error": "Applicant not found"}), 404
+
+        required_labels = get_required_doc_labels(db, org_id)
+        results = []
+        for d in applicant.get('documents', []):
+            if (d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
+                    and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')):
+                results.append(run_ocr_check(db, applicant, applicant_oid, d['document_name'], org_id))
+
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+        warnings = collect_verification_warnings(db, applicant, org_id)
+        return jsonify({"results": results, "warnings": warnings})
 
     except Exception as e:
         app.logger.error(str(e))
@@ -3083,36 +3142,41 @@ COMPUTED_STATUSES = {'Newly Submitted', 'Pending Verification', 'Incomplete'}
 def get_required_doc_labels(db, org_id):
     return {r['label'] for r in get_doc_requirements_collection(db, org_id).find({"required": True, "enabled": True, "organization_id": org_id})}
 
-def check_ready_for_ml_decision(db, applicant, org_id):
-    """Gate for the ML scoring/decision endpoints: every required document must
-    have actually been through OCR verification (not just uploaded), and any
-    fraud flag on this applicant (duplicate/near-duplicate documents, suspicious
-    metadata, matching name+birthdate or email at submission) must have been
-    resolved by an admin first. Deliberately does NOT require ocr_status to be
-    'Verified' - a 'Partially Verified' or 'Failed Verification' result is meant
-    to prompt a manual look (see ocr.py), not block the decision outright; this
-    only requires that the check was actually run."""
+def collect_verification_warnings(db, applicant, org_id):
+    """Surfaces document/fraud concerns for the LGU to weigh - never blocks the
+    ML decision. Whether a document is genuine is the LGU's call, not an
+    algorithm's: OCR and the duplicate/metadata checks only inform that call
+    (see run_ocr_check, extract_metadata_flags) by showing what they found;
+    an admin who has looked at the actual file can always go ahead (or undo a
+    decision afterward via Reconsider/Revoke Approval). Returns a list of
+    human-readable warning strings, empty when there's nothing to flag."""
+    warnings = []
     required_labels = get_required_doc_labels(db, org_id)
     uploaded = {d.get('document_name'): d for d in applicant.get('documents', []) if d.get('status') == 'Uploaded'}
 
     missing = required_labels - uploaded.keys()
     if missing:
-        return False, f"Missing required documents: {', '.join(sorted(missing))}"
+        warnings.append(f"Not uploaded: {', '.join(sorted(missing))}")
 
-    # The selfie is deliberately never OCR-verified (it's a face photo, shown
+    # The selfie is deliberately never OCR-checked (it's a face photo, shown
     # side-by-side with the ID for the admin to manually compare - see
-    # ApplicantModal.jsx) - only the OCR-able documents need ocr_status set.
-    unverified = [
-        label for label in required_labels
-        if label != SELFIE_DOC_LABEL and not uploaded[label].get('ocr_status')
-    ]
-    if unverified:
-        return False, f"These documents still need OCR verification before scoring: {', '.join(sorted(unverified))}"
+    # ApplicantModal.jsx).
+    for label in sorted(required_labels & uploaded.keys()):
+        if label == SELFIE_DOC_LABEL:
+            continue
+        doc = uploaded[label]
+        ocr_status = doc.get('ocr_status')
+        if not ocr_status:
+            warnings.append(f"'{label}' could not be OCR-checked.")
+        elif ocr_status != 'Verified':
+            warnings.append(f"'{label}' OCR check came back {ocr_status.lower()}.")
+        for flag in doc.get('ocr_flags') or []:
+            warnings.append(f"'{label}': {flag}")
 
-    if db.duplicate_flags.find_one({"applicant_id": applicant['_id'], "resolved": False, "organization_id": org_id}):
-        return False, "This applicant has unresolved fraud flags that must be reviewed before a decision can be made."
+    for flag in db.duplicate_flags.find({"applicant_id": applicant['_id'], "resolved": False, "organization_id": org_id}):
+        warnings.append(f"Unresolved fraud flag ({flag.get('reason')}) on '{flag.get('document_name', 'this applicant')}'.")
 
-    return True, None
+    return warnings
 
 def compute_display_status(doc, required_labels):
     raw = (doc.get('application') or {}).get('status')
@@ -4215,17 +4279,10 @@ def score_applicant(applicant_id):
             return jsonify({"error": "Applicant not found"}), 404
 
         org_id = current_organization_oid()
-        ready, reason = check_ready_for_ml_decision(db, applicant, org_id)
-        if not ready:
-            # This is an automatic preview fetched on every modal open, not an
-            # explicit action - report it as blocked (200) rather than erroring,
-            # so the frontend can just show why no score is available yet.
-            return jsonify({
-                "applicant_id": applicant_id,
-                "ml_score": None,
-                "blocked": True,
-                "reason": reason,
-            })
+        # This is only a preview fetched automatically on modal open, so it never
+        # runs OCR itself (that's the explicit "Run OCR Check" / "Start Eligibility"
+        # actions) - it just reports the score alongside whatever warnings exist.
+        warnings = collect_verification_warnings(db, applicant, org_id)
 
         row, ok = build_feature_row(applicant)
         if not ok:
@@ -4247,7 +4304,8 @@ def score_applicant(applicant_id):
             "ml_score": ml_score,
             "ml_status": ml_status,
             "regressor_cutoff": ml_regressor_cutoff,
-            "breakdown": build_score_breakdown(applicant)
+            "breakdown": build_score_breakdown(applicant),
+            "warnings": warnings,
         })
 
     except Exception as e:
