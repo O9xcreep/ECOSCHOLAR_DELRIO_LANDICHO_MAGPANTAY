@@ -16,7 +16,7 @@ const css = `
     --danger:      #E53E3E;
     --success:     #38A169;
     --text-primary:   #1A1A2E;
-    --text-secondary: #6B7280;
+    --text-secondary: #4b5563;
     --border:      #E5E7EB;
     --bg-card:     #FFFFFF;
     --bg-input:    #F9FAFB;
@@ -313,7 +313,7 @@ const css = `
     outline: none;
   }
 
-  .lp-input::placeholder { color: #9CA3AF; }
+  .lp-input::placeholder { color: #4b5563; }
 
   .lp-input:focus {
     border-color: var(--brand);
@@ -1153,7 +1153,7 @@ function Login() {
                         cursor: 'pointer',
                         fontWeight: '400',
                         fontSize: '13px',
-                        color: 'var(--color-text-secondary)',
+                        color: 'var(--text-secondary)',
                         lineHeight: '1.6'
                       }}>
                         <input

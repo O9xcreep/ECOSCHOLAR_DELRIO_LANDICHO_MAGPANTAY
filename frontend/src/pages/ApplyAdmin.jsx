@@ -23,7 +23,7 @@ const css = `
     --brand-dark:  #2c5580;
     --danger:      #E53E3E;
     --text-primary:   #1A1A2E;
-    --text-secondary: #6B7280;
+    --text-secondary: #4b5563;
     --border:      #E5E7EB;
     --bg-card:     #FFFFFF;
     --bg-input:    #F9FAFB;
@@ -216,7 +216,7 @@ const css = `
     outline: none;
   }
 
-  .lp-input::placeholder { color: #9CA3AF; }
+  .lp-input::placeholder { color: #4b5563; }
 
   .lp-input:focus {
     border-color: var(--brand);

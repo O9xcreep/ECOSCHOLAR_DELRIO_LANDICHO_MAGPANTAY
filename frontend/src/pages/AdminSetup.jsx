@@ -26,7 +26,7 @@ const css = `
     box-shadow: 0 10px 40px rgba(61,111,163,.18);
   }
   .rp-title { font-size: 22px; font-weight: 700; color: #1A1A2E; margin-bottom: 8px; }
-  .rp-sub { font-size: 14px; color: #6B7280; margin-bottom: 24px; line-height: 1.5; }
+  .rp-sub { font-size: 14px; color: #4b5563; margin-bottom: 24px; line-height: 1.5; }
   .rp-field { margin-bottom: 16px; }
   .rp-field label { display: block; font-size: 13px; font-weight: 600; color: #1A1A2E; margin-bottom: 6px; }
   .rp-input {
@@ -160,7 +160,7 @@ function AdminSetup() {
         <button className="rp-link" type="button" onClick={handleResend} disabled={resendLoading}>
           {resendLoading ? 'Sending…' : "Didn't get a code? Resend"}
         </button>
-        {resendMessage && <p style={{ textAlign: 'center', fontSize: '12.5px', color: '#6B7280', marginTop: '4px' }}>{resendMessage}</p>}
+        {resendMessage && <p style={{ textAlign: 'center', fontSize: '12.5px', color: '#4b5563', marginTop: '4px' }}>{resendMessage}</p>}
 
         <Link className="rp-link" to="/login">Back to login</Link>
       </div>

@@ -7,7 +7,7 @@
 .fb-loading {
   text-align: center;
   padding: 40px;
-  color: #888;
+  color: #4d4d4d;
   font-size: 14px;
 }
 
@@ -19,7 +19,7 @@
 
 .fb-header .page-sub {
   font-size: 13.5px;
-  color: #6b7280;
+  color: #4b5563;
   margin-top: 4px;
   line-height: 1.6;
   max-width: 720px;
@@ -40,7 +40,7 @@
 
 .fb-card-sub {
   font-size: 12.5px;
-  color: #888;
+  color: #4d4d4d;
   margin-top: 4px;
   margin-bottom: 14px;
   line-height: 1.5;
@@ -48,13 +48,13 @@
 
 .fb-empty {
   font-size: 13px;
-  color: #aaa;
+  color: #4d4d4d;
 }
 
 .fb-subheading {
   font-size: 11.5px;
   font-weight: 700;
-  color: #9ca3af;
+  color: #4b5563;
   text-transform: uppercase;
   letter-spacing: .04em;
   margin: 16px 0 8px;
@@ -69,7 +69,7 @@
 }
 
 .fb-field-row-core .fb-field-label {
-  color: #6b7280;
+  color: #4b5563;
   font-weight: 500;
 }
 
@@ -86,7 +86,7 @@
 .fb-locked-tag {
   font-size: 10.5px;
   font-weight: 600;
-  color: #9ca3af;
+  color: #4b5563;
   background: #e5e7eb;
   padding: 3px 8px;
   border-radius: 20px;
@@ -130,7 +130,7 @@
 
 .fb-required-toggle {
   font-size: 12px !important;
-  color: #6b7280;
+  color: #4b5563;
   white-space: nowrap;
   margin-top: 0 !important;
 }
@@ -161,7 +161,7 @@
 
 .fb-field-meta {
   font-size: 11.5px;
-  color: #888;
+  color: #4d4d4d;
   margin-top: 2px;
   text-transform: capitalize;
 }
@@ -254,7 +254,7 @@
 
 .fb-hint {
   font-size: 11px;
-  color: #9ca3af;
+  color: #4b5563;
   margin-top: 4px;
   display: block;
 }

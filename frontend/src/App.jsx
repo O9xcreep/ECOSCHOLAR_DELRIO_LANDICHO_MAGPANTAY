@@ -30,7 +30,7 @@ const Settings = lazy(() => import('./pages/admin/settings'))
 function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<div style={{ padding: '3rem', textAlign: 'center', color: '#6b7280' }}>Loading...</div>}>
+      <Suspense fallback={<div style={{ padding: '3rem', textAlign: 'center', color: '#4b5563' }}>Loading...</div>}>
       <Routes>
         {/* Default */}
         <Route path="/" element={<Navigate to="/login" />} />

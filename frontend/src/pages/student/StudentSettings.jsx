@@ -169,7 +169,7 @@ function ProfileTab() {
             </button>
           ) : (
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <span style={{ fontSize: '13px', color: '#6B7280' }}>Are you sure?</span>
+              <span style={{ fontSize: '13px', color: '#4b5563' }}>Are you sure?</span>
               <button className="btn-danger" onClick={handleLogout}>Yes, Logout</button>
               <button className="btn-cancel-edit" onClick={() => setShowLogoutConfirm(false)}>Cancel</button>
             </div>

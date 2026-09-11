@@ -294,13 +294,13 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
               readOnly
               style={{
                 background: '#F3F4F6',
-                color: '#6B7280',
+                color: '#4b5563',
                 cursor: 'not-allowed',
                 border: '1.5px solid #E5E7EB'
               }}
               title="Email is tied to your account and cannot be changed"
             />
-            <span style={{ fontSize: '11.5px', color: '#9CA3AF', marginTop: '4px', display: 'block' }}>
+            <span style={{ fontSize: '11.5px', color: '#4b5563', marginTop: '4px', display: 'block' }}>
               Linked to your account
             </span>
           </Field>
@@ -599,7 +599,7 @@ function Step2({ data, onChange, errors, customFields, extraFieldsData, onExtraF
               step="0.01" min="75" max="99"
               value={data.gpa}
               onChange={e => onChange('gpa', e.target.value)} />
-            <span style={{ fontSize: '11.5px', color: '#9CA3AF', marginTop: '4px', display: 'block' }}>
+            <span style={{ fontSize: '11.5px', color: '#4b5563', marginTop: '4px', display: 'block' }}>
               Your Grade 12 GWA (or latest GWA), on the 75-99 percentage scale
             </span>
           </Field>

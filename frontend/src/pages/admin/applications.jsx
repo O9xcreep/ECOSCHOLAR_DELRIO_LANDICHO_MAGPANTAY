@@ -115,7 +115,7 @@ function ApplicationsTableCard({
         </div>
       )}
       {loading ? (
-        <div style={{ padding: '40px', textAlign: 'center', color: '#888' }}>
+        <div style={{ padding: '40px', textAlign: 'center', color: '#4d4d4d' }}>
           Loading applications...
         </div>
       ) : loadError ? (

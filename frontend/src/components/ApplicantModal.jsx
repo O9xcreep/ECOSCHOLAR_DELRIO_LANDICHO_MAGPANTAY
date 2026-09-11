@@ -666,7 +666,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           <div className="modal-section">
             <h3 className="section-title">Audit Trail</h3>
             {loadingAudit ? (
-              <p style={{ fontSize: '13px', color: '#888' }}>Loading audit trail...</p>
+              <p style={{ fontSize: '13px', color: '#4d4d4d' }}>Loading audit trail...</p>
             ) : auditTrail.length === 0 ? (
               <div className="audit-empty">
                 <p>No actions recorded yet for this application.</p>
@@ -780,7 +780,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </button>
             )}
             {isWithdrawn && (
-              <span style={{ fontSize: '13px', color: '#6b7280' }}>
+              <span style={{ fontSize: '13px', color: '#4b5563' }}>
                 {applicant.admin_comment
                   ? `Changes were requested: "${applicant.admin_comment}"`
                   : 'This application was withdrawn by the applicant.'}

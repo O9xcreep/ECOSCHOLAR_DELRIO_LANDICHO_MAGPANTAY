@@ -120,7 +120,7 @@
 
 .info-label {
   font-size: 12px;
-  color: #888;
+  color: #4d4d4d;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -285,12 +285,12 @@ input:disabled + .slider {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: #888;
+  color: #4d4d4d;
 }
 
 .toggle-text {
   font-size: 12px;
-  color: #888;
+  color: #4d4d4d;
 }
 
 /* ── NOTIFICATIONS ── */
@@ -321,7 +321,7 @@ input:disabled + .slider {
 
 .notif-sub {
   font-size: 11px;
-  color: #aaa;
+  color: #4d4d4d;
   margin-top: 2px;
 }
 
@@ -349,7 +349,7 @@ input:disabled + .slider {
 
 .login-detail {
   font-size: 12px;
-  color: #aaa;
+  color: #4d4d4d;
   margin-top: 2px;
 }
 
@@ -377,7 +377,7 @@ input:disabled + .slider {
 
 .role-desc {
   font-size: 12px;
-  color: #aaa;
+  color: #4d4d4d;
   flex: 1;
 }
 
@@ -420,7 +420,7 @@ input:disabled + .slider {
 
 .staff-email {
   font-size: 12px;
-  color: #aaa;
+  color: #4d4d4d;
 }
 
 .btn-invite {
@@ -500,7 +500,7 @@ input:disabled + .slider {
 .badge-yellow { background: #fef3c7; color: #92400e; }
 .badge-blue   { background: #dbeafe; color: #1d4ed8; }
 .badge-purple { background: var(--accent-light); color: var(--accent-dark); }
-.badge-gray   { background: #f3f4f6; color: #6b7280; }
+.badge-gray   { background: #f3f4f6; color: #4b5563; }
 
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {

@@ -46,7 +46,7 @@
 }
 
 .credits-logo-generic {
-  color: #9aa4b2;
+  color: #4b5563;
 }
 
 .credits-logo-generic svg {
@@ -68,7 +68,7 @@
 
 .credits-group li span {
   font-size: 12.5px;
-  color: var(--text-secondary, #6b7a8d);
+  color: var(--text-secondary, #48566a);
   line-height: 1.4;
 }
 

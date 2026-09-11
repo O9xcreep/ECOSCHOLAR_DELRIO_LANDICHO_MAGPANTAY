@@ -121,7 +121,7 @@ function ProfileTab() {
               </button>
             ) : (
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '8px' }}>
-                <span style={{ fontSize: '13px', color: '#6B7280' }}>Are you sure?</span>
+                <span style={{ fontSize: '13px', color: '#4b5563' }}>Are you sure?</span>
                 <button className="btn-danger" onClick={handleLogout}>Yes, Logout</button>
                 <button className="btn-change" onClick={() => setShowConfirm(false)}>Cancel</button>
               </div>
@@ -982,17 +982,17 @@ function AdminRequestsSection({ onApproved }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <span className="info-label">Grant permissions</span>
                 <div style={{ display: 'flex', gap: '18px', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                     <input type="checkbox" checked={pendingPermissions.can_review_applicants}
                       onChange={e => setPendingPermissions(p => ({ ...p, can_review_applicants: e.target.checked }))} />
                     Review applicants
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                     <input type="checkbox" checked={pendingPermissions.can_manage_members}
                       onChange={e => setPendingPermissions(p => ({ ...p, can_manage_members: e.target.checked }))} />
                     Manage team members
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                     <input type="checkbox" checked={pendingPermissions.can_reset_program}
                       onChange={e => setPendingPermissions(p => ({ ...p, can_reset_program: e.target.checked }))} />
                     Reset the program
@@ -1352,7 +1352,7 @@ function TeamTab() {
                   </p>
                 ) : (
                   <div style={{ display: 'flex', gap: '18px', paddingLeft: '2px', flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                       <input
                         type="checkbox"
                         checked={admin.permissions.can_review_applicants}
@@ -1361,7 +1361,7 @@ function TeamTab() {
                       />
                       Review applicants
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                       <input
                         type="checkbox"
                         checked={admin.permissions.can_manage_members}
@@ -1370,7 +1370,7 @@ function TeamTab() {
                       />
                       Manage team members
                     </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #6B7280)' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                       <input
                         type="checkbox"
                         checked={admin.permissions.can_reset_program}

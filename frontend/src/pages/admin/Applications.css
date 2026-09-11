@@ -261,7 +261,7 @@
 
 .cell-email {
   font-size: 11px;
-  color: #aaa;
+  color: #4d4d4d;
 }
 
 .cell-gwa {
@@ -270,7 +270,7 @@
 }
 
 .cell-date {
-  color: #aaa !important;
+  color: #4d4d4d !important;
   font-size: 12px !important;
 }
 
@@ -297,7 +297,7 @@
 .badge-purple { background: var(--accent-light); color: var(--accent-dark); }
 .badge-red    { background: #fee2e2; color: #991b1b; }
 .badge-green  { background: #d1fae5; color: #065f46; }
-.badge-gray   { background: #f3f4f6; color: #6b7280; }
+.badge-gray   { background: #f3f4f6; color: #4b5563; }
 
 /* ── ACTION BUTTONS ── */
 .action-btns {
@@ -332,7 +332,7 @@
 /* ── EMPTY ROW ── */
 .empty-row {
   text-align: center;
-  color: #aaa;
+  color: #4d4d4d;
   padding: 40px !important;
 }
 
@@ -347,7 +347,7 @@
 
 .pagination-info {
   font-size: 13px;
-  color: #888;
+  color: #4d4d4d;
 }
 
 .pagination-btns {

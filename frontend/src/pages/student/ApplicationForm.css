@@ -27,7 +27,7 @@
   height: 32px;
   border-radius: 50%;
   background: #e5e7eb;
-  color: #888;
+  color: #4d4d4d;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -48,7 +48,7 @@
 
 .step-label {
   font-size: 13px;
-  color: #888;
+  color: #4d4d4d;
   white-space: nowrap;
 }
 
@@ -176,7 +176,7 @@
 
 .upload-placeholder {
   font-size: 14px;
-  color: #9ca3af;
+  color: #4b5563;
 }
 
 .upload-filename {
@@ -281,7 +281,7 @@
 
 .req-note {
   font-size: 12px;
-  color: #888;
+  color: #4d4d4d;
   margin-bottom: 16px;
 }
 
@@ -370,7 +370,7 @@
 .existing-app-label {
   font-size: 12px;
   font-weight: 600;
-  color: #aaa;
+  color: #4d4d4d;
   text-transform: uppercase;
 }
 

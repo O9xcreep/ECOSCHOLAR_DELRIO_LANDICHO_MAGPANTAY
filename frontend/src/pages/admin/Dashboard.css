@@ -144,7 +144,7 @@
 .badge-red    { background: var(--danger-bg); color: var(--danger); }
 .badge-purple { background: var(--accent-light); color: var(--accent-dark); }
 .badge-blue   { background: var(--accent-light); color: var(--accent-dark); }
-.badge-gray   { background: #f3f4f6; color: #6b7280; }
+.badge-gray   { background: #f3f4f6; color: #4b5563; }
 
 /* ── LOADING / ERROR ── */
 .loading {

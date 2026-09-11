@@ -547,7 +547,7 @@ function ApplicantDetails() {
             Submit New Application
           </button>
         ) : status === 'Approved' || status === 'Rejected' ? (
-          <span style={{ fontSize: '13px', color: '#6b7280' }}>
+          <span style={{ fontSize: '13px', color: '#4b5563' }}>
             This application has already been scored and can no longer be withdrawn.
           </span>
         ) : (
