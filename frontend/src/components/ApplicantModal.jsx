@@ -320,21 +320,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
       if (response.ok) {
         setMlData(data)
         setUpdateSuccess(data.status)
-        // Reflect the OCR checks that just ran as part of this one tap.
-        apiFetch(`/api/documents/${applicant.id}`)
-          .then(res => res.json())
-          .then(docsData => setDocuments(docsData.documents || []))
-          .catch(() => {})
         if (onStatusChange) await onStatusChange()
-        // Give the admin time to read any warnings instead of auto-closing
-        // straight past them - only close automatically when there's nothing
-        // to review.
-        if (!(data.warnings || []).length) {
-          setTimeout(() => {
-            onClose()
-            setUpdateSuccess('')
-          }, 1200)
-        }
+        setTimeout(() => {
+          onClose()
+          setUpdateSuccess('')
+        }, 1200)
       } else {
         alert(data.error || 'Could not decide eligibility for this applicant')
       }
