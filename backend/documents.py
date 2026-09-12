@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Document requirements, document-completeness status computation, upload/
-fraud detection, OCR verification, and duplicate-flag routes. Imported by
-applicants.py, ml_scoring.py, and admin_settings.py for the status-computation
-helpers and document-requirement collection."""
+"""Document requirements, status computation, upload/fraud detection, OCR
+verification, and duplicate-flag routes."""
 import os
 import re
 import io
@@ -25,9 +23,8 @@ from ocr import extract_text, verify_document
 
 # ── UPLOAD CONFIG ──
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
-# Serving files back to the browser with a client-supplied Content-Type is a stored-XSS
-# vector (e.g. an upload named "photo.png" claiming Content-Type: text/html). Always
-# derive the served mimetype from this fixed map instead of trusting the upload metadata.
+# Served Content-Type is always derived from this map, never from client-supplied
+# upload metadata (avoids a stored-XSS vector).
 SAFE_MIME_TYPES = {
     'pdf': 'application/pdf',
     'jpg': 'image/jpeg',
@@ -44,11 +41,8 @@ def safe_mime_for(filename):
     return SAFE_MIME_TYPES.get(ext, 'application/octet-stream')
 
 def compute_perceptual_hash(file_bytes, filename):
-    """Visual fingerprint of a document's first page, used to catch near-identical
-    files (re-saved, re-compressed, screenshotted, lightly cropped) that a byte-for-byte
-    SHA-256 comparison would miss entirely since re-encoding changes every byte. Returns
-    None on any failure (corrupt file, unsupported content) - this is a best-effort
-    fraud signal layered on top of the upload, never a reason to reject the upload."""
+    """Visual fingerprint of a document's first page - catches near-identical
+    files a byte-for-byte hash would miss. Returns None on any failure."""
     try:
         ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
         if ext == 'pdf':
@@ -62,25 +56,16 @@ def compute_perceptual_hash(file_bytes, filename):
     except Exception:
         return None
 
-# Hamming distance threshold (out of 64 bits) below which two documents are considered
-# a near-duplicate. Chosen conservatively - real re-uploads of the same scanned/photographed
-# page (recompressed, lightly cropped, mild lighting shift) typically land under 6-8;
-# two different documents of the same type (e.g. two different students' report cards)
-# routinely score 20+.
+# Hamming distance (of 64 bits) below which two documents count as a near-duplicate.
 NEAR_DUPLICATE_THRESHOLD = 8
 
-# Substrings of image/PDF editing-tool names that shouldn't legitimately appear in the
-# metadata of a scanned/photographed government or school form.
+# Editing-tool names that shouldn't appear in a scanned form's metadata.
 EDITING_TOOL_SIGNATURES = ('photoshop', 'gimp', 'canva', 'illustrator', 'snapseed', 'picsart', 'lightroom')
 
 def extract_metadata_flags(file_bytes, filename):
-    """Best-effort forensic check of embedded file metadata (EXIF Software tag for
-    images, Producer/Creator for PDFs) for signs the document was produced or edited
-    with an image-editing tool rather than scanned/photographed/generated as a form.
-    Deliberately does NOT flag missing metadata (messaging apps strip EXIF on send,
-    which is extremely common and not itself suspicious) - only an explicit editing-tool
-    signature. Returns a list of human-readable flag strings (empty if nothing found or
-    on any failure reading the file)."""
+    """Checks EXIF (images) / Producer-Creator (PDFs) for editing-tool
+    signatures. Does not flag missing metadata. Returns a list of flag
+    strings, empty if none found."""
     flags = []
     try:
         ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
@@ -106,17 +91,10 @@ def extract_metadata_flags(file_bytes, filename):
     return flags
 
 # ── DOCUMENT REQUIREMENTS ──
-# Which documents an LGU asks applicants to upload. The "label" here IS the
-# document_name stored against every upload (see upload_document()) - one string
-# used consistently as the storage key, the OCR verify_document() doc_type, and the
-# label shown to students/admins, rather than three drifting variants.
-#
-# SELFIE_DOC_LABEL is stored/uploaded exactly like any other requirement (same GridFS
-# path, same fraud checks) but the frontend pulls it out of the generic checklist and
-# gives it its own "Identity Verification" UI - a live-camera capture on the student
-# side, and a side-by-side compare against ID_DOC_LABEL's photo on the admin side, for
-# manual visual comparison (not automated face-matching, which is a separate, bigger
-# feature - see feature spec §1.2).
+# `label` is the document_name used consistently as storage key, OCR doc_type,
+# and display label. SELFIE_DOC_LABEL is uploaded like any other requirement,
+# but the frontend shows it separately for manual comparison against the ID
+# photo (no automated face-matching).
 SELFIE_DOC_LABEL = "Selfie / Face Photo"
 ID_DOC_LABEL = "School ID"
 
@@ -129,12 +107,7 @@ DEFAULT_DOC_REQUIREMENTS = [
     {"label": "Proof of Income", "required": True},
     {"label": SELFIE_DOC_LABEL, "required": True},
 ]
-# Matched by label rather than a stored flag - every org's document_requirements
-# is seeded from this exact list (get_doc_requirements_collection), so no
-# migration is needed for existing data. An LGU can still hide one (disable it
-# or uncheck "Required") but can't delete it outright - the eligibility
-# model's document-completeness computation and OCR verification both assume
-# these exist by label (SELFIE_DOC_LABEL/ID_DOC_LABEL especially).
+# Defaults can be disabled/un-required per org, but not deleted.
 DEFAULT_DOC_LABELS = {d["label"] for d in DEFAULT_DOC_REQUIREMENTS}
 
 def serialize_doc_requirement(d):
@@ -147,22 +120,13 @@ def serialize_doc_requirement(d):
         "is_default": d.get("label") in DEFAULT_DOC_LABELS,
     }
 
-# Admin-facing status flags computed from document-upload completeness, never
-# stored on the applicant doc. "Newly Submitted" only ever means "hasn't shown
-# up in the admin queue yet" in the DB - these three labels are what the admin
-# actually sees for that same raw value, based on how far the student has
-# gotten through uploading their required documents:
-#   - no required docs uploaded yet      -> "Newly Submitted"
-#   - some but not all required docs up  -> "Incomplete"
-#   - every required doc uploaded        -> "Pending Verification" (ready to verify)
-# Approved/Rejected/Withdrawn are real decisions and pass through unchanged.
+# Computed from document-upload completeness, never stored on the applicant
+# doc: no docs uploaded -> "Newly Submitted"; some -> "Incomplete"; all ->
+# "Pending Verification". Approved/Rejected/Withdrawn pass through unchanged.
 COMPUTED_STATUSES = {'Newly Submitted', 'Pending Verification', 'Incomplete'}
 
 def get_doc_requirements_collection(db, org_id):
-    """Lazy-seeds the default requirements on first use per organization, so a
-    newly-created LGU starts with the same documents the form always had -
-    scoped by organization_id since a bare count_documents({}) would only ever
-    seed once platform-wide, leaving every LGU after the first with none."""
+    """Lazy-seeds the default requirements on first use, per organization."""
     if db.document_requirements.count_documents({"organization_id": org_id}) == 0:
         now = datetime.utcnow()
         db.document_requirements.insert_many([
@@ -185,13 +149,8 @@ def get_required_doc_labels(db, org_id):
     return {r['label'] for r in get_doc_requirements_collection(db, org_id).find({"required": True, "enabled": True, "organization_id": org_id})}
 
 def collect_verification_warnings(db, applicant, org_id):
-    """Surfaces document/fraud concerns for the LGU to weigh - never blocks the
-    ML decision. Whether a document is genuine is the LGU's call, not an
-    algorithm's: OCR and the duplicate/metadata checks only inform that call
-    (see run_ocr_check, extract_metadata_flags) by showing what they found;
-    an admin who has looked at the actual file can always go ahead (or undo a
-    decision afterward via Reconsider/Revoke Approval). Returns a list of
-    human-readable warning strings, empty when there's nothing to flag."""
+    """Surfaces document/fraud concerns for the LGU to weigh - never blocks
+    the ML decision. Returns a list of warning strings, empty if none."""
     warnings = []
     required_labels = get_required_doc_labels(db, org_id)
     uploaded = {d.get('document_name'): d for d in applicant.get('documents', []) if d.get('status') == 'Uploaded'}
@@ -200,9 +159,7 @@ def collect_verification_warnings(db, applicant, org_id):
     if missing:
         warnings.append(f"Not uploaded: {', '.join(sorted(missing))}")
 
-    # The selfie is deliberately never OCR-checked (it's a face photo, shown
-    # side-by-side with the ID for the admin to manually compare - see
-    # ApplicantModal.jsx).
+    # The selfie is never OCR-checked - manually compared against the ID instead.
     for label in sorted(required_labels & uploaded.keys()):
         if label == SELFIE_DOC_LABEL:
             continue
@@ -234,27 +191,17 @@ def compute_display_status(doc, required_labels):
     return 'Incomplete'
 
 def compute_admin_status(doc, required_labels):
-    """Admin-only layer on top of compute_display_status(): additionally
-    relabels a Rejected-but-model-Eligible applicant as "Waitlisted" - they
-    met the eligibility bar but the accepted-applicant limit was full, and
-    can still be auto-promoted later (see recompute_approvals). Deliberately
-    NOT used by the student-facing endpoint (get_student_application), which
-    must see the raw "Rejected" value to decide whether to mask it before
-    results are revealed - relabeling it here first would let that check
-    slip past undetected and leak the decision early."""
+    """Admin-only layer over compute_display_status(): relabels a
+    Rejected-but-Eligible applicant as "Waitlisted". Not used by the
+    student-facing endpoint, which must see the raw "Rejected" value."""
     status = compute_display_status(doc, required_labels)
     if status == 'Rejected' and doc.get('ml_status') == 'Eligible':
         return 'Waitlisted'
     return status
 
 def build_status_query_fragment(statuses):
-    """Translate requested display-statuses into the Mongo filter that
-    actually matches them. "Waitlisted" isn't a stored value - it's Rejected
-    further split by ml_status (see compute_admin_status) - so from here on
-    "Rejected" always means true rejects only; a caller wanting the old
-    undifferentiated set requests both. Both directions are ordinary,
-    directly-queryable fields, unlike the document-completeness statuses
-    above, so this needs no fetch-everything-then-filter fallback."""
+    """Translates display-statuses into a Mongo filter. "Waitlisted" isn't a
+    stored value - it's Rejected split by ml_status."""
     other = [s for s in statuses if s not in ('Rejected', 'Waitlisted')]
     clauses = []
     if 'Waitlisted' in statuses:
@@ -269,12 +216,9 @@ def build_status_query_fragment(statuses):
 
 # ── OCR ──
 def compute_ocr_result(applicant, applicant_oid, document_name):
-    """Runs OCR + the content/fraud cross-checks on one already-uploaded document.
-    Read-only w.r.t. the database (only reads the GridFS file bytes) - safe to
-    call from multiple threads at once, see run_ocr_checks_concurrently below.
-    Returns the result dict (extended with 'document_name'), or
-    {'document_name', 'error': ...} if the file couldn't be read (missing from
-    storage, corrupt, etc.) - never raises."""
+    """Runs OCR + content/fraud checks on one uploaded document. Read-only
+    (safe to call from multiple threads). Returns the result dict, or
+    {'document_name', 'error': ...} if the file couldn't be read."""
     doc = next((d for d in applicant.get('documents', []) if d.get('document_name') == document_name), None)
     if not doc or not doc.get('gridfs_id'):
         return {"document_name": document_name, "error": "Document not found"}
@@ -284,11 +228,8 @@ def compute_ocr_result(applicant, applicant_oid, document_name):
     except gridfs.errors.NoFile:
         return {"document_name": document_name, "error": "File not found on server"}
 
-    # OCR needs a real file path, so write GridFS bytes to a scratch temp
-    # file for the duration of processing only - nothing is kept on disk.
-    # Unique per (applicant, document, call) - several documents for the same
-    # applicant can be OCR'd concurrently, so a filename shared across them
-    # would let two calls stomp on each other's temp file mid-read.
+    # OCR needs a real file path - write to a scratch temp file, unique per
+    # call so concurrent OCR of the same applicant's documents can't collide.
     ext = os.path.splitext(grid_out.filename)[1] or '.bin'
     safe_doc_name = re.sub(r'[^A-Za-z0-9_-]', '_', document_name)
     temp_path = os.path.join(
@@ -315,16 +256,13 @@ def compute_ocr_result(applicant, applicant_oid, document_name):
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
-    # Surface metadata-forensics flags (from upload time) alongside the OCR
-    # content flags, so a reviewer sees both in one place.
+    # Merge in metadata-forensics flags from upload time.
     result['flags'] = list(result['flags']) + list(doc.get('metadata_flags') or [])
     result['document_name'] = document_name
     return result
 
 def persist_ocr_result(db, applicant_oid, org_id, result):
-    """Saves one compute_ocr_result() outcome. A file-not-found/missing-doc
-    error has nothing to persist - it just means this document stays
-    unchecked, which collect_verification_warnings already reports."""
+    """Saves one compute_ocr_result() outcome. No-ops on error."""
     if 'error' in result:
         return
     db.applicants.update_one(
@@ -339,21 +277,15 @@ def persist_ocr_result(db, applicant_oid, org_id, result):
     )
 
 def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
-    """Single-document OCR check (used by POST /api/verify-document): compute,
-    then persist. OCR here is advisory, not a gate - it surfaces confidence/
-    flags for a human to weigh, it never blocks anything on its own (see
-    collect_verification_warnings)."""
+    """Single-document OCR check: compute, then persist. Advisory only,
+    never blocks anything."""
     result = compute_ocr_result(applicant, applicant_oid, document_name)
     persist_ocr_result(db, applicant_oid, org_id, result)
     return result
 
 def run_ocr_checks_concurrently(db, applicant, applicant_oid, document_names, org_id):
-    """Runs OCR for several of one applicant's documents at once instead of one
-    after another - each check mostly waits on the Tesseract subprocess (the
-    GIL is released for that wait), so a small thread pool cuts the total wait
-    roughly in proportion to how many documents need checking. All the actual
-    database writes happen afterward, sequentially on the calling thread -
-    compute_ocr_result never touches the database, so there's nothing to race."""
+    """Runs OCR for several documents in parallel via a thread pool, then
+    persists results sequentially."""
     if not document_names:
         return []
     with ThreadPoolExecutor(max_workers=min(4, len(document_names))) as pool:
@@ -397,12 +329,7 @@ def upload_document():
             org_id = current_organization_oid()
             now = datetime.utcnow()
 
-            # Once an application has been reviewed (Approved/Rejected) or
-            # withdrawn, its documents are frozen - same reasoning as blocking
-            # withdraw after scoring: allowing a swap after the decision was
-            # made would let a student silently change what the model/admin
-            # actually reviewed. A Withdrawn applicant submits a fresh
-            # application instead of editing the old one's documents.
+            # Documents are frozen once the application is reviewed or withdrawn.
             status_doc = db.applicants.find_one(
                 {"_id": applicant_oid, "organization_id": org_id}, {"application.status": 1}
             )
@@ -463,13 +390,7 @@ def upload_document():
                 except Exception:
                     pass
 
-            # ── Fraud signal: has this exact file already been uploaded by a
-            # DIFFERENT applicant? A byte-for-byte match is a strong indicator of
-            # document reuse (shared/borrowed paperwork, or the same fake document
-            # submitted under multiple identities). Reuses the existing
-            # duplicate_flags mechanism the Dashboard already surfaces. Scoped to
-            # this LGU only - a cross-tenant match would otherwise leak another
-            # LGU's applicant's name into this one's fraud queue.
+            # Fraud signal: exact file already uploaded by a different applicant.
             reused = db.applicants.find_one(
                 {"_id": {"$ne": applicant_oid}, "documents.file_hash": file_hash, "organization_id": org_id},
                 {"full_name": 1}
@@ -488,13 +409,7 @@ def upload_document():
                 except Exception:
                     pass
             elif phash:
-                # ── Fraud signal: near-duplicate detection via perceptual hashing.
-                # Catches the same document re-uploaded after being re-saved,
-                # screenshotted, or lightly cropped - all of which change the file's
-                # bytes (so the exact-hash check above misses it) but leave the
-                # visual content essentially unchanged. Only runs when there was no
-                # exact-hash match, since that's already the stronger signal.
-                # Scoped to this LGU only, same reasoning as the exact-hash check.
+                # Fraud signal: near-duplicate via perceptual hash (re-saved/cropped copy).
                 try:
                     this_hash = imagehash.hex_to_hash(phash)
                     best_match_doc, best_match_applicant, best_distance = None, None, None
@@ -505,9 +420,7 @@ def upload_document():
                         for d in other.get('documents', []):
                             if not d.get('phash'):
                                 continue
-                            # imagehash's ImageHash.__sub__ returns numpy.int64, which
-                            # bson/pymongo cannot encode - cast to a native int up front
-                            # so the flag document below is actually insertable.
+                            # Cast to native int - numpy.int64 isn't bson-encodable.
                             distance = int(this_hash - imagehash.hex_to_hash(d['phash']))
                             if best_distance is None or distance < best_distance:
                                 best_distance, best_match_doc, best_match_applicant = distance, d, other
@@ -527,11 +440,7 @@ def upload_document():
                 except Exception:
                     pass
 
-            # ── Fraud signal: document metadata (EXIF Software tag / PDF Producer)
-            # names an image-editing tool, suggesting the file was edited rather than
-            # scanned/photographed/generated as a form. Reuses the same duplicate_flags
-            # mechanism as the checks above so it plugs into the existing alert/resolve
-            # workflow; duplicate_of_id is None since there's no other applicant involved.
+            # Fraud signal: metadata names an editing tool. No other applicant involved.
             if metadata_flags:
                 try:
                     db.duplicate_flags.insert_one({
@@ -560,11 +469,7 @@ def upload_document():
 
     return jsonify({"error": "File type not allowed"}), 400
 
-# ── OCR VERIFY DOCUMENT ── admin-only: OCR only ever runs on the admin verification
-# side, never during a student's own application (see the removed /api/ocr-autofill).
-# Kept as a standalone endpoint for re-checking one document on demand - the
-# dedicated "Run OCR Check" button (check_documents_route, below) and "Start
-# Eligibility" (via _verify_and_decide_one) both run this per-document helper too.
+# ── OCR VERIFY DOCUMENT ── admin-only; re-checks one document on demand.
 @app.route('/api/verify-document', methods=['POST'])
 @require_permission('can_review_applicants')
 @limiter.limit("20 per minute")
@@ -595,11 +500,7 @@ def verify_document_route():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
-# ── OCR-CHECK ALL DOCUMENTS FOR ONE APPLICANT ── the dedicated "run OCR" action:
-# checks every uploaded required document that hasn't been OCR-checked yet, in one
-# tap, so the admin can review the results before separately deciding eligibility
-# (see /api/applications/<id>/verify, which also runs this as a fallback for
-# anything still unchecked when eligibility is decided).
+# ── OCR-CHECK ALL DOCUMENTS FOR ONE APPLICANT ──
 @app.route('/api/applications/<applicant_id>/check-documents', methods=['POST'])
 @require_permission('can_review_applicants')
 @limiter.limit("10 per minute")

@@ -1,18 +1,13 @@
 # -*- coding: utf-8 -*-
-"""
-Runs the duplicate-detection test dataset (test_data/duplicate_detection/dataset.json)
-against the real /api/register + /api/apply endpoints and reports detection
-rate / false-flag rate.
+"""Runs the duplicate-detection test dataset
+(test_data/duplicate_detection/dataset.json) against the real /api/register +
+/api/apply endpoints and reports detection rate / false-flag rate.
 
-Registrations are paced to stay under the production rate limit
-(8 per minute on /api/register) - with 45 profiles (30 legitimate + 15
-duplicate attempts) this run takes roughly 6-7 minutes.
+Registrations are paced to stay under the production rate limit (8/minute on
+/api/register); with 45 profiles this run takes roughly 6-7 minutes.
 
 Requires: the Flask backend running locally (python app.py).
-
-Usage:
-    python run_duplicate_dataset_test.py
-"""
+Usage: python run_duplicate_dataset_test.py"""
 import os
 import time
 import json
@@ -69,8 +64,7 @@ def main():
     for pair in dataset["duplicate_pairs"]:
         attempt = pair["attempt"]
         # register_email creates the attacker's own account (must be unique);
-        # application_email is what's declared on the application form itself -
-        # that's the field the applicant-level duplicate check actually reads.
+        # application_email is the field the duplicate check actually reads.
         token = register(attempt["register_email"], attempt["full_name"], attempt["dob"], profile_template)
         status, resp = apply(token, attempt["full_name"], attempt["application_email"], attempt["dob"], profile_template)
         dup_results.append({"pair_id": pair["pair_id"], "match_type": pair["match_type"],

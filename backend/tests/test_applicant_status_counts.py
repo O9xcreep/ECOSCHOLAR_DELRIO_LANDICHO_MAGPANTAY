@@ -1,10 +1,7 @@
 # -*- coding: utf-8 -*-
 """GET /api/applicants/status-counts computes every tab's badge count in one
-pass (see applicant_status_counts() in app.py) instead of the Applications page
-firing one GET /api/applicants request per tab - three of which independently
-re-scanned and recomputed compute_admin_status() over the same "Newly
-Submitted" pool. This checks the consolidated counts match what the existing
-per-tab GET /api/applicants?status=... filtering already proves correct."""
+pass, instead of the Applications page firing one GET /api/applicants request
+per tab. Checks the consolidated counts match the existing per-tab filtering."""
 import app as app_module
 
 

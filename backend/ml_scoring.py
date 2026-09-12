@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ML model loading, feature building/scoring, the eligibility decision
-routes, and recompute_approvals (also used by admin_settings.py and, via
-program_reset, by helpers.py's do_program_reset caller)."""
+routes, and recompute_approvals (also used by admin_settings.py and
+helpers.py's do_program_reset)."""
 from datetime import datetime
 from flask import request, jsonify, g
 
@@ -13,10 +13,10 @@ from auth import require_permission, current_organization_oid
 from documents import get_required_doc_labels, collect_verification_warnings, \
     run_ocr_checks_concurrently, SELFIE_DOC_LABEL
 
-# ── LOAD ML MODEL (EcoScholar classifier + regressor, trained per Chapter III) ──
-# ecoscholar_predict.py loads its .joblib/.json files at import time, so a missing or
-# corrupt model file raises here - caught the same way the old bundle load was, so
-# scoring degrades gracefully without disabling application submission.
+# ── LOAD ML MODEL (EcoScholar classifier + regressor) ──
+# ecoscholar_predict.py loads its .joblib/.json files at import time; a missing
+# or corrupt model file is caught here so scoring degrades gracefully instead
+# of blocking application submission.
 try:
     from ecoscholar_predict import score_applicant as _ml_predict, ELIGIBILITY_CUTOFF as ml_regressor_cutoff
     ml_classifier = True   # sentinel only - the real model objects live inside ecoscholar_predict
@@ -29,9 +29,9 @@ except Exception as e:
     ml_regressor_cutoff = None
     print(f"ML model not loaded: {e}")
 
-# Fields every applicant must have for the combined model to score them.
-# Applicants who registered before this model was wired in won't have these
-# (see schema/ml_model.md) - they're excluded from scoring rather than guessed at.
+# Fields required for the model to score an applicant. Applicants who
+# registered before this model was added won't have these and are excluded
+# from scoring rather than guessed at.
 ML_REQUIRED_FIELDS = [
     'monthly_income', 'housing_situation', 'num_siblings',
     'num_siblings_studying', 'father_education', 'mother_education'
@@ -71,10 +71,9 @@ def score_with_model(row):
     return result['priority_score'], ml_status
 
 def build_score_breakdown(applicant):
-    """Simple heuristic breakdown for the admin UI progress bars, read straight from
-    the applicant's stored raw fields - a rough visual aid, not the model's actual
-    internal feature attribution, and intentionally independent of whichever model
-    is deployed."""
+    """Heuristic breakdown for the admin UI progress bars, computed from the
+    applicant's raw fields. A visual aid only, not the model's actual feature
+    attribution."""
     academic = applicant.get('academic') or {}
     gpa = float(academic.get('gpa') or 0)
     income = float(applicant.get('monthly_income') or 0)
@@ -98,11 +97,9 @@ def build_score_breakdown(applicant):
         {"label": "Housing Need Score", "value": house_s, "color": "#ec4899"},
     ]
 
-# Every value in build_score_breakdown() is oriented so that higher = more favorable
-# for approval (better grades, lower income, more financial need, etc.), so the
-# lowest-scoring component(s) are a reasonable plain-language explanation for a
-# rejection - not the model's actual internal feature attribution, same caveat as
-# build_score_breakdown() itself.
+# build_score_breakdown() values are oriented so higher = more favorable for
+# approval, so the lowest-scoring component(s) serve as a plain-language
+# rejection explanation (not the model's actual feature attribution).
 REJECTION_REASON_TEXT = {
     "GWA Score": "academic performance (GWA) was below the typical threshold for approved applicants",
     "Income Need Score": "estimated household income was higher than typical for approved applicants",
@@ -117,18 +114,14 @@ def generate_rejection_reason(breakdown):
     return "Primary factors: " + "; and ".join(reasons) + "."
 
 def recompute_approvals(db, org_id, limit, reviewed_by='System'):
-    """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score) among
-    everyone the classifier found Eligible **in the current cycle**. Run after every
-    verify decision and whenever the limit changes, since either can promote or bump
-    applicants who weren't directly touched by that specific action - a newly-verified
-    strong applicant can displace a previously-Approved weaker one, and raising the
-    limit can promote applicants who were waiting just below the old cutoff. Scoped to
-    the current cycle so re-verifying someone this cycle can never reach back and flip
-    an already-archived cycle's decisions."""
+    """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score)
+    among everyone the classifier found Eligible in the current cycle. Run
+    after every verify decision and whenever the limit changes, since either
+    can promote or bump applicants not directly touched by that action.
+    Scoped to the current cycle so it never touches an archived cycle."""
     eligible = list(db.applicants.find(
-        # A withdrawn applicant can still carry ml_status: "Eligible" from a
-        # prior verification - excluded here so recompute never overwrites
-        # "Withdrawn" back to Approved/Rejected.
+        # Withdrawn applicants can still carry ml_status "Eligible" from a
+        # prior verification; excluded so recompute never reinstates them.
         {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"},
          "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id},
         {"ml_score": 1, "application": 1, "full_name": 1, "email": 1, "user_id": 1}
@@ -187,13 +180,12 @@ def recompute_approvals(db, org_id, limit, reviewed_by='System'):
         )
 
 def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
-    """Runs the ML eligibility decision for one applicant - shared by the
+    """Runs the ML eligibility decision for one applicant; shared by the
     single-applicant and bulk verify routes. Returns (result_dict,
-    needs_recompute): needs_recompute is True when this applicant was found
-    Eligible, meaning the accepted-applicant pool must be recomputed
-    afterward. Callers processing several applicants should batch that into
-    one recompute_approvals() call rather than one per applicant, since it
-    re-evaluates the entire pool every time it runs."""
+    needs_recompute), where needs_recompute is True when this applicant was
+    found Eligible and the accepted-applicant pool must be recomputed.
+    Callers processing several applicants should batch that into one
+    recompute_approvals() call rather than one per applicant."""
     applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
     if not applicant:
         return {"error": "Applicant not found"}, False
@@ -201,10 +193,9 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     if (applicant.get('application') or {}).get('status') == 'Withdrawn':
         return {"error": "This application was withdrawn by the applicant and can't be modified."}, False
 
-    # One tap does it all: OCR-check every uploaded required document that hasn't
-    # been checked yet (the selfie is manually compared instead, never OCR'd),
-    # then let the LGU see the results as warnings rather than gating on them -
-    # whether a document is genuine is their call, not an algorithm's.
+    # OCR-check every uploaded required document not yet checked (the selfie
+    # is compared manually, never OCR'd); results are surfaced as warnings
+    # only, since document authenticity is the LGU's call, not an algorithm's.
     required_labels = get_required_doc_labels(db, org_id)
     to_check = [
         d['document_name'] for d in applicant.get('documents', [])
@@ -228,8 +219,8 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     breakdown = build_score_breakdown(applicant)
 
     if ml_status == 'Not Eligible':
-        # Ineligible on the classifier's own terms - rejected outright, the
-        # accepted-applicant limit never even comes into play for this one.
+        # Ineligible on the classifier's own terms; rejected outright, the
+        # accepted-applicant limit never comes into play here.
         final_status = 'Rejected'
         rejection_reason = generate_rejection_reason(breakdown)
         remarks = f'ML score: {ml_score} ({ml_status}) - {rejection_reason}'
@@ -270,9 +261,8 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
             "warnings": warnings,
         }, False
 
-    # Eligible on its own - but whether it's actually Approved depends on how
-    # it ranks against everyone else within the accepted applicant limit, so
-    # the final call is left to recompute_approvals(), run by the caller.
+    # Eligible on its own, but whether it's actually Approved depends on its
+    # rank against the accepted applicant limit; left to recompute_approvals().
     db.applicants.update_one(
         {"_id": applicant_oid},
         {"$set": {
@@ -359,9 +349,8 @@ def bulk_verify_and_decide():
             results.append(result)
             any_needs_recompute = any_needs_recompute or needs_recompute
 
-        # Recompute the accepted-applicant pool once at the end, rather than once
-        # per eligible applicant - it re-evaluates everyone, so doing it per-item
-        # in a batch would be needlessly expensive.
+        # Recompute the accepted-applicant pool once at the end rather than
+        # per applicant, since it re-evaluates everyone each time it runs.
         if any_needs_recompute:
             limit = get_applicant_limit(db, org_id)
             recompute_approvals(db, org_id, limit, reviewed_by=reviewed_by)
@@ -399,9 +388,9 @@ def score_applicant(applicant_id):
             return jsonify({"error": "Applicant not found"}), 404
 
         org_id = current_organization_oid()
-        # This is only a preview fetched automatically on modal open, so it never
-        # runs OCR itself (that's the explicit "Run OCR Check" / "Start Eligibility"
-        # actions) - it just reports the score alongside whatever warnings exist.
+        # A preview fetched automatically on modal open; never runs OCR itself
+        # (that's "Run OCR Check" / "Start Eligibility") - just reports the
+        # score alongside whatever warnings already exist.
         warnings = collect_verification_warnings(db, applicant, org_id)
 
         row, ok = build_feature_row(applicant)
@@ -454,7 +443,7 @@ def rank_applicants():
             try:
                 row, ok = build_feature_row(applicant)
                 if not ok:
-                    continue  # predates this model - see schema/ml_model.md
+                    continue  # predates this model
 
                 ml_score, ml_status = score_with_model(row)
                 academic = applicant.get('academic') or {}

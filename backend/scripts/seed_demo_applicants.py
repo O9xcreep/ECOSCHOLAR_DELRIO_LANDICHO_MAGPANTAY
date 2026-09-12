@@ -1,20 +1,15 @@
-"""
-Replace all applicant data with a fresh set of demo applicants built on the
-current (post-ML-migration) schema, so Reports/Ranking have realistic,
-fully-scoreable data instead of the old pre-migration legacy records.
+"""Replaces all applicant data with a fresh set of demo applicants built on
+the current schema, so Reports/Ranking have realistic, fully-scoreable data.
 
 Clears: applicants, duplicate_flags, notifications
 Leaves untouched: users (login accounts stay valid)
 
 Most seeded applicants get auto-decided (Approved/Rejected) by running them
-through the *real* model via app.py's own build_feature_row/score_with_model,
-so the decision logic is identical to what the live app would do. A few are
-left at "Newly Submitted" so there's something for the admin to actually
-exercise the new verify-documents workflow on.
+through the real model via build_feature_row/score_with_model, so the
+decision logic matches the live app. A few are left at "Newly Submitted" for
+the admin to exercise the verify-documents workflow on.
 
-Usage (from backend/):
-    ./venv/Scripts/python.exe scripts/seed_demo_applicants.py
-"""
+Usage (from backend/): ./venv/Scripts/python.exe scripts/seed_demo_applicants.py"""
 import os
 import sys
 import random

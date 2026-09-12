@@ -1,18 +1,13 @@
-"""
-One-time migration, multi-tenancy Phase A: create a single "Default
-Organization" (this deployment's own LGU) and backfill organization_id onto
-every existing document in every per-tenant collection. Purely additive - no
-existing _id, field, or query is touched, so nothing in the running app
-behaves any differently before or after this runs. Safe to re-run: documents
+"""One-time migration, multi-tenancy Phase A: create a single "Default
+Organization" and backfill organization_id onto every existing document in
+every per-tenant collection. Purely additive; safe to re-run since documents
 that already have organization_id are left alone.
 
-Going forward, every new document in these collections is already tagged at
-write time by app.py's get_default_organization_id() helper - this script
-only needs to run once, to catch up data that existed before that shipped.
+Going forward, every new document is already tagged at write time by
+helpers.py's get_default_organization_id() - this script only needs to run
+once, to catch up data that existed before that shipped.
 
-Usage (from backend/):
-    ./venv/Scripts/python.exe scripts/migrate_phase_a_organizations.py
-"""
+Usage (from backend/): ./venv/Scripts/python.exe scripts/migrate_phase_a_organizations.py"""
 import os
 import sys
 import secrets

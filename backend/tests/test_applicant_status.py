@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Admin-facing computed application status: the document-completeness family
-(Newly Submitted/Incomplete/Pending Verification) from Round 2, plus
-Waitlisted - a Rejected-but-model-Eligible applicant who can still be
-auto-promoted later (see recompute_approvals). Neither is a stored value;
-both are computed in compute_admin_status() and must be filterable/countable
-through GET /api/applicants exactly like a real one."""
+"""Admin-facing computed application status: the document-completeness
+family (Newly Submitted/Incomplete/Pending Verification), and Waitlisted (a
+Rejected-but-model-Eligible applicant, see recompute_approvals). Neither is
+stored; both are computed in compute_admin_status() and must be
+filterable/countable through GET /api/applicants like a real status."""
 import app as app_module
 
 
@@ -115,9 +114,9 @@ class TestWaitlistedFiltering:
 
 
 class TestDocCompletenessStatusesStillWork:
-    """Regression check on renaming compute_display_status's caller to
-    compute_admin_status inside get_applicants() - the Round 2 computed
-    statuses must keep working exactly as before."""
+    """Regression check: renaming compute_display_status's caller to
+    compute_admin_status inside get_applicants() must not break the Round 2
+    computed statuses."""
 
     def test_newly_submitted_with_no_docs(self, client, db, auth_headers):
         db.applicants.insert_one({
@@ -129,8 +128,8 @@ class TestDocCompletenessStatusesStillWork:
 
     def test_incomplete_vs_pending_verification_split(self, client, db, auth_headers):
         # Includes the selfie label since get_doc_requirements_collection()
-        # auto-backfills it as required if it's ever missing - omitting it
-        # here would make every applicant "Incomplete" regardless of Form A/B.
+        # auto-backfills it as required; omitting it would make every
+        # applicant "Incomplete" regardless of Form A/B.
         db.document_requirements.insert_many([
             {'label': 'Form A', 'required': True, 'enabled': True},
             {'label': 'Form B', 'required': True, 'enabled': True},

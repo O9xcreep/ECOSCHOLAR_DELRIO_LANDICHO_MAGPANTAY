@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Result-visibility gating (backend/app.py are_results_visible(), the
+"""Result-visibility gating (helpers.are_results_visible(), the
 results_visible_after/results_visible_override settings fields, and masking of
 Approved/Rejected in GET /api/student/application until results are released)."""
 from datetime import datetime, timedelta
@@ -172,10 +172,9 @@ class TestStudentApplicationMasking:
 class TestNotificationMasking:
     def test_rejection_notification_generic_when_hidden(self, client, db, auth_headers, make_user):
         student = make_user(email='stu7@test.com', password='TestPass123', role='student')
-        # Documents must be OCR-verified before the ML decision can run (see
-        # check_ready_for_ml_decision) - seed one required doc, already uploaded
-        # and verified, so this test can reach the notification-masking logic
-        # under test instead of being blocked by the document gate.
+        # Documents must be OCR-verified before the ML decision can run; seed
+        # one required doc already verified so this test reaches the
+        # masking logic instead of being blocked by the document gate.
         db.document_requirements.insert_many([
             {'label': 'Form A', 'required': True, 'enabled': True},
             {'label': app_module.SELFIE_DOC_LABEL, 'required': True, 'enabled': True},

@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
-"""PUT /api/applications/<id>/request-changes - an LGU member's alternative to
-Verify when documents are missing/unclear. Reuses the Withdrawn status (same
-mechanism a student's own withdraw uses) so the applicant can freely resubmit,
-exempt from duplicate-detection - see test_withdraw.py's TestReapplyAfterWithdraw
-for the underlying exemption this relies on. admin_comment is what tells a
-"changes requested" Withdrawn apart from a self-withdrawn one."""
+"""PUT /api/applications/<id>/request-changes: an LGU member's alternative to
+Verify when documents are missing/unclear. Reuses the Withdrawn status so the
+applicant can freely resubmit; admin_comment distinguishes it from a
+self-withdrawn application."""
 
 VALID_APPLY_PAYLOAD = {
     'contactNumber': '09171234567', 'address': 'X', 'gender': 'Male', 'dob': '2003-01-01',

@@ -1,15 +1,9 @@
 # -*- coding: utf-8 -*-
-"""send_email() dispatches to Resend or Mailjet based on EMAIL_PROVIDER - a
-temporary switch for when Resend's free-tier sending limit is hit, flippable
-without a code change. Both are best-effort: a failure or missing config
-returns False and never raises (callers must not let a failed send change
-what's shown to the requester).
-
-send_email/EMAIL_PROVIDER/etc. live in backend/helpers.py (see the app.py ->
-extensions/helpers/auth/... module split) - patched there directly, since a
-function's globals are resolved from the module it's actually defined in, not
-wherever it's re-exported to (app.py re-exports the callable itself, which is
-why app_module.send_email(...) below still works)."""
+"""send_email() dispatches to Resend or Mailjet based on EMAIL_PROVIDER, a
+flippable config switch. Both are best-effort: a failure or missing config
+returns False and never raises. Config lives in helpers.py and is patched
+there directly, since a function's globals resolve from its defining
+module, not wherever it's re-exported."""
 from unittest.mock import patch, MagicMock
 
 import app as app_module
@@ -18,11 +12,9 @@ import helpers
 
 class TestEmailProviderDispatch:
     def test_resend_skipped_when_not_configured(self, monkeypatch):
-        # Every test in this file pins EMAIL_PROVIDER explicitly via monkeypatch -
-        # helpers.EMAIL_PROVIDER is read from the real .env at import time
-        # (app.py calls load_dotenv() unconditionally, even under pytest), so a
-        # dev machine mid-migration to Mailjet has this set to "mailjet" for
-        # real. Never rely on whatever happens to be loaded.
+        # EMAIL_PROVIDER is read from the real .env at import time (even under
+        # pytest), so every test here pins it explicitly via monkeypatch
+        # rather than relying on whatever a dev machine has configured.
         monkeypatch.setattr(helpers, 'EMAIL_PROVIDER', 'resend')
         monkeypatch.setattr(helpers, 'RESEND_API_KEY', '')
         monkeypatch.setattr(helpers, 'SMTP_FROM_EMAIL', 'x@test.com')

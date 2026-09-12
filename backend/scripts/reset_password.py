@@ -1,14 +1,10 @@
 # -*- coding: utf-8 -*-
-"""
-Resets an existing user's password directly in the database. Password is
-entered interactively (hidden, never echoed or logged) and stored only as
-a salted hash - the same hashing function backend/app.py's /api/register
-uses. Use this when a password is forgotten and there's no working
-forgot-password flow to fall back on.
+"""Resets an existing user's password directly in the database. Password is
+entered interactively (hidden, never echoed) and stored as a salted hash,
+using the same hashing function as /api/register. Use this when a password
+is forgotten and there's no working forgot-password flow to fall back on.
 
-Usage:
-    python reset_password.py
-"""
+Usage: python reset_password.py"""
 import os
 import getpass
 from pymongo import MongoClient

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Custom form fields (Form Builder). Checkbox fields can optionally carry an
-options list, same as select - a checkbox field with no options stays the
-original simple Yes/No toggle, so existing checkbox fields are unaffected."""
+options list, same as select; one with no options stays a simple Yes/No
+toggle, so existing checkbox fields are unaffected."""
 
 
 class TestCreateFormField:
@@ -48,9 +48,8 @@ class TestCreateFormField:
 
 
 class TestFormLockedWhileProgramOpen:
-    """The form (custom fields, document requirements, hidden built-ins) can only
-    be edited before a program starts or after it ends - changing what's expected
-    of applicants mid-program would silently invalidate submissions in flight."""
+    """The form can only be edited before a program starts or after it ends;
+    changing what's expected mid-program would invalidate submissions in flight."""
 
     def test_create_field_blocked_while_open(self, client, auth_headers, open_cycle):
         res = client.post('/api/form-fields', headers=auth_headers(), json={

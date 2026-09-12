@@ -28,11 +28,9 @@ def serialize_audit_entry(a):
     }
 
 # ── GET ALL APPLICANTS ──
-# `page` is opt-in: omitting it returns every applicant, unchanged from before,
-# since the Dashboard/Reports/Ranking pages all need the full set for their own
-# aggregation. Passing `page` switches to server-side search/filter/pagination
-# for the Applicants/Applications list pages, which only ever need one page at
-# a time and don't want to keep fetching the entire collection as it grows.
+# `page` is opt-in: omitting it returns every applicant, since Dashboard/
+# Reports/Ranking need the full set for their own aggregation. Passing `page`
+# switches to server-side search/filter/pagination for the Applicants list.
 @app.route('/api/applicants', methods=['GET'])
 @require_permission('can_review_applicants')
 def get_applicants():
@@ -40,10 +38,9 @@ def get_applicants():
         db = get_db()
         org_id = current_organization_oid()
         page_param = request.args.get('page')
-        # Opt-in, not opt-out: defaults to every cycle ever (unchanged from before this
-        # feature existed) so nothing that already calls this route without the param -
-        # Reports, CSV export - silently starts seeing less than it used to. Only the
-        # live Applications queue explicitly asks for cycle=current.
+        # Opt-in, not opt-out: defaults to every cycle ever, so callers that don't
+        # pass cycle=current (Reports, CSV export) keep seeing the full history.
+        # Only the live Applications queue asks for cycle=current.
         base_query = {"organization_id": org_id}
         if request.args.get('cycle') == 'current':
             base_query["cycle_id"] = get_current_cycle_id(db, org_id)
@@ -72,9 +69,8 @@ def get_applicants():
         status_param = request.args.get('status')
         statuses = None
         if status_param and status_param != 'All':
-            # Comma-separated so a page's "All" tab can mean "any of these
-            # statuses" (e.g. Approved or Rejected) without matching every
-            # status in the system.
+            # Comma-separated so a tab can mean "any of these statuses"
+            # without matching every status in the system.
             statuses = [s.strip() for s in status_param.split(',') if s.strip()]
 
         q = (request.args.get('q') or '').strip()
@@ -100,10 +96,9 @@ def get_applicants():
             sort_field, sort_dir = SORT_FIELD_MAP[key], direction
 
         # "Pending Verification"/"Incomplete"/"Newly Submitted" are computed from
-        # document completeness, not a stored field - Mongo can't filter or count
-        # them directly. Whenever a tab asks for one of these, fall back to
-        # fetching every raw-"Newly Submitted" match (plus any other requested
-        # real statuses) and do the filter/sort/paginate in Python instead.
+        # document completeness, not a stored field, so Mongo can't filter or
+        # count them directly. Fall back to fetching raw "Newly Submitted"
+        # matches and filter/sort/paginate in Python instead.
         if statuses and (set(statuses) & COMPUTED_STATUSES):
             raw_statuses_needed = sorted({
                 'Newly Submitted' if s in COMPUTED_STATUSES else s
@@ -145,8 +140,7 @@ def get_applicants():
             status_fragment = build_status_query_fragment(statuses)
             if '$or' in status_fragment and '$or' in query:
                 # Both the search box and the status split want the top-level
-                # $or slot - combine them with $and instead of one clobbering
-                # the other.
+                # $or slot; combine with $and instead of one clobbering the other.
                 query['$and'] = [{'$or': query.pop('$or')}, status_fragment]
             else:
                 query.update(status_fragment)
@@ -168,15 +162,9 @@ def get_applicants():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
-# ── APPLICANT TAB/BADGE COUNTS (ALL AT ONCE) ── the Applications page needs a
-# count per tab (Newly Submitted, Pending Verification, Incomplete, Waitlisted,
-# Approved, Rejected, Withdrawn, All). Naively that's one GET /api/applicants
-# per tab - and three of those (Newly Submitted, Pending Verification,
-# Incomplete) each independently re-fetch the entire "Newly Submitted" pool and
-# recompute compute_admin_status() for every document in it, since those three
-# aren't real stored values Mongo can count directly (see COMPUTED_STATUSES).
-# Fetched in parallel that's still the same pool scanned and recomputed 3-4x
-# over on every page load. This does it once.
+# ── APPLICANT TAB/BADGE COUNTS (ALL AT ONCE) ── returns per-tab counts for the
+# Applications page in one query pass, instead of one request per tab (three
+# of which would otherwise each re-fetch and recompute the same status pool).
 @app.route('/api/applicants/status-counts', methods=['GET'])
 @require_permission('can_review_applicants')
 def applicant_status_counts():
@@ -255,25 +243,20 @@ def submit_application():
         current_cycle = get_current_cycle(db, org_id)
         current_cycle_id = current_cycle["_id"] if current_cycle else None
 
-        # An org must explicitly set up a scholarship program (Settings -> System)
-        # before students can apply - current_cycle is None until that first happens,
-        # which used to be treated as an always-open implicit "Cycle 0" for
-        # backward compatibility with pre-cycle-tracking data. New submissions no
-        # longer get that free pass: a brand-new org (or one between programs) has
-        # nothing open until an admin starts one. A cycle with no deadline stays open
-        # indefinitely once started; a past deadline closes it automatically.
+        # An org must explicitly start a scholarship program (Settings -> System)
+        # before students can apply; current_cycle is None until that happens, and
+        # a brand-new org has nothing open until an admin starts one. A cycle with
+        # no deadline stays open indefinitely; a past deadline closes it automatically.
         if not is_cycle_open(current_cycle):
             return jsonify({"error": "No scholarship program is currently open."}), 403
 
         # ── Check duplicate by EMAIL ──
-        # Scoped to the current cycle only: someone who already applied in a past,
-        # now-archived cycle must be able to apply again in a new one - that's the
-        # entire point of a program reset. A DIFFERENT check (reused document/photo
-        # detection in upload_document) is what catches the same person trying to
-        # reapply under a new identity, and that one deliberately stays cross-cycle.
-        # A Withdrawn application never counts as the blocking duplicate here either -
-        # withdrawing is meant to free the applicant up to submit a fresh one in the
-        # same cycle (see the comment on withdraw_application below).
+        # Scoped to the current cycle only, so a program reset lets someone who
+        # applied in a past archived cycle apply again. Reused document/photo
+        # detection (in upload_document) separately catches reapplication under a
+        # new identity, and stays cross-cycle. Withdrawn applications never count
+        # as the blocking duplicate, since withdrawing frees the applicant to
+        # resubmit in the same cycle.
         existing = db.applicants.find_one({
             "email": email, "cycle_id": current_cycle_id, "application.status": {"$ne": "Withdrawn"},
             "organization_id": org_id,
@@ -322,8 +305,8 @@ def submit_application():
                 "existing_application": existing_app
             }), 409
 
-        # Validate required fields - religion/citizenship drop out if this LGU
-        # has hidden them (see HIDEABLE_BUILTIN_FIELDS / hidden_builtin_fields).
+        # religion/citizenship drop out if this LGU has hidden them
+        # (see HIDEABLE_BUILTIN_FIELDS / hidden_builtin_fields).
         hidden_builtin = get_hidden_builtin_fields(db, org_id)
         required_fields = [
             'fullName', 'email', 'contactNumber', 'address',
@@ -340,8 +323,8 @@ def submit_application():
             if data.get(field) in (None, ''):
                 return jsonify({"error": f"Missing required field: {field}"}), 400
 
-        # Validate custom (LGU-defined) extra fields the same way - required ones
-        # must be present. These never feed build_feature_row/the ML model.
+        # Custom (LGU-defined) extra fields; required ones must be present.
+        # These never feed build_feature_row/the ML model.
         submitted_extra = data.get('extraFields') or {}
         custom_fields = list(db.form_fields.find({"enabled": True, "organization_id": org_id}))
         extra_fields_to_store = {}
@@ -505,13 +488,11 @@ def update_status(applicant_id):
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 # ── REQUEST CHANGES (pre-verification: docs missing/unclear) ──
-# Distinct from Verify: this is for when an admin looks at the documents and
-# decides they're NOT ready to be scored yet - it never touches ml_score/ml_status.
-# Reuses the Withdrawn status (same mechanism a student's own withdraw uses) rather
-# than a new status value, since it needs exactly the same "student can freely
-# resubmit, exempt from duplicate-detection" behavior that already exists and is
-# tested for Withdrawn - see submit_application's duplicate checks and
-# TestReapplyAfterWithdraw. admin_comment is what tells the two apart on display.
+# Distinct from Verify: used when an admin decides documents are NOT ready to
+# be scored yet; never touches ml_score/ml_status. Reuses the Withdrawn status
+# (same mechanism as a student's own withdraw) to get the same "student can
+# freely resubmit, exempt from duplicate-detection" behavior. admin_comment is
+# what tells the two apart on display.
 @app.route('/api/applications/<applicant_id>/request-changes', methods=['PUT'])
 @require_permission('can_review_applicants')
 def request_changes(applicant_id):
@@ -618,19 +599,16 @@ def get_student_application():
         db = get_db()
         org_id = current_organization_oid()
         query = {"email": email.strip().lower(), "organization_id": org_id}
-        # A student only ever sees their CURRENT cycle's application here - once a
-        # reset closes their old cycle, this correctly goes back to "No Application
-        # Found" so they can start fresh, rather than reopening an archived one every
-        # time they log in. Admins bypass this (see the masking check below too) since
-        # they legitimately need to look up a student's latest record regardless of
-        # cycle, e.g. from a support/audit context.
+        # A student only sees their CURRENT cycle's application here; once a
+        # reset closes their old cycle this goes back to "No Application Found"
+        # so they can start fresh. Admins bypass this since they need to look up
+        # a student's latest record regardless of cycle.
         if not is_full_access_role(g.current_user.get('role')):
             query["cycle_id"] = get_current_cycle_id(db, org_id)
         applicant = db.applicants.find_one(query, sort=[("_id", -1)])
 
         # Lets the student dashboard/application form know whether a program is
-        # currently open, even before the student has an application of their own -
-        # see is_cycle_open() for what "open" means (a deadline is a hard cutoff).
+        # currently open, even before they have an application of their own.
         current_cycle = get_current_cycle(db, org_id)
         current_cycle_info = {
             "label": current_cycle.get("label") if current_cycle else None,
@@ -643,13 +621,12 @@ def get_student_application():
 
         application = serialize_applicant(applicant)
         # Same document-completeness computation admins see in the Applications
-        # queue - only changes what a raw "Newly Submitted" record displays as,
-        # so it can't collide with the Approved/Rejected masking step below.
+        # queue; only changes a raw "Newly Submitted" display, so it can't
+        # collide with the Approved/Rejected masking step below.
         if application['application_status'] == 'Newly Submitted':
             application['application_status'] = compute_display_status(applicant, get_required_doc_labels(db, org_id))
-        # Only mask for the applicant viewing their own record - admins/reviewers
-        # calling this same endpoint (e.g. from an admin context) always see the
-        # real decision, same as every other admin-facing route.
+        # Only mask for the applicant viewing their own record; admins always
+        # see the real decision, same as every other admin-facing route.
         if not is_full_access_role(g.current_user.get('role')) and application['application_status'] in ('Approved', 'Rejected'):
             if not are_results_visible(db, org_id):
                 application['application_status'] = 'Pending Verification'
@@ -672,16 +649,13 @@ def get_student_application():
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 # ── WITHDRAW APPLICATION ──
-# Deliberately does not let a student edit any submitted field (income, GWA,
-# etc. feed the eligibility model - allowing edits after submission would
-# reopen exactly the kind of post-submission tampering the fraud-detection
-# work elsewhere in this codebase is trying to catch). Withdrawing is
-# non-destructive: it sets a status, not a delete, so the record stays
-# visible to admins and in the audit trail. There's no "undo" - a student who
-# changes their mind submits a fresh application instead. Once the eligibility
-# model has scored the application (Approved/Rejected, including the
-# Waitlisted case - stored as Rejected with ml_status Eligible), that decision
-# is final and can't be withdrawn either - same as it can't be edited.
+# Students can't edit submitted fields (income, GWA, etc. feed the eligibility
+# model; allowing edits would reopen the tampering fraud-detection guards
+# against). Withdrawing sets a status rather than deleting, so the record
+# stays visible to admins and in the audit trail; there's no undo. Once the
+# eligibility model has scored the application (Approved/Rejected, including
+# Waitlisted, stored as Rejected with ml_status Eligible), it can no longer
+# be withdrawn either.
 @app.route('/api/student/application/withdraw', methods=['PUT'])
 @require_auth
 def withdraw_application():
@@ -792,9 +766,9 @@ def get_history_log():
         history = []
         for r in results:
             new_status = r.get("new_status")
-            # A "Rejected" entry from the automatic limit re-rank means this applicant
-            # was actually eligible, just bumped by a higher-ranked one - "Waitlisted"
-            # is a more accurate label for the admin than "Rejected" in that case.
+            # A "Rejected" entry from the automatic limit re-rank means this
+            # applicant was eligible but bumped by a higher-ranked one, so
+            # "Waitlisted" is a more accurate admin-facing label.
             display_status = (
                 'Waitlisted' if new_status == 'Rejected' and r.get('performed_by_role') == 'system'
                 else new_status

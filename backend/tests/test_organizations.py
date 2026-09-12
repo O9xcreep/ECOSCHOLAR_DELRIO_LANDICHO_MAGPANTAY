@@ -33,10 +33,9 @@ class TestGetDefaultOrganizationId:
         assert db.organizations.count_documents({}) == 1
 
     def test_join_code_is_unique_indexed(self, db):
-        # The real index is only ever created once, at app.py import time -
-        # the per-test collection-drop fixture wipes it along with the data,
-        # so re-create it here to prove the *constraint* (not the one-time
-        # app-startup call) actually rejects a duplicate join_code.
+        # The real index is created once at app.py import time and wiped by
+        # the per-test collection-drop fixture; re-create it here to prove
+        # the constraint itself rejects a duplicate join_code.
         db.organizations.create_index('join_code', unique=True)
         app_module.get_default_organization_id(db)
 

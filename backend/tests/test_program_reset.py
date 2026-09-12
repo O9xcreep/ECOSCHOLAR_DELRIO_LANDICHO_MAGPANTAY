@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Program reset (backend/app.py do_program_reset(), POST /api/program-reset,
+"""Program reset (helpers.do_program_reset(), POST /api/program-reset,
 GET /api/program-cycles): archiving the current cycle and opening a new one
-without deleting anything, plus every "current cycle only" query this feature
+without deleting anything, plus every "current cycle only" query this
 introduced (recompute_approvals, GET /api/applicants?cycle=current,
 GET /api/student/application, the submit_application duplicate check)."""
 from datetime import datetime, timedelta
@@ -105,9 +105,9 @@ class TestProgramResetEndpoint:
         assert db.settings.find_one({'organization_id': org_id}).get('results_visible_override') is False
 
     def test_first_reset_backfills_cycle_id_onto_pre_existing_data(self, client, auth_headers, db):
-        """Pre-existing applicants (cycle_id: None) must end up pointing at the new
-        retroactive Cycle 0 record, not left dangling - otherwise list_program_cycles
-        shows both an empty 'Cycle 0' AND a separate legacy bucket for the same data."""
+        """Pre-existing applicants (cycle_id: None) must end up pointing at the
+        retroactive Cycle 0 record, or list_program_cycles would show both an
+        empty 'Cycle 0' and a separate legacy bucket for the same data."""
         applicant_id = db.applicants.insert_one({'full_name': 'Pre-existing', 'email': 'pre@test.com'}).inserted_id
         set_reset_password(db, 'CorrectPass1')
         client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
@@ -258,9 +258,9 @@ VALID_APPLY_PAYLOAD = {
 
 
 class TestProgramDeadline:
-    """A deadline is a hard cutoff, not just a displayed target - see is_cycle_open()
-    in app.py. No program set up at all behaves the same as a closed/expired one:
-    students can't submit until an admin explicitly opens one (Settings -> System)."""
+    """A deadline is a hard cutoff enforced by is_cycle_open(). No program set
+    up behaves the same as closed/expired: students can't submit until an
+    admin explicitly opens one."""
 
     def test_no_cycle_at_all_blocks_submission(self, client, make_user):
         student = make_user(email='nocycle@test.com', password='TestPass123', role='student')

@@ -1,13 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
-Creates a real admin user account in the users collection. Password is
-entered interactively (hidden, never echoed or logged) and stored only as
-a salted hash - the same hashing function backend/app.py's /api/register
-uses.
+"""Creates an admin user account in the users collection. Password is entered
+interactively (hidden, never echoed) and stored as a salted hash, using the
+same hashing function as /api/register.
 
-Usage:
-    python create_admin.py
-"""
+Usage: python create_admin.py"""
 import os
 import getpass
 from datetime import datetime

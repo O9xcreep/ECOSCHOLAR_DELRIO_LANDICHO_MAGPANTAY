@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Session tokens, OTP verification, permission decorators, and the auth-facing
-routes (login/register/profile/password). Every other domain module imports
-its decorators (require_auth, require_role, require_permission) and
-current_organization_oid from here."""
+"""Session tokens, OTP verification, permission decorators, and auth routes
+(login/register/profile/password)."""
 import secrets
 import hashlib
 from datetime import datetime, timedelta
@@ -21,17 +19,11 @@ _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
 RESET_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-reset')
 
-# Proves the applicant actually controls the email address before they ever see the
-# admin-request form - issued only after they type the correct OTP sent to that
-# address, so (unlike the old click-a-link version) this is used within the same
-# sitting rather than "whenever they next check email" - a shorter window is safer.
+# Proves email ownership for the admin-request flow.
 ADMIN_APPLY_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _admin_apply_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-admin-apply')
 
-# Email-verification OTP for new student registrations. A short numeric code
-# rather than a signed token, since the user types it in by hand. Stored in
-# plaintext (unlike passwords) - it's single-use, expires quickly, and attempts
-# are capped, so the threat model that justifies password hashing doesn't apply.
+# Registration OTP: short numeric code, single-use, expires quickly, attempts capped.
 OTP_LENGTH = 6
 OTP_MAX_AGE = 10 * 60  # 10 minutes
 OTP_MAX_ATTEMPTS = 5
@@ -55,9 +47,8 @@ OTP_COPY = {
 }
 
 def create_and_send_otp(email, purpose, full_name=''):
-    """(Re)issues a verification code for the given purpose - any previous unused
-    code for this email+purpose is discarded, so only the most recently sent one
-    ever works. `purpose` is one of OTP_COPY's keys (register, admin_apply)."""
+    """(Re)issues a code for the given purpose (an OTP_COPY key), discarding
+    any previous unused one."""
     db = get_db()
     db.otps.delete_many({"email": email, "purpose": purpose})
     code = generate_otp_code()
@@ -80,9 +71,7 @@ def create_and_send_otp(email, purpose, full_name=''):
     send_email_async(email, copy['subject'], html)
 
 def verify_otp(email, purpose, code):
-    """Returns (ok, error_message). Consumes the code on success; on a wrong
-    guess it counts against the attempt limit without consuming the code, so a
-    typo doesn't cost the user their one shot."""
+    """Returns (ok, error_message). Consumes the code on success only."""
     db = get_db()
     otp = db.otps.find_one({"email": email, "purpose": purpose})
     if not otp or otp["expires_at"] < datetime.utcnow():
@@ -101,11 +90,7 @@ def issue_token(user):
         "id": user["id"],
         "email": user["email"],
         "role": user["role"],
-        # Multi-tenancy, Phase A: carried as a plain identity claim (like id/
-        # email/role above), not trusted for anything security-sensitive on
-        # its own - Phase C's org-scoped routes should re-verify it fresh
-        # from db.users per request, the same way has_permission() already
-        # re-reads permissions fresh so revocation takes effect immediately.
+        # Identity claim only - org-scoped routes must re-verify from db.users.
         "organization_id": user.get("organization_id"),
     })
 
@@ -116,8 +101,7 @@ def hash_token(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 def revoke_token(token):
-    """Blacklist a token until its own natural expiry (logout can't un-sign a
-    stateless itsdangerous token, so we track that it's no longer welcome)."""
+    """Blacklists a token until its own natural expiry."""
     try:
         _, issued_at = _serializer.loads(token, max_age=TOKEN_MAX_AGE, return_timestamp=True)
     except (SignatureExpired, BadSignature):
@@ -155,40 +139,23 @@ def require_role(*roles):
         return wrapper
     return decorator
 
-# Three role tiers:
-#  - "admin"      Super Admin - a dev/platform-level account. Full unconditional access,
-#                  but not part of an LGU's own team: hidden from the Team list and not
-#                  reachable through any of the LGU-facing team-management endpoints.
-#  - "lgu_admin"  Admin - the one-per-deployment head of an LGU's team. Full access to
-#                  everything within this LGU (same as Super Admin, functionally), but
-#                  can only come to hold that seat via POST /api/admins/<id>/transfer-admin.
-#  - "lgu_member" scoped access via a `permissions` sub-document, granted by whoever
-#                  holds can_manage_members (Admin always does; a member can be granted it).
-# Permissions are read fresh from the database on every request rather than trusted from
-# the token, since revoking one should take effect immediately - not only after the
-# member's current session token happens to expire.
+# Role tiers: "admin" (Super Admin, platform-level), "lgu_admin" (one per LGU,
+# full access, seat held via transfer-admin), "lgu_member" (scoped via
+# `permissions`). Permissions are read fresh from the database on every
+# request so revocation takes effect immediately.
 ADMIN_PERMISSIONS = ('can_review_applicants', 'can_manage_members', 'can_reset_program')
 
 def is_full_access_role(role):
-    """True for Super Admin and the LGU's Admin - both get full, unconditional access
-    everywhere; only lgu_member is ever permission-scoped. Use this (not a raw
-    role == 'admin' check) anywhere in the codebase that needs "is this caller an
-    admin-tier user", so lgu_admin never has to be added to a comparison twice."""
+    """True for Super Admin and the LGU's Admin - both get unconditional access."""
     return role in ('admin', 'lgu_admin')
 
 def current_organization_oid():
-    """The requesting user's own organization as a real ObjectId, ready to
-    drop straight into a query filter - None for a Super Admin (platform-
-    level, not tied to any one LGU) or a legacy account predating Phase A's
-    backfill. Multi-tenancy, Phase B: the /api/admins/* team-management
-    surface all needs this now that a second organization can actually exist
-    - without it, one LGU's admins could list/edit/demote another LGU's."""
+    """The requesting user's own organization as an ObjectId, or None for
+    Super Admin / a legacy account."""
     return oid(g.current_user.get('organization_id'))
 
 def has_permission(permission):
-    """Same check require_permission enforces as a decorator, exposed as a plain
-    function for routes that need to OR it with another condition (e.g. "reviewer
-    OR the applicant themself") rather than gate the whole route on it."""
+    """Plain-function form of require_permission, for OR-ing with another condition."""
     role = g.current_user.get('role')
     if is_full_access_role(role):
         return True
@@ -229,7 +196,7 @@ def login():
 
         stored = user['password']
         is_hashed = stored.startswith(('pbkdf2:', 'scrypt:'))
-        # Legacy plaintext password (pre-hashing) - compare directly, then upgrade it below.
+        # Legacy plaintext password - compare directly, upgrade below.
         valid = check_password_hash(stored, password) if is_hashed else stored == password
 
         if not valid:
@@ -238,8 +205,6 @@ def login():
         if not is_hashed:
             db.users.update_one({"_id": user['_id']}, {"$set": {"password": generate_password_hash(password)}})
 
-        # Accounts predating this field (or created outside /api/register, like admins)
-        # default to verified - only a registration left mid-way should ever hit this.
         if not user.get('email_verified', True):
             return jsonify({
                 "error": "Please verify your email before signing in.",
@@ -255,9 +220,7 @@ def login():
             "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
             "organization_name": get_organization_name(db, user.get('organization_id')),
         }
-        # Informational only (drives which nav items the frontend shows) - every
-        # endpoint re-checks permissions fresh from the database regardless, so a
-        # stale cached value here can never grant access the server wouldn't.
+        # Informational only - every endpoint re-checks permissions fresh.
         if user['role'] == 'lgu_member':
             user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
 
@@ -280,9 +243,7 @@ def logout():
     return jsonify({"message": "Logged out"})
 
 
-# Personal-info fields collected at registration (mirrors ApplicationForm's Step 1) so an
-# applicant doesn't have to retype them when they later submit an application - see
-# get_profile() below, which hands these back for ApplicationForm to prefill itself with.
+# Personal-info fields collected at registration, reused to prefill the application form.
 PROFILE_FIELDS = [
     'dob', 'gender', 'religion', 'citizenship', 'contactNumber', 'address',
     'fatherName', 'fatherOccupation', 'fatherEducation',
@@ -441,9 +402,7 @@ def get_profile():
             profile[field] = value or ''
     return jsonify({"profile": profile})
 
-# Editable from the Settings page. Email is intentionally excluded - it's the login
-# credential and is used to match applicant records, so changing it has wider ripple
-# effects than a simple profile edit; out of scope here.
+# Email is excluded - it's the login credential and matches applicant records.
 PROFILE_EDITABLE_FIELDS = {'full_name', 'contactNumber', 'address'}
 
 @app.route('/api/profile', methods=['PUT'])
@@ -509,8 +468,7 @@ def forgot_password():
     if not email:
         return jsonify({"error": "Email is required"}), 400
 
-    # Always return the same message regardless of whether the email exists,
-    # so this endpoint can't be used to enumerate registered accounts.
+    # Same message regardless of outcome - avoids account enumeration.
     generic = {"message": "If an account exists for that email, a password reset link has been sent."}
 
     try:

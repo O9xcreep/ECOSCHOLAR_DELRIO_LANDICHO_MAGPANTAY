@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Multi-tenancy Phase C: route-level query scoping by organization_id, across
+"""Multi-tenancy Phase C: route-level query scoping by organization_id across
 applicants, settings, guidelines, form fields, document requirements,
-duplicate flags, program cycles, and stats/ranking. Phase A/B already cover
-the admin-onboarding and team-management side (see test_organizations.py,
-test_admin_requests.py) - this file is about the data an LGU's own admins
-work with day to day: two organizations on one deployment must never see or
-touch each other's applicants, settings, or forms."""
+duplicate flags, program cycles, and stats/ranking. Two organizations on
+one deployment must never see or touch each other's data."""
 from datetime import datetime
 
 import app as app_module

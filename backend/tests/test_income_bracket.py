@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
-"""income_to_bracket() - the eligibility model was trained on bracketed income,
-not an exact peso figure, so this is the one place a raw number actually
-matters to scoring. The application form now collects a range directly rather
-than a typed number (frontend/src/pages/student/ApplicationForm.jsx's
-INCOME_RANGES) - these tests pin down that each range's representative value
-still lands in the exact bracket its label promises, so that UI change can
-never silently drift from what the model expects."""
+"""income_to_bracket(): the eligibility model was trained on bracketed income,
+not an exact peso figure. These tests pin down that each form income range's
+representative value lands in the bracket its label promises, so the two
+never silently drift apart."""
 import app as app_module
 
 # Mirrors frontend/src/pages/student/ApplicationForm.jsx's INCOME_RANGES - keep
@@ -29,9 +26,8 @@ class TestFormIncomeRangesMatchModelBrackets:
             )
 
     def test_representative_values_are_not_on_a_bracket_boundary(self):
-        """Each value should classify the same way regardless of off-by-one
-        boundary semantics - i.e. comfortably inside its bracket, not right on
-        the edge where a future boundary tweak could silently reclassify it."""
+        """Each value must sit comfortably inside its bracket, not on a
+        boundary where a future off-by-one tweak could silently reclassify it."""
         boundaries = {5000, 10000, 15000, 20000}
         for _, representative_value, _ in FORM_INCOME_RANGES:
             assert representative_value not in boundaries

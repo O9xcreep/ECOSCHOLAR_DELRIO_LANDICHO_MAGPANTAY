@@ -75,9 +75,9 @@ class TestDeleteAdmin:
         assert res.status_code == 400
 
     def test_lgu_member_cannot_remove_a_super_admin(self, client, auth_headers, db):
-        """Super Admin isn't part of the LGU-facing team-management surface at all -
-        even with can_manage_members, looking it up by id here 404s rather than
-        ever exposing a 403 that would confirm the id belongs to an admin."""
+        """Super Admin isn't part of the LGU team-management surface; even with
+        can_manage_members this 404s rather than confirming via 403 that the
+        id belongs to an admin."""
         auth_headers()  # creates the sole super admin, admin@test.com
         lgu_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
         me = db.users.find_one({'email': 'admin@test.com'})

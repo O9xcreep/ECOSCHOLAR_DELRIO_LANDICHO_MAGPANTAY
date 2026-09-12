@@ -53,10 +53,9 @@ def serialize_settings(db, org_id):
 @app.route('/api/settings', methods=['GET'])
 @require_auth
 def get_settings():
-    # Read access is a bit wider than write access: an lgu_member granted only
-    # can_reset_program still needs to see reset_password_set/current_cycle to use
-    # the Reset Program action at all - none of the other fields here are sensitive
-    # enough to gate behind full LGU-admin access just for that one field's sake.
+    # Read access is wider than write access: an lgu_member granted only
+    # can_reset_program still needs to see reset_password_set/current_cycle to
+    # use the Reset Program action.
     if not (is_full_access_role(g.current_user.get('role')) or has_permission('can_reset_program')):
         return jsonify({"error": "Forbidden"}), 403
     db = get_db()
@@ -78,9 +77,8 @@ def update_settings():
         set_fields['max_accepted'] = max_accepted
 
     if 'hidden_builtin_fields' in data:
-        # Which built-in fields show on the form is part of "the form" itself -
-        # locked the same as custom fields/document requirements while a program
-        # is open, see form_is_locked().
+        # Part of "the form" itself, locked the same as custom fields/document
+        # requirements while a program is open (see form_is_locked()).
         if form_is_locked(db, org_id):
             return jsonify({"error": FORM_LOCKED_ERROR}), 409
         hidden = data.get('hidden_builtin_fields')
@@ -107,9 +105,9 @@ def update_settings():
         else:
             return jsonify({"error": "results_visible_override must be true, false, or null"}), 400
 
-    # The reset confirmation password (see POST /api/program-reset) - deliberately
-    # separate from the admin's login password, and never read back: GET /api/settings
-    # only ever reports whether one is set (reset_password_set), never the hash.
+    # Reset confirmation password (see POST /api/program-reset), separate from
+    # the admin's login password. Never read back; GET /api/settings only
+    # reports whether one is set (reset_password_set), never the hash.
     if 'reset_password' in data:
         reset_password = data.get('reset_password')
         if reset_password in (None, ''):
@@ -163,11 +161,10 @@ def list_program_cycles():
     return jsonify({"cycles": result})
 
 # ── PROGRAM RESET (archive current cycle, start a new one) ──
-# Super Admin and the LGU's Admin always have this (see has_permission); an lgu_member
-# only gets it if explicitly granted can_reset_program - this changes what's "live"
-# everywhere in the app at once, a meaningfully bigger blast radius than the other two
-# permissions, so it's opt-in per member rather than bundled with can_manage_members.
-# Nothing is destructive: see do_program_reset()'s docstring.
+# Super Admin and the LGU's Admin always have this; an lgu_member only gets it
+# if explicitly granted can_reset_program, since it changes what's "live"
+# everywhere in the app at once. Nothing is destructive: see
+# do_program_reset()'s docstring.
 @app.route('/api/program-reset', methods=['POST'])
 @require_permission('can_reset_program')
 @limiter.limit("5 per minute")
@@ -218,17 +215,15 @@ def program_reset():
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 # ── CUSTOM APPLICATION FORM FIELDS ──
-# LGUs collect different extra information beyond the core fields the eligibility
-# model needs (see build_feature_row) - these are admin-defined, purely informational
-# fields. They are stored under applicant.extra_fields and are NEVER read by
-# build_feature_row, so no custom field - however an LGU labels it - can ever influence
-# the ML score. That's enforced by build_feature_row simply not looking at them, not by
-# a runtime check, so there's no toggle that could accidentally wire one in.
+# LGUs collect extra information beyond the core fields the eligibility model
+# needs (see build_feature_row); these are admin-defined, informational-only
+# fields, stored under applicant.extra_fields and never read by
+# build_feature_row, so no custom field can influence the ML score.
 FIELD_TYPES = {'text', 'textarea', 'number', 'date', 'select', 'checkbox'}
 FORM_SECTIONS = {'personal', 'school'}
 
-# A small, deliberately short list of existing built-in fields that are genuinely
-# optional (never read by build_feature_row) and safe to let an LGU hide entirely.
+# Existing built-in fields that are genuinely optional (never read by
+# build_feature_row) and safe to let an LGU hide entirely.
 HIDEABLE_BUILTIN_FIELDS = {
     'religion': 'Religion',
     'citizenship': 'Citizenship',
@@ -448,7 +443,7 @@ def delete_doc_requirement(req_id):
     if not existing:
         return jsonify({"error": "Requirement not found"}), 404
     if existing.get("label") in DEFAULT_DOC_LABELS:
-        return jsonify({"error": "Default document requirements can't be deleted - disable it or uncheck \"Required\" instead."}), 400
+        return jsonify({"error": "Default document requirements can't be deleted; disable it or uncheck \"Required\" instead."}), 400
 
     result = db.document_requirements.delete_one({"_id": req_oid, "organization_id": org_id})
     if result.deleted_count == 0:
@@ -456,10 +451,8 @@ def delete_doc_requirement(req_id):
     return jsonify({"message": "Requirement deleted"})
 
 # ── APPLICATION GUIDELINES (student-facing, admin-editable) ──
-# Used to hardcode the whole page in student/Guidelines.jsx - now a single rich-text
-# blob any LGU admin can edit from Settings > System, next to the Form Builder. This
-# default is just that old hardcoded page translated to plain HTML, so an LGU that
-# never touches the editor still sees the same content it always did.
+# A rich-text blob any LGU admin can edit from Settings > System. This default
+# is the same content the page always showed, for LGUs that never edit it.
 DEFAULT_GUIDELINES_HTML = """
 <h2>General Eligibility Criteria</h2>
 <ul>
@@ -506,10 +499,9 @@ MAX_GUIDELINES_HTML_LENGTH = 200_000
 
 def sanitize_basic_html(html):
     """Not a full sanitizer - guidelines_html is only ever written by an
-    admin/lgu_admin (the same trust level that already controls Form Builder
-    field labels and email templates elsewhere in this app), so this is just
-    defense-in-depth against an obviously dangerous paste, not a security
-    boundary against the editor's own author."""
+    admin/lgu_admin, the same trust level already controlling form-field
+    labels and email templates. Defense-in-depth against an obviously
+    dangerous paste, not a security boundary against the editor's author."""
     html = re.sub(r'(?is)<script.*?</script>', '', html)
     html = re.sub(r'(?is)\son\w+\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)', '', html)
     html = re.sub(r'(?is)(href|src)\s*=\s*(["\'])\s*javascript:.*?\2', r'\1=\2#\2', html)

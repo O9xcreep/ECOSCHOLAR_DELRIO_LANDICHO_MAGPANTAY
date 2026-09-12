@@ -77,10 +77,9 @@ class TestCannotWithdrawAfterScoring:
         assert updated['application']['status'] == 'Rejected'
 
     def test_cannot_withdraw_waitlisted(self, client, db, make_user):
-        """Waitlisted is a display-only label - the stored status is Rejected
-        with ml_status Eligible, so this is exercised by the Rejected case
-        above too, but tested explicitly since it's a distinct student-visible
-        state (see displayStatus on the frontend)."""
+        """Waitlisted is a display-only label (stored status is Rejected with
+        ml_status Eligible); tested explicitly since it's a distinct
+        student-visible state."""
         user = make_user(email='withdraw-waitlisted@test.com', role='student')
         db.applicants.insert_one({
             'full_name': 'X', 'email': 'withdraw-waitlisted@test.com', 'ml_status': 'Eligible',
@@ -138,10 +137,9 @@ VALID_APPLY_PAYLOAD = {
 
 
 class TestReapplyAfterWithdraw:
-    """A withdrawn application must not be treated as a blocking duplicate -
-    see the comment on withdraw_application() in app.py: withdrawing is meant
-    to free the applicant up to submit a fresh application, not lock them out
-    for the rest of the cycle."""
+    """A withdrawn application must not be treated as a blocking duplicate;
+    withdrawing frees the applicant to submit a fresh application, not lock
+    them out for the rest of the cycle."""
 
     def test_student_can_reapply_in_same_cycle_after_withdrawing(self, client, db, make_user, open_cycle):
         student = make_user(email='withdraw-reapply@test.com', password='TestPass123', role='student')

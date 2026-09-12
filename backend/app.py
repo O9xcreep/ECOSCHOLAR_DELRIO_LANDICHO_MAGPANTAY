@@ -40,8 +40,8 @@ import applicants  # noqa: F401 - registers /api/applicants, /api/apply, etc.
 import notifications  # noqa: F401 - registers /api/notifications, etc.
 import admin_management  # noqa: F401 - registers /api/admins, /api/admin-requests, etc.
 
-# Public, unauthenticated, no DB access - meant for uptime pingers to keep the free-tier
-# instance from sleeping, and for basic "is it up" checks.
+# Public, unauthenticated, no DB access - used by uptime pingers to keep the
+# free-tier instance awake, and for basic "is it up" checks.
 @app.route('/api/health')
 def health():
     return jsonify({"status": "ok"})

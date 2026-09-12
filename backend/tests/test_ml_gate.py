@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Whether a document is genuine is the LGU's call, not an algorithm's - OCR and
-the duplicate/metadata checks (see collect_verification_warnings, run_ocr_check
-in backend/app.py) only ever surface warnings for a human to weigh, never block
-the ML scoring/decision endpoints (GET /api/score-applicant/<id>, PUT
-/api/applications/<id>/verify). "Start Eligibility" is one tap: it also runs OCR
-automatically on any required document that hasn't been checked yet - the
-dedicated "Run OCR Check" button (POST .../check-documents) does the same OCR
-pass on its own, for a reviewer who wants to see the results before deciding."""
+"""OCR and duplicate/metadata checks (documents.collect_verification_warnings,
+documents.run_ocr_check) only ever surface warnings, never block
+GET /api/score-applicant/<id> or PUT /api/applications/<id>/verify. POST
+.../check-documents runs the same OCR pass standalone, before a decision."""
 import app as app_module
 
 REQUIRED_LABELS = ['Form A', 'Form B', app_module.SELFIE_DOC_LABEL]
@@ -35,9 +31,8 @@ def make_ml_ready_applicant(db, email='ready@test.com', documents=None):
 
 
 def uploaded_docs(ocr_status='Verified'):
-    """One 'Uploaded' entry per required label; ocr_status omitted entirely
-    when None, matching a document that was uploaded but never OCR-checked
-    (and has no gridfs_id, so run_ocr_check can't actually OCR it either)."""
+    """One 'Uploaded' entry per required label; ocr_status omitted when None,
+    matching a document uploaded but never OCR-checked."""
     docs = []
     for label in REQUIRED_LABELS:
         d = {'document_name': label, 'status': 'Uploaded'}
@@ -50,10 +45,8 @@ def uploaded_docs(ocr_status='Verified'):
 
 
 class TestScoreApplicantNeverBlocks:
-    """GET /api/score-applicant/<id> is just a preview fetched automatically on
-    modal open - it must always return a score (when the applicant has the
-    required ML fields) and surface any concerns as 'warnings', never a hard
-    block, regardless of document/fraud state."""
+    """GET /api/score-applicant/<id> must always return a score and surface
+    concerns as warnings, never a hard block, regardless of document/fraud state."""
 
     def test_scores_with_missing_required_documents(self, client, db, auth_headers):
         seed_required_docs(db)
@@ -121,11 +114,8 @@ class TestScoreApplicantNeverBlocks:
 
 
 class TestVerifyAndDecideNeverBlocks:
-    """PUT /api/applications/<id>/verify is the one-tap action: it must always
-    proceed to a decision (missing docs, un-OCR'd docs, and unresolved fraud
-    flags become 'warnings' in the response, never a 409) - the LGU decides
-    whether to accept the model's call after seeing them, using the existing
-    Reconsider/Revoke Approval actions if they disagree."""
+    """PUT /api/applications/<id>/verify must always proceed to a decision;
+    missing docs, un-OCR'd docs, and fraud flags become warnings, never a 409."""
 
     def test_decides_with_missing_required_documents(self, client, db, auth_headers):
         seed_required_docs(db)
@@ -161,10 +151,9 @@ class TestVerifyAndDecideNeverBlocks:
         assert body['warnings'] == []
 
     def test_attempts_ocr_on_uploaded_but_unchecked_documents(self, client, db, auth_headers):
-        """A document that was uploaded but never OCR-checked (no ocr_status)
-        should get run through OCR automatically as part of this one tap - since
-        it has no gridfs_id in this test, the attempt fails gracefully and shows
-        up as a warning rather than raising or blocking the decision."""
+        """An uploaded but never OCR-checked document runs through OCR
+        automatically; with no gridfs_id here, it fails gracefully into a
+        warning rather than raising or blocking the decision."""
         seed_required_docs(db)
         applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs(ocr_status=None))
         res = client.put(f'/api/applications/{applicant_id}/verify', headers=auth_headers())
@@ -175,9 +164,9 @@ class TestVerifyAndDecideNeverBlocks:
 
 
 class TestCheckDocumentsRoute:
-    """POST /api/applications/<id>/check-documents is the dedicated "Run OCR
-    Check" button - a standalone way to run the same OCR pass _verify_and_decide_one
-    runs automatically, so a reviewer can see the results before deciding at all."""
+    """POST /api/applications/<id>/check-documents runs the same OCR pass
+    _verify_and_decide_one runs automatically, standalone, so a reviewer
+    can see results before deciding."""
 
     def test_requires_auth(self, client):
         res = client.post('/api/applications/x/check-documents')
@@ -198,10 +187,9 @@ class TestCheckDocumentsRoute:
         body = res.get_json()
         assert res.status_code == 200
         assert any('could not be OCR-checked' in w for w in body['warnings'])
-        # Form A + Form B are checked concurrently (not the selfie) - each result
-        # must still be correctly attributed to its own document, regression check
-        # for a temp-file collision that once let concurrent checks corrupt each
-        # other when they shared one filename.
+        # Form A + Form B are checked concurrently; each result must stay
+        # attributed to its own document (regression: a shared temp filename
+        # once let concurrent checks corrupt each other).
         assert {r['document_name'] for r in body['results']} == {'Form A', 'Form B'}
 
     def test_no_warnings_when_already_verified(self, client, db, auth_headers):

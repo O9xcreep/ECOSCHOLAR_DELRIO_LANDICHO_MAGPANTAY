@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Shared pytest fixtures. app.py talks to MongoDB via pymongo.MongoClient at
-import time, so we swap that for mongomock's in-memory equivalent BEFORE
-app.py is ever imported - every test then runs against a fresh in-memory
-database, never the real Atlas cluster, and needs no network access at all.
+Shared pytest fixtures. app.py connects to MongoDB via pymongo.MongoClient at
+import time, so mongomock's in-memory equivalent is swapped in before app.py
+is imported, keeping every test off the real database and network.
 """
 import os
 import sys
@@ -24,9 +23,8 @@ from bson import ObjectId
 
 class _FakeGridFS:
     """gridfs.GridFS strictly type-checks for a real pymongo Database, which
-    mongomock's Database isn't. None of this test suite exercises file
-    upload/download (that needs a running Tesseract binary regardless), so a
-    minimal stand-in that never touches real storage is enough here."""
+    mongomock's isn't. Minimal stand-in since this suite never exercises
+    file upload/download."""
     def __init__(self, *a, **kw):
         pass
 
@@ -50,17 +48,11 @@ import app as app_module
 from werkzeug.security import generate_password_hash
 
 
-# Multi-tenancy Phase C scopes almost every applicants query by organization_id
-# (see app.py). Most of this suite predates that and inserts applicant test
-# fixtures directly via db.applicants.insert_one(...)/insert_many(...) with no
-# organization_id at all, which those scoped queries then simply don't match.
-# Rather than editing every one of those call sites across the whole suite,
-# auto-tag with the default org at insert time here - mongomock keeps the same
-# Collection object across drop_collection() calls (verified: dropping clears
-# data, not object identity), so patching once at import time is durable for
-# the whole run. A test that deliberately wants an UNTAGGED applicant (a
-# legacy-data edge case) can still pass organization_id explicitly, since
-# setdefault only fills it in when absent.
+# Most queries are scoped by organization_id (see app.py), but most of this
+# suite inserts applicant fixtures directly with no organization_id set.
+# Auto-tag with the default org at insert time instead of editing every call
+# site; a test that wants an untagged applicant can still pass organization_id
+# explicitly, since setdefault only fills it in when absent.
 def _auto_tag_organization_id(collection):
     original_insert_one = collection.insert_one
     original_insert_many = collection.insert_many
@@ -85,22 +77,10 @@ _auto_tag_organization_id(app_module._mongo_db.document_requirements)
 
 @pytest.fixture(autouse=True)
 def block_real_http_calls(monkeypatch):
-    """This suite is documented (see the module docstring above) as never
-    needing network access - mongomock covers the database side, but nothing
-    stopped a test from making a REAL outbound HTTP call using whatever real
-    credentials happen to be sitting in .env (app.py's load_dotenv() loads it
-    unconditionally, even under pytest). That's exactly what happened once: a
-    test that meant to exercise the "provider not configured" skip path
-    forgot to also pin EMAIL_PROVIDER, fell through to a real, fully-configured
-    Mailjet account, and sent one real email, burning real quota right after
-    being asked not to.
-
-    Blocking requests.post/get by default turns any future version of that
-    mistake into an immediate, loud test failure instead of a silent real API
-    call. A test that needs to exercise a real HTTP call path still can -
-    unittest.mock.patch(.object) fully overrides this for its own scope and
-    restores back to this blocker afterward, same as it would restore the
-    real function."""
+    """Blocks real outbound HTTP calls during tests, since app.py's
+    load_dotenv() loads real credentials from .env even under pytest and a
+    misconfigured test could otherwise hit a real API. A test that needs a
+    real HTTP call path can still patch requests.post/get for its own scope."""
     def _blocked(*args, **kwargs):
         raise RuntimeError(
             "A real outbound HTTP call was attempted during a test (requests."
@@ -114,11 +94,9 @@ def block_real_http_calls(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def clean_db():
-    """Every test gets a blank database - drop all collections before, not
-    after, so a failed test's leftover data never leaks into the next one.
-    Also resets Flask-Limiter's counters, since its storage is shared across
-    the whole process: without this, a test late in the run can get a real
-    429 from earlier tests' requests to the same rate-limited endpoint."""
+    """Drops all collections before each test (not after) so a failed test's
+    leftover data can't leak into the next one, and resets Flask-Limiter's
+    counters since its storage is shared across the whole process."""
     for name in app_module._mongo_db.list_collection_names():
         app_module._mongo_db.drop_collection(name)
     app_module.limiter.reset()
@@ -132,12 +110,9 @@ def db():
 
 @pytest.fixture
 def open_cycle(db):
-    """POST /api/apply now requires the org to have an explicitly open scholarship
-    program (see is_cycle_open() in app.py). Opt-in (not autouse) since plenty of
-    tests deliberately exercise the "no program set up yet" implicit-Cycle-0 state -
-    only a test that itself calls /api/apply needs this. Returns the new cycle's id
-    so the test can tag any applicant fixtures it inserts directly with a matching
-    cycle_id (the duplicate-check queries below are scoped by cycle)."""
+    """Opens a scholarship program cycle, required by POST /api/apply (see
+    is_cycle_open()). Opt-in since many tests deliberately exercise the
+    no-program state. Returns the cycle id for tagging applicant fixtures."""
     org_id = app_module.get_default_organization_id(db)
     return app_module.do_program_reset(db, org_id, 'test-setup@test.com')
 
@@ -145,10 +120,8 @@ def open_cycle(db):
 @pytest.fixture
 def client():
     app_module.app.config['TESTING'] = True
-    # Rate limits are real production behavior worth having, but the test suite
-    # legitimately calls endpoints like /api/login far more than 8x/minute
-    # across different tests sharing one process - that's a test-runner
-    # artifact, not something under test here.
+    # Disabled: tests share one process and legitimately exceed per-minute
+    # limits on endpoints like /api/login across different test cases.
     app_module.app.config['RATELIMIT_ENABLED'] = False
     with app_module.app.test_client() as c:
         yield c
@@ -156,16 +129,10 @@ def client():
 
 @pytest.fixture
 def make_user(db):
-    """Inserts a user directly (bypassing /api/register) and returns its
-    email/password/id, for tests that need a pre-existing account. `permissions`
-    only matters for role='lgu_member' - pass e.g. {'can_manage_members': True}
-    to grant specific scoped access; omitted keys default to False.
-
-    Tagged with the auto-created default organization by default (matching
-    every real account post multi-tenancy Phase A) - pass organization_id
-    explicitly to put a user in a *different* org for cross-tenant isolation
-    tests, or organization_id=False for the rare case of a legacy account
-    that predates any org tagging at all."""
+    """Inserts a user directly (bypassing /api/register), for tests needing a
+    pre-existing account. `permissions` applies only to role='lgu_member'.
+    Tagged with the default organization unless organization_id is passed
+    explicitly, or False for an untagged legacy account."""
     def _make(email='user@test.com', password='TestPass123', role='student', full_name='Test User',
               permissions=None, organization_id=...):
         doc = {
@@ -196,9 +163,8 @@ def make_user(db):
 
 @pytest.fixture
 def auth_headers(client, make_user):
-    """Registers+logs in a fresh account and returns the Authorization header
-    for it, for tests that just need *some* authenticated user of a given role.
-    For role='lgu_member', pass `permissions` to control what it can access."""
+    """Registers and logs in a fresh account, returning its Authorization
+    header. For role='lgu_member', pass `permissions` to control access."""
     def _headers(role='admin', permissions=None):
         user = make_user(email=f'{role}@test.com', password='TestPass123', role=role, permissions=permissions)
         res = client.post('/api/login', json={'email': user['email'], 'password': user['password']})

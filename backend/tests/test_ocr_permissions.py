@@ -21,9 +21,8 @@ class TestVerifyDocumentIsAdminOnly:
         assert res.status_code == 403
 
     def test_admin_passes_the_permission_gate(self, client, auth_headers):
-        # An invalid applicant_id 400s past the permission check, proving a
-        # permitted caller isn't blocked by @require_permission - a full OCR run
-        # needs a real file, which this suite's fake GridFS deliberately can't do.
+        # 400 here means the permission check passed - a full OCR run needs a
+        # real file, which this suite's fake GridFS can't provide.
         res = client.post('/api/verify-document', headers=auth_headers('admin'),
                            json={'applicant_id': 'not-a-valid-id', 'document_name': 'y'})
         assert res.status_code == 400

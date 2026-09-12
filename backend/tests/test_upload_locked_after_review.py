@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-"""POST /api/upload - once an application has been reviewed (Approved/Rejected)
-or withdrawn, its documents are frozen, same reasoning as blocking withdraw
-after scoring (see test_withdraw.py's TestCannotWithdrawAfterScoring): letting
-a student swap a file after the decision was made would change what was
-actually reviewed without a new review ever happening."""
+"""POST /api/upload: once an application is reviewed (Approved/Rejected) or
+withdrawn, its documents are frozen - swapping a file after the decision
+would change what was actually reviewed."""
 import io
 
 

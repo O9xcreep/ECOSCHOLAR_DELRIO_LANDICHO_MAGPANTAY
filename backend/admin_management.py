@@ -19,8 +19,7 @@ from auth import require_permission, current_organization_oid, ADMIN_PERMISSIONS
 from documents import allowed_file, ALLOWED_EXTENSIONS, safe_mime_for
 
 # Lets a logged-in admin/member see their own organization's join code, to
-# share it with whoever they want to invite next - the only place this code
-# is otherwise generated is behind the scenes at org-creation time.
+# share it with whoever they want to invite next.
 @app.route('/api/organizations/mine', methods=['GET'])
 @require_permission('can_manage_members')
 def get_my_organization():
@@ -31,9 +30,8 @@ def get_my_organization():
         return jsonify({"error": "No organization found for your account"}), 404
     return jsonify({"organization": {**serialize_organization(org), "join_code": org.get("join_code", "")}})
 
-# Public (no auth) - lets the registration and admin-apply pages preview which
-# LGU a code belongs to before the applicant fills in anything else. Only ever
-# reveals the organization's display name, never anything else about it.
+# Public (no auth) - lets registration/admin-apply pages preview which LGU a
+# code belongs to. Only ever reveals the organization's display name.
 @app.route('/api/organizations/lookup', methods=['GET'])
 @limiter.limit("20 per minute")
 def lookup_organization():
@@ -58,16 +56,15 @@ def serialize_admin(u):
     if doc["role"] == "lgu_member":
         doc["permissions"] = {p: bool(u.get("permissions", {}).get(p)) for p in ADMIN_PERMISSIONS}
     elif doc["role"] == "lgu_admin":
-        # Not individually configurable - the Admin seat always has everything, same
-        # as Super Admin. Serialized as all-True so the frontend can render it with
-        # the same checklist it uses for lgu_member, without branching on role.
+        # Not individually configurable - the Admin seat always has everything.
+        # Serialized as all-True so the frontend uses the same checklist UI.
         doc["permissions"] = {p: True for p in ADMIN_PERMISSIONS}
     return doc
 
 # ── ADMIN ACCOUNT MANAGEMENT ──
-# Super Admin (role="admin") is deliberately invisible and unreachable here - it's a
-# dev/platform account, not part of an LGU's own team. This surface only ever manages
-# "lgu_admin" (the one Admin seat) and "lgu_member" (scoped team members).
+# Super Admin (role="admin") is deliberately unreachable here - it's a
+# dev/platform account, not part of an LGU's own team. This surface only
+# manages "lgu_admin" (the one Admin seat) and "lgu_member" (team members).
 @app.route('/api/admins', methods=['GET'])
 @require_permission('can_manage_members')
 def list_admins():
@@ -130,11 +127,10 @@ def update_admin_permissions(admin_id):
     return jsonify({"admin": serialize_admin(db.users.find_one({"_id": admin_oid}))})
 
 # ── TRANSFER THE ADMIN SEAT ──
-# Exactly one lgu_admin can exist at a time. Super Admin can assign the very first one
-# (or reassign in an emergency); once the seat is held, only the current holder can pass
-# it on - an lgu_member, even with every other permission granted, can never promote
-# themselves or a peer directly. The outgoing Admin is demoted to a bare lgu_member
-# (all permissions cleared) rather than left with any residual elevated access.
+# Exactly one lgu_admin can exist at a time. Super Admin can assign the first
+# one (or reassign in an emergency); once held, only the current holder can
+# pass it on. The outgoing Admin is demoted to a bare lgu_member (permissions
+# cleared) rather than left with residual elevated access.
 @app.route('/api/admins/<admin_id>/transfer-admin', methods=['POST'])
 @require_permission('can_manage_members')
 @limiter.limit("5 per minute")
@@ -223,12 +219,10 @@ def delete_admin_account(admin_id):
     return jsonify({"message": "Admin account removed"})
 
 def create_admin_with_setup_email(full_name, email, municipality='', role='lgu_member', permissions=None, organization_id=None):
-    """Inserts a new admin/LGU-member user with no usable starting password and emails
-    them a one-time code to set one - used when an existing admin adds a colleague
-    directly, so nobody (not even the admin who created the account) ever knows
-    another team member's password. (An approved public application is different -
-    see create_admin_from_approved_request - the applicant already chose and proved
-    their own password before an admin ever reviews it.)"""
+    """Inserts a new admin/LGU-member user with no usable starting password and
+    emails them a one-time code to set one, so nobody (not even the creating
+    admin) ever knows another team member's password. An approved public
+    application is different - see create_admin_from_approved_request."""
     db = get_db()
     placeholder_password = generate_password_hash(secrets.token_urlsafe(32))
     doc = {
@@ -251,10 +245,10 @@ def create_admin_with_setup_email(full_name, email, municipality='', role='lgu_m
     return db.users.find_one({"_id": result.inserted_id})
 
 def create_admin_from_approved_request(req, role, permissions):
-    """Inserts a new admin/LGU-member user using the password the applicant already
-    chose (and proved their email for) when submitting their request - unlike
-    create_admin_with_setup_email, no placeholder password or set-password email is
-    needed here since they picked a real one upfront."""
+    """Inserts a new admin/LGU-member user using the password the applicant
+    already chose and proved their email for. Unlike
+    create_admin_with_setup_email, no placeholder password or set-password
+    email is needed since they picked a real one upfront."""
     db = get_db()
     doc = {
         "full_name": req["full_name"],
@@ -322,9 +316,8 @@ def serialize_admin_request(r, db=None):
             "admin_id": first_approval["admin_id"],
             "admin_name": first_approval["admin_name"],
         } if first_approval else None,
-        # "Founding" requests bootstrap a brand-new organization and are only
-        # ever reviewed by the platform Super Admin, not by any LGU's own
-        # admins - see list/approve/reject below.
+        # "Founding" requests bootstrap a new organization and are only ever
+        # reviewed by the platform Super Admin, not by an LGU's own admins.
         "is_founding": bool(r.get("is_founding")),
         "organization_name": org_name,
     }
@@ -332,17 +325,13 @@ def serialize_admin_request(r, db=None):
 # ── ADMIN ACCOUNT REQUESTS (LGU officials applying for admin access) ──
 # Two-step so nobody can submit a request impersonating someone else's inbox:
 # 1) POST /start with just an email - emails a one-time code, never confirms
-#    whether that email already has an account or a pending request either way.
-# 2) POST /verify-start-otp with that code exchanges it for a short-lived token
-#    proving the email was actually reachable; only then does the full form
-#    (password, municipality, etc.) become fillable, and the request is
+#    whether that email already has an account or a pending request.
+# 2) POST /verify-start-otp exchanges the code for a short-lived token proving
+#    the email was reachable; only then does the full form become fillable,
 #    stored under the token's email, not a client-supplied one.
-# The applicant's password is collected upfront here (unlike an admin added
-# directly by an existing admin, who still gets an emailed set-password link,
-# since in that case the adder doesn't know the new member's password) - a
-# submission still never creates the account directly, it only queues a
-# request that an existing admin must approve, since admin accounts can see
-# every applicant's PII and control disbursement decisions.
+# A submission never creates the account directly - it queues a request that
+# an existing admin must approve, since admin accounts can see every
+# applicant's PII and control disbursement decisions.
 @app.route('/api/admin-requests/start', methods=['POST'])
 @limiter.limit("5 per minute")
 def start_admin_request():
@@ -377,11 +366,9 @@ def verify_admin_apply_start_otp():
     return jsonify({"token": token})
 
 # Shared by both ways of becoming an admin: a public applicant proving their
-# email (mode "apply", creates a pending admin_requests row for review) and
-# someone an existing admin already invited (mode "invite", account already
-# exists with password_set=False - this just verifies the OTP the invite
-# emailed them). Same token shape, same downstream /apply-admin page - the
-# `purpose` on the token is what tells that page which form to render.
+# email (mode "apply", creates a pending admin_requests row) and someone
+# already invited by an admin (mode "invite", password_set=False). Same token
+# shape and downstream /apply-admin page; `purpose` picks which form to render.
 @app.route('/api/admin-requests/verify-token', methods=['GET'])
 @limiter.limit("20 per minute")
 def verify_admin_apply_token():
@@ -414,10 +401,9 @@ def verify_admin_apply_token():
 @app.route('/api/admins/verify-setup-code', methods=['POST'])
 @limiter.limit("10 per minute")
 def verify_admin_setup_code():
-    """First step of the invite-activation flow - just proves the OTP is
-    correct, same shape as verify-start-otp above. The invitee then lands on
-    /apply-admin (via the returned token) to actually set their password,
-    instead of a separate one-shot code+password form."""
+    """First step of the invite-activation flow - proves the OTP is correct,
+    same shape as verify-start-otp. The invitee lands on /apply-admin (via
+    the returned token) to set their password."""
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
     code = data.get('code') or ''
@@ -434,10 +420,9 @@ def verify_admin_setup_code():
 @app.route('/api/admins/complete-invite-setup', methods=['POST'])
 @limiter.limit("10 per minute")
 def complete_admin_invite_setup():
-    """Final step for an invited admin/LGU member - sets the password they
-    chose on the shared /apply-admin page. Mirrors submit_admin_request's
-    token handling, but activates an already-existing account instead of
-    creating a pending request."""
+    """Final step for an invited admin/LGU member - sets the password chosen
+    on the shared /apply-admin page. Mirrors submit_admin_request's token
+    handling but activates an existing account instead of creating a request."""
     data = request.get_json() or {}
     token = data.get('token') or ''
     new_password = data.get('new_password') or ''
@@ -480,8 +465,7 @@ def complete_admin_invite_setup():
 @app.route('/api/admin-requests', methods=['POST'])
 @limiter.limit("5 per minute")
 def submit_admin_request():
-    # multipart/form-data, not JSON, now that a document upload is required -
-    # everything else is still a plain form field, read the same way.
+    # multipart/form-data, not JSON, since a document upload is required.
     token = request.form.get('token') or ''
     full_name = (request.form.get('full_name') or '').strip()
     password = request.form.get('password') or ''
@@ -502,9 +486,9 @@ def submit_admin_request():
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
-    # A valid ID or proof-of-employment document is required - it's the one thing
-    # that raises the bar above "just fill in a form claiming to work for the LGU".
-    # Same file-type rules as the student document pipeline (upload_document).
+    # A valid ID or proof-of-employment document is required, raising the bar
+    # above "just fill in a form claiming to work for the LGU". Same
+    # file-type rules as the student document pipeline (upload_document).
     file = request.files.get('file')
     if not file or file.filename == '':
         return jsonify({"error": "A valid ID or proof-of-employment document is required"}), 400
@@ -512,10 +496,8 @@ def submit_admin_request():
         return jsonify({"error": f"File must be one of: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
 
     # "Create" bootstraps a brand-new LGU (reviewed by the platform Super
-    # Admin, since no peer admins exist yet to review it); "join" attaches to
-    # an LGU that already exists, via the code its own admins share out. Same
-    # profile form and same document requirement either way - only where the
-    # request lands for review differs (see list/approve/reject below).
+    # Admin, since no peer admins exist yet); "join" attaches to an LGU that
+    # already exists, via its own admins' shared join code.
     org_mode = (request.form.get('org_mode') or 'join').strip().lower()
     if org_mode not in ('join', 'create'):
         return jsonify({"error": "org_mode must be 'join' or 'create'"}), 400
@@ -579,10 +561,9 @@ def submit_admin_request():
 
     return jsonify({"message": "Your request has been submitted for review. An existing admin will verify your details."}), 201
 
-# Admin-only - lets a reviewer see the applicant's uploaded ID/proof-of-employment
-# before approving/rejecting. Mirrors view_document_file(), but targets
-# admin_requests instead of applicants: no "owner self-view" case exists here,
-# since the applicant never needs to re-view their own upload after submitting.
+# Admin-only - lets a reviewer see the applicant's uploaded ID/proof of
+# employment before approving/rejecting. Mirrors view_document_file(), but
+# targets admin_requests; no "owner self-view" case exists here.
 @app.route('/api/admin-requests/<request_id>/proof-of-employment', methods=['GET'])
 @require_permission('can_manage_members')
 def view_admin_request_proof(request_id):
@@ -616,9 +597,8 @@ def view_admin_request_proof(request_id):
 def list_admin_requests():
     db = get_db()
     status = request.args.get('status')
-    # "pending" from the UI's point of view covers both a request that hasn't
-    # been touched yet and one sitting on a single approval, waiting on a
-    # second admin - both still need to show up in the same actionable list.
+    # "pending" covers both an untouched request and one sitting on a single
+    # approval waiting on a second admin - both belong in the actionable list.
     if status == 'pending':
         query = {"status": {"$in": ["pending", "pending_second_approval"]}}
     elif status in ('pending_second_approval', 'approved', 'rejected'):
@@ -626,12 +606,9 @@ def list_admin_requests():
     else:
         query = {}
 
-    # An LGU's own admins only ever see their own organization's regular
-    # requests - never another LGU's, and never a founding request (no peer
-    # team exists yet to review those). The platform Super Admin additionally
-    # sees every founding request, on top of its own organization's regular
-    # ones - today, with only one LGU, Super Admin already doubles as that
-    # LGU's reviewer, so this preserves that rather than narrowing it.
+    # An LGU's own admins only see their own organization's regular requests,
+    # never a founding request. The platform Super Admin additionally sees
+    # every founding request, on top of its own organization's regular ones.
     org_id = current_organization_oid()
     if g.current_user.get('role') == 'admin':
         query["$or"] = [
@@ -645,11 +622,10 @@ def list_admin_requests():
     requests_ = list(db.admin_requests.find(query).sort("created_at", -1))
     return jsonify({"requests": [serialize_admin_request(r, db) for r in requests_]})
 
-# Granting can_manage_members is the one privilege-escalation risk in this whole
-# flow - it lets the new account approve/add further admins - so it alone
-# requires two DIFFERENT existing admins to sign off before the account is
-# created, rather than a single admin's judgment call. Any other permission
-# combination (the common case) still finalizes on one approval, unchanged.
+# Granting can_manage_members is the one privilege-escalation risk in this
+# flow, since it lets the new account approve/add further admins, so it alone
+# requires two DIFFERENT existing admins to sign off. Any other permission
+# combination still finalizes on one approval.
 @app.route('/api/admin-requests/<request_id>/approve', methods=['POST'])
 @require_permission('can_manage_members')
 def approve_admin_request(request_id):
@@ -680,10 +656,9 @@ def approve_admin_request(request_id):
 
     if is_founding:
         # No peer review is possible for a brand-new organization - the Super
-        # Admin's own review already served as the vetting step, so the
-        # founding account is created directly as the org's lgu_admin (full
-        # access), skipping the two-person can_manage_members gate below
-        # entirely (there's no "second admin" to give it).
+        # Admin's review already served as the vetting step, so the founding
+        # account is created directly as the org's lgu_admin (full access),
+        # skipping the two-person can_manage_members gate below.
         admin_doc = create_admin_from_approved_request(req, 'lgu_admin', None)
         db.organizations.update_one({"_id": req["organization_id"]}, {"$set": {"status": "active"}})
         db.admin_requests.update_one({"_id": request_oid}, {"$set": {
@@ -692,19 +667,16 @@ def approve_admin_request(request_id):
         return jsonify({"message": "Organization approved", "admin": serialize_admin(admin_doc)}), 201
 
     # Second approval: finalize using the permissions the FIRST admin already
-    # granted, recorded on first_approval - the second admin is confirming
-    # that same grant, not re-choosing permissions from scratch.
+    # granted, recorded on first_approval - the second admin confirms that
+    # same grant rather than re-choosing permissions from scratch.
     if req.get("status") == "pending_second_approval":
         first_approval = req.get("first_approval") or {}
         org_member_count = db.users.count_documents({
             "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": req.get("organization_id"),
         })
-        # Normally the same admin can't give both approvals - but if the org
-        # still has no one else (the bootstrap case: this admin gave the
-        # first approval back when they were the org's only member, and
-        # still are), refusing them here would leave the request stuck
-        # forever with no possible second approver. Once a genuine second
-        # member exists, this exception no longer applies.
+        # Normally the same admin can't give both approvals, but if the org
+        # still has no one else (the bootstrap case), refusing here would
+        # leave the request stuck with no possible second approver.
         if first_approval.get("admin_id") == current_admin_id and org_member_count > 1:
             return jsonify({"error": "You already gave the first approval for this request - a different admin has to give the second."}), 400
 
@@ -724,21 +696,15 @@ def approve_admin_request(request_id):
     permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
 
     # The two-person gate exists to stop a single compromised/careless LGU
-    # admin from unilaterally creating more admins for their own org. The
-    # platform Super Admin is a higher trust tier that already bypasses every
-    # other permission check in the system (including granting this exact
-    # permission directly via PUT /api/admins/<id>/permissions, with no
-    # second approval there either) - requiring a peer here would be
-    # security theater, not a real additional check, so Super Admin's single
-    # approval finalizes the account immediately just like the founding-org
-    # path above.
+    # admin from unilaterally creating more admins. The platform Super Admin
+    # already bypasses every other permission check (including granting this
+    # exact permission directly via PUT /api/admins/<id>/permissions), so
+    # its single approval finalizes the account immediately, same as the
+    # founding-org path above.
     #
     # A brand-new org's founder is a harder case: right after founding, the
-    # org has exactly one member (the founder), so demanding a *different*
-    # second admin to approve the very first can_manage_members grant is
-    # impossible to satisfy - the request would sit stuck forever. Once a
-    # second team member exists, this exception no longer applies and the
-    # normal two-person rule kicks back in for every grant after that.
+    # org has exactly one member, so demanding a different second admin is
+    # impossible to satisfy until a second team member exists.
     org_member_count = db.users.count_documents({
         "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": req.get("organization_id"),
     })

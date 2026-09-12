@@ -148,9 +148,8 @@ class TestAdminSeatTransfer:
                                   json={'full_name': 'First', 'email': 'first@test.com'})
         first_id = create_res.get_json()['admin']['id']
         client.post(f'/api/admins/{first_id}/transfer-admin', headers=admin_headers)
-        # create_admin_account() sends a set-your-own-password invite rather than a
-        # usable password - set one directly here since this test only needs a
-        # working login, not the OTP setup flow itself (covered in test_admins.py).
+        # create_admin_account() sends a set-password invite, not a usable password;
+        # set one directly since this test only needs a working login.
         db.users.update_one({'email': 'first@test.com'},
                              {'$set': {'password': generate_password_hash('TestPass123'), 'password_set': True}})
 
@@ -215,12 +214,9 @@ class TestAdminSeatTransfer:
 
 
 class TestDocumentAccess:
-    """GET /api/documents/<id> and /api/documents/<id>/view used to hard-code
-    role == 'admin', which locked an lgu_member with can_review_applicants out
-    of documents they're explicitly allowed to review (a bug this phase's
-    identity-verification comparison UI would otherwise inherit). Both routes
-    now accept: a super admin, an lgu_member with can_review_applicants, or the
-    applicant's own account."""
+    """GET /api/documents/<id> and /api/documents/<id>/view accept a super
+    admin, an lgu_member with can_review_applicants, or the applicant's own
+    account."""
 
     def login(self, client, make_user, **kwargs):
         user = make_user(**kwargs)

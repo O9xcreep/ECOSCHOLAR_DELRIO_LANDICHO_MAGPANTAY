@@ -1,19 +1,14 @@
 # -*- coding: utf-8 -*-
-"""
-Runs the OCR verification test dataset (test_data/ocr_verification/) against
-the real /api/upload + /api/verify-document endpoints and reports how the
-actual outcome compared to each sample's expected_status label.
+"""Runs the OCR verification test dataset (test_data/ocr_verification/)
+against the real /api/upload + /api/verify-document endpoints and reports
+how the actual outcome compared to each sample's expected_status label.
 
-Requires: the Flask backend running locally (python app.py), reachable at
-BASE_URL below, connected to a real MongoDB instance (disposable applicant
-records are created and deleted for the duration of the run only). Also
-requires TEST_ADMIN_EMAIL / TEST_ADMIN_PASSWORD env vars set to a real
-admin account (see backend/scripts/create_admin.py) - no credentials are
-hardcoded here.
+Requires: the Flask backend running locally (python app.py), connected to a
+real MongoDB instance (disposable applicant records are created and deleted
+for the run only). Also requires TEST_ADMIN_EMAIL / TEST_ADMIN_PASSWORD env
+vars set to a real admin account (see create_admin.py).
 
-Usage:
-    python run_ocr_dataset_test.py
-"""
+Usage: python run_ocr_dataset_test.py"""
 import os
 import json
 import requests
@@ -115,10 +110,10 @@ def main():
     with open(os.path.join(HERE, "..", "test_data", "ocr_dataset_run_results.json"), "w") as f:
         json.dump({"summary": summary, "results": results}, f, indent=2)
 
-    # Cleanup: remove every disposable applicant + uploaded file this run created,
-    # plus any duplicate_flags it triggered (the synthetic documents share a common
-    # border/canvas template, so the near-duplicate perceptual-hash check can flag
-    # them against each other - those flags must not outlive this test run).
+    # Cleanup: remove every disposable applicant + uploaded file this run
+    # created, plus any duplicate_flags it triggered (synthetic documents
+    # share a common template, so the near-duplicate check can flag them
+    # against each other).
     db.duplicate_flags.delete_many({"applicant_id": {"$in": test_applicant_ids}})
     for aid in test_applicant_ids:
         a = db.applicants.find_one({"_id": aid})

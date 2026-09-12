@@ -9,11 +9,14 @@ _tesseract_cmd = os.getenv('TESSERACT_CMD', r'C:\Program Files\Tesseract-OCR\tes
 if os.path.exists(_tesseract_cmd):
     pytesseract.pytesseract.tesseract_cmd = _tesseract_cmd
 
-MIN_DIMENSION = 1600  # upscale below this so small phone photos have enough resolution to OCR well
-MAX_DIMENSION = 2400  # downscale above this - modern phone photos (4000px+) cost real OCR time
-                       # with no accuracy benefit past this point, since text height is what matters
-MAX_PDF_PAGES = 3      # these are single-purpose forms/certificates, not long documents - caps a
-                       # runaway multi-page upload from turning one OCR check into a minute-long wait
+# Upscale below this so small phone photos have enough resolution to OCR well.
+MIN_DIMENSION = 1600
+# Downscale above this - larger photos cost real OCR time with no accuracy
+# benefit past this point, since text height is what matters.
+MAX_DIMENSION = 2400
+# These are single-purpose forms/certificates, not long documents - caps a
+# runaway multi-page upload from turning one OCR check into a long wait.
+MAX_PDF_PAGES = 3
 
 def preprocess_image(img):
     """Clean up a scanned/photographed document before OCR: grayscale, stretch
@@ -129,15 +132,11 @@ def _find_income_value(text):
     return None
 
 def verify_document(doc_type, extracted_text, applicant_data):
-    """
-    Verify a document actually belongs to this applicant and is the claimed
-    document type - not just any file that happens to share a stray keyword.
-
-    Design: the applicant's name must genuinely appear (2+ distinct name parts
-    for multi-word names) or the document is immediately failed, regardless of
-    any other keyword coincidences. Every other check requires multiple
-    distinct matching signals rather than a single loosely-matched word.
-    """
+    """Verify a document actually belongs to this applicant and is the claimed
+    document type, not just a file that happens to share a stray keyword. The
+    applicant's name must genuinely appear (2+ distinct name parts for
+    multi-word names) or the document is immediately failed; every other
+    check requires multiple distinct matching signals."""
     text_lower = extracted_text.lower()
     results = {
         'doc_type': doc_type,
@@ -230,12 +229,10 @@ def verify_document(doc_type, extracted_text, applicant_data):
             'passed': bool(re.search(r'₱|php|peso|\d{4,}', text_lower))
         })
 
-        # ── Fraud cross-check: does the figure on the document roughly match what
-        # was declared on the application? A large mismatch is a much stronger
-        # signal than any keyword check above - flagged separately so it can't
-        # get lost in the ordinary confidence score. Tolerance is deliberately
-        # generous (40%) since OCR misreads digits and this should prompt a
-        # manual look, not an automatic accusation.
+        # Fraud cross-check: a mismatch between the declared and stated figure
+        # is a stronger signal than any keyword check, flagged separately.
+        # Tolerance is generous (40%) since OCR misreads digits - this should
+        # prompt a manual look, not an automatic accusation.
         doc_income = _find_income_value(extracted_text)
         submitted_income = applicant_data.get('monthly_income')
         if doc_income is not None and submitted_income:
@@ -266,7 +263,7 @@ def verify_document(doc_type, extracted_text, applicant_data):
             ) >= 2
         })
 
-        # ── Fraud cross-check: same reasoning as income above. ──
+        # Fraud cross-check: same reasoning as income above.
         doc_gpa = _find_gpa_value(extracted_text)
         submitted_gpa = applicant_data.get('gpa')
         if doc_gpa is not None and submitted_gpa:
@@ -296,8 +293,8 @@ def verify_document(doc_type, extracted_text, applicant_data):
     confidence = round((passed / total) * 100) if total > 0 else 0
     results['confidence'] = confidence
 
-    # Set status - stricter bands than before, since the name gate already
-    # removed the easiest source of false positives.
+    # Stricter bands since the name gate already removed the easiest source
+    # of false positives.
     if confidence >= 70:
         results['status'] = 'Verified'
     elif confidence >= 40:
@@ -305,9 +302,8 @@ def verify_document(doc_type, extracted_text, applicant_data):
     else:
         results['status'] = 'Failed Verification'
 
-    # A value mismatch (income/GWA vs what was declared) is a stronger signal than
-    # an ordinary missing keyword, so it can't be masked by an otherwise-high
-    # confidence score - cap the overall status even if the math alone says "Verified".
+    # A value mismatch is a stronger signal than an ordinary missing keyword,
+    # so it caps the overall status even if the score alone says "Verified".
     if results['flags'] and results['status'] == 'Verified':
         results['status'] = 'Partially Verified'
 

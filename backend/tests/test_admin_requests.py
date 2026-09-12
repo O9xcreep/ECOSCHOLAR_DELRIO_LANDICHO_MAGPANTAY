@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
 """Admin account requests: OTP-verified start step, token-gated submission
-(with a password and a valid ID/proof-of-employment document chosen upfront),
-and admin approve/reject review - including two-person approval for grants
-that include can_manage_members. Most tests here default to "join" mode
-against the auto-created default organization (multi-tenancy Phase A/B) -
-see test_organizations.py for the create-a-new-org ("founding") flow itself
-and the org-scoped review behavior."""
+(password + proof-of-employment document), and admin approve/reject review,
+including two-person approval for can_manage_members grants. Tests default
+to "join" mode against the default organization; see test_organizations.py
+for the "founding" flow and org-scoped review behavior."""
 import io
 
 import app as app_module
@@ -22,9 +20,8 @@ FORM_FIELDS = {
 
 
 def make_apply_token(email=APPLICANT_EMAIL):
-    """Test shortcut for endpoints that need an already-verified session token,
-    without going through the real start -> OTP -> verify-start-otp round trip
-    (that round trip itself is covered by TestStartAdminRequest below)."""
+    """Shortcut for an already-verified session token, skipping the real
+    start -> OTP -> verify-start-otp round trip (covered by TestStartAdminRequest)."""
     return app_module._admin_apply_serializer.dumps({'email': email})
 
 
@@ -33,11 +30,9 @@ def get_otp_code(db, email):
 
 
 def submit_request(client, db, token=None, include_file=True, filename='proof.pdf', join_code=None, **overrides):
-    """multipart/form-data submission - the real shape the endpoint expects
-    now that a document upload and an org join code are both required
-    alongside the plain form fields. Defaults to "join" mode against the
-    auto-created default organization, unless the caller passes org_mode
-    explicitly (e.g. org_mode='create')."""
+    """multipart/form-data submission matching the endpoint's shape (file +
+    join code + form fields). Defaults to "join" mode against the default
+    organization unless org_mode is overridden (e.g. org_mode='create')."""
     if token is None:
         token = make_apply_token()
     if join_code is None and overrides.get('org_mode') != 'create':
@@ -220,9 +215,8 @@ class TestViewProofOfEmployment:
         assert res.status_code == 403
 
     def test_admin_can_reach_the_view_endpoint(self, client, db, auth_headers):
-        """Fake GridFS (see conftest.py) never actually stores/serves bytes, so
-        success here means "past the permission check, 404 on the file itself
-        from _fs.get()" - not 403 or a request-not-found 404."""
+        """Fake GridFS never stores/serves bytes, so success here means "past
+        the permission check, 404 on the file itself" - not 403."""
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         res = client.get(f'/api/admin-requests/{req["_id"]}/proof-of-employment', headers=auth_headers())
@@ -247,8 +241,7 @@ class TestApproveAdminRequest:
         assert res.status_code == 201
 
         created = db.users.find_one({'email': APPLICANT_EMAIL})
-        # Defaults to the least-privileged role - the approving admin has to
-        # explicitly opt in to granting super-admin access (see TestApproveAsAdmin).
+        # Defaults to the least-privileged role; admin access requires explicit opt-in.
         assert created['role'] == 'lgu_member'
         assert created['permissions'] == {'can_review_applicants': False, 'can_manage_members': False, 'can_reset_program': False}
         assert created['municipality'] == 'Liliw'
@@ -279,9 +272,8 @@ class TestApproveAdminRequest:
         assert created['role'] == 'lgu_member'
 
     def test_approved_admin_can_log_in_with_the_password_they_chose(self, client, db, auth_headers):
-        """Unlike a directly-added admin (who gets a random placeholder password and
-        an emailed set-password link), an approved applicant already proved their
-        email and chose their own password when submitting - it should just work."""
+        """Unlike a directly-added admin, an approved applicant already chose
+        their own password when submitting, so it should just work."""
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
@@ -320,25 +312,19 @@ class TestApproveAdminRequest:
 
 
 class TestTwoPersonApprovalForManageMembers:
-    """Granting can_manage_members is the one privilege-escalation risk in this
-    flow - it lets the new account approve/add further admins - so it alone
-    needs two DIFFERENT existing admins to sign off before the account exists."""
+    """can_manage_members is the one privilege-escalation grant that needs two
+    DIFFERENT existing admins to sign off before the account is created."""
 
     def _peer_headers(self, client, make_user, email='peeradmin@test.com', role='lgu_admin', permissions=None):
-        """A non-Super-Admin approver - an org's own lgu_admin or a lgu_member
-        granted can_manage_members - the actual peer-review case this whole
-        class is testing. (Super Admin's own single-approval bypass, and the
-        sole-founder bootstrap bypass, are covered separately below.)"""
+        """A non-Super-Admin approver: an org's lgu_admin or an lgu_member with
+        can_manage_members, the actual peer-review case under test here."""
         user = make_user(email=email, role=role, permissions=permissions)
         token = client.post('/api/login', json={'email': user['email'], 'password': user['password']}).get_json()['token']
         return {'Authorization': f'Bearer {token}'}, user
 
     def _seed_second_member(self, make_user, email='placeholder-member@test.com'):
-        """The two-person gate only makes sense once a genuine second person
-        could possibly give that second approval - a fresh org with only its
-        founder doesn't have one yet (see the sole-founder bootstrap test
-        below). Call this first so these tests exercise the real peer-review
-        case: an org that already has more than one member."""
+        """Ensures a real second approver exists, so these tests exercise the
+        peer-review case rather than the sole-founder bootstrap exception."""
         make_user(email=email, role='lgu_member')
 
     def test_granting_can_manage_members_does_not_create_account_on_first_approval(self, client, db, make_user):
@@ -407,14 +393,10 @@ class TestTwoPersonApprovalForManageMembers:
         assert db.users.find_one({'email': APPLICANT_EMAIL}) is None
 
     def test_sole_founder_single_approval_bootstraps_a_second_member(self, client, db, make_user):
-        """The bootstrap deadlock: right after founding, an org has exactly
-        one member (the founder). Requiring a *different* second admin to
-        approve the very first can_manage_members grant would be impossible
-        to satisfy, so the founder's single approval finalizes it instead -
-        same reasoning as the founding-org and Super Admin exceptions above.
-        Once this second member exists, the normal two-person rule applies
-        again for any request after this one (see test_second_different_admin_finalizes_it,
-        which seeds a second member before its own first approval)."""
+        """A fresh org has only its founder, so requiring a different second
+        admin would be impossible to satisfy - the founder's single approval
+        finalizes it instead. The normal two-person rule applies again once a
+        second member exists."""
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers, _ = self._peer_headers(client, make_user, email='founder@test.com', role='lgu_admin')
@@ -428,12 +410,8 @@ class TestTwoPersonApprovalForManageMembers:
         assert db.admin_requests.find_one({'_id': req['_id']})['status'] == 'approved'
 
     def test_super_admin_single_approval_finalizes_can_manage_members_grant(self, client, db, auth_headers):
-        """The platform Super Admin is a higher trust tier that already
-        bypasses every other permission check (including granting
-        can_manage_members directly via PUT /api/admins/<id>/permissions,
-        with no second approval there either) - so unlike a peer LGU admin,
-        Super Admin's own approval finalizes the account immediately, same
-        as the founding-org path."""
+        """Super Admin already bypasses every other permission check, so
+        unlike a peer LGU admin, its approval finalizes the account immediately."""
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
@@ -446,18 +424,14 @@ class TestTwoPersonApprovalForManageMembers:
         assert db.admin_requests.find_one({'_id': req['_id']})['status'] == 'approved'
 
     def test_sole_admin_can_self_resolve_an_already_stuck_pending_second_approval(self, client, db, make_user):
-        """Defensive recovery case: a request already sitting in
-        pending_second_approval (first_approval given by admin X), where X is
-        STILL the org's only member - e.g. data from before this fix existed,
-        or a second member's account was removed after the first approval.
-        Refusing X's own second attempt here would leave it stuck forever
-        with no possible different approver, so it's allowed to finalize."""
+        """Recovery case: a request stuck in pending_second_approval where the
+        first approver is still the org's only member is allowed to finalize
+        it, since no different approver could ever exist."""
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         headers, admin = self._peer_headers(client, make_user, email='sole-admin@test.com', role='lgu_admin')
 
-        # Simulate the already-stuck state directly, bypassing the (now
-        # bootstrap-exempted) normal first-approval call.
+        # Simulate the already-stuck state directly.
         db.admin_requests.update_one({'_id': req['_id']}, {'$set': {
             'status': 'pending_second_approval',
             'first_approval': {
@@ -474,8 +448,8 @@ class TestTwoPersonApprovalForManageMembers:
         assert created['permissions']['can_manage_members'] is True
 
     def test_permissions_without_can_manage_members_still_need_only_one_approval(self, client, db, auth_headers):
-        """Regression check: the common case (review-only access) must not be
-        slowed down by the two-person rule."""
+        """The common case (review-only access) must not be slowed down by
+        the two-person rule."""
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 

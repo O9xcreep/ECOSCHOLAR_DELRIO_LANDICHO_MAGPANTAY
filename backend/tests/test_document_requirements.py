@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Document requirements seeding, including the selfie step added in this phase
-(backend/app.py SELFIE_DOC_LABEL) and its backfill into deployments that were
-already seeded with the original six-document checklist."""
+"""Document requirements seeding, including the selfie step
+(documents.py SELFIE_DOC_LABEL) and its backfill into deployments already
+seeded with the original six-document checklist."""
 
 SELFIE_DOC_LABEL = 'Selfie / Face Photo'
 
