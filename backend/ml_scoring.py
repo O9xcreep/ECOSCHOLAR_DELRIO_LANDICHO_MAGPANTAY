@@ -1,0 +1,490 @@
+# -*- coding: utf-8 -*-
+"""ML model loading, feature building/scoring, the eligibility decision
+routes, and recompute_approvals (also used by admin_settings.py and, via
+program_reset, by helpers.py's do_program_reset caller)."""
+from datetime import datetime
+from flask import request, jsonify, g
+
+from extensions import app, get_db, DEBUG
+from helpers import oid, EDUCATION_LABEL_FIX, income_to_bracket, STATUS_MESSAGES, \
+    STATUS_NOTIF_TYPE, GENERIC_REVIEWED_MESSAGE, get_applicant_limit, are_results_visible, \
+    get_current_cycle_id, resolve_notify_user_id, create_notification, ml_education_map, derive_city
+from auth import require_permission, current_organization_oid
+from documents import get_required_doc_labels, collect_verification_warnings, \
+    run_ocr_checks_concurrently, SELFIE_DOC_LABEL
+
+# ── LOAD ML MODEL (EcoScholar classifier + regressor, trained per Chapter III) ──
+# ecoscholar_predict.py loads its .joblib/.json files at import time, so a missing or
+# corrupt model file raises here - caught the same way the old bundle load was, so
+# scoring degrades gracefully without disabling application submission.
+try:
+    from ecoscholar_predict import score_applicant as _ml_predict, ELIGIBILITY_CUTOFF as ml_regressor_cutoff
+    ml_classifier = True   # sentinel only - the real model objects live inside ecoscholar_predict
+    ml_regressor = True
+    print("ML model loaded successfully! (EcoScholar classifier + regressor)")
+except Exception as e:
+    _ml_predict = None
+    ml_classifier = None
+    ml_regressor = None
+    ml_regressor_cutoff = None
+    print(f"ML model not loaded: {e}")
+
+# Fields every applicant must have for the combined model to score them.
+# Applicants who registered before this model was wired in won't have these
+# (see schema/ml_model.md) - they're excluded from scoring rather than guessed at.
+ML_REQUIRED_FIELDS = [
+    'monthly_income', 'housing_situation', 'num_siblings',
+    'num_siblings_studying', 'father_education', 'mother_education'
+]
+
+def build_feature_row(applicant):
+    """Build the flat {field: value} dict ecoscholar_predict.score_applicant()
+    expects, mapped from our MongoDB applicant schema. Returns (row, True) or
+    (None, False) if this applicant predates the fields the model needs."""
+    if any(applicant.get(f) is None for f in ML_REQUIRED_FIELDS):
+        return None, False
+
+    academic = applicant.get('academic') or {}
+    father_edu = applicant.get('father_education')
+    mother_edu = applicant.get('mother_education')
+    row = {
+        'sex': applicant.get('gender'),
+        'household_size': applicant.get('family_size'),
+        'siblings': applicant.get('num_siblings'),
+        'siblings_studying': applicant.get('num_siblings_studying'),
+        'father_education': EDUCATION_LABEL_FIX.get(father_edu, father_edu),
+        'mother_education': EDUCATION_LABEL_FIX.get(mother_edu, mother_edu),
+        'father_occupation': applicant.get('father_occupation'),
+        'mother_occupation': applicant.get('mother_occupation'),
+        'monthly_income_bracket': income_to_bracket(applicant.get('monthly_income')),
+        'housing_situation': applicant.get('housing_situation'),
+        'gwa': academic.get('gpa'),
+        'holds_other_scholarship': bool(applicant.get('has_other_scholarship')),
+    }
+    return row, True
+
+def score_with_model(row):
+    """Run the trained EcoScholar classifier (eligibility) and regressor (ranking
+    score) on a feature row built by build_feature_row(). Returns (ml_score, ml_status)."""
+    result = _ml_predict(row)
+    ml_status = 'Eligible' if result['eligible'] else 'Not Eligible'
+    return result['priority_score'], ml_status
+
+def build_score_breakdown(applicant):
+    """Simple heuristic breakdown for the admin UI progress bars, read straight from
+    the applicant's stored raw fields - a rough visual aid, not the model's actual
+    internal feature attribution, and intentionally independent of whichever model
+    is deployed."""
+    academic = applicant.get('academic') or {}
+    gpa = float(academic.get('gpa') or 0)
+    income = float(applicant.get('monthly_income') or 0)
+    family_size = int(applicant.get('family_size') or 0)
+    father_edu_level = ml_education_map.get(applicant.get('father_education'), 0)
+    mother_edu_level = ml_education_map.get(applicant.get('mother_education'), 0)
+
+    gpa_s = round(max(0, min(100, gpa)), 1)
+    inc_s = round(max(0, min(100, (1 - min(income, 100000) / 100000) * 100)), 1)
+    fam_s = round(min(100, max(0, (family_size - 2) / 8 * 100)), 1)
+    edu_avg = (father_edu_level + mother_edu_level) / 2
+    edu_s = round(max(0, min(100, (5 - edu_avg) / 5 * 100)), 1)
+    housing_need = {'Owned': 20, 'Rented': 60, 'Living with relatives': 80, 'Informal settler': 100}
+    house_s = housing_need.get(applicant.get('housing_situation'), 50)
+
+    return [
+        {"label": "GWA Score", "value": gpa_s, "color": "#10b981"},
+        {"label": "Income Need Score", "value": inc_s, "color": "#0891b2"},
+        {"label": "Family Size Score", "value": fam_s, "color": "#2563eb"},
+        {"label": "Parental Education Need", "value": edu_s, "color": "#f59e0b"},
+        {"label": "Housing Need Score", "value": house_s, "color": "#ec4899"},
+    ]
+
+# Every value in build_score_breakdown() is oriented so that higher = more favorable
+# for approval (better grades, lower income, more financial need, etc.), so the
+# lowest-scoring component(s) are a reasonable plain-language explanation for a
+# rejection - not the model's actual internal feature attribution, same caveat as
+# build_score_breakdown() itself.
+REJECTION_REASON_TEXT = {
+    "GWA Score": "academic performance (GWA) was below the typical threshold for approved applicants",
+    "Income Need Score": "estimated household income was higher than typical for approved applicants",
+    "Family Size Score": "household/family size was smaller than typical for approved applicants",
+    "Parental Education Need": "parents' education level was higher than typical for approved applicants, indicating comparatively lower financial need",
+    "Housing Need Score": "housing situation showed less financial need than typical for approved applicants",
+}
+
+def generate_rejection_reason(breakdown):
+    weakest = sorted(breakdown, key=lambda b: b['value'])[:2]
+    reasons = [REJECTION_REASON_TEXT.get(b['label'], b['label']) for b in weakest]
+    return "Primary factors: " + "; and ".join(reasons) + "."
+
+def recompute_approvals(db, org_id, limit, reviewed_by='System'):
+    """Keeps 'Approved' as exactly the top-`limit` applicants (by ml_score) among
+    everyone the classifier found Eligible **in the current cycle**. Run after every
+    verify decision and whenever the limit changes, since either can promote or bump
+    applicants who weren't directly touched by that specific action - a newly-verified
+    strong applicant can displace a previously-Approved weaker one, and raising the
+    limit can promote applicants who were waiting just below the old cutoff. Scoped to
+    the current cycle so re-verifying someone this cycle can never reach back and flip
+    an already-archived cycle's decisions."""
+    eligible = list(db.applicants.find(
+        # A withdrawn applicant can still carry ml_status: "Eligible" from a
+        # prior verification - excluded here so recompute never overwrites
+        # "Withdrawn" back to Approved/Rejected.
+        {"ml_status": "Eligible", "application.status": {"$ne": "Withdrawn"},
+         "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id},
+        {"ml_score": 1, "application": 1, "full_name": 1, "email": 1, "user_id": 1}
+    ))
+    eligible.sort(key=lambda a: a.get('ml_score', 0), reverse=True)
+
+    now = datetime.utcnow()
+    results_visible = are_results_visible(db, org_id)
+    for i, applicant in enumerate(eligible):
+        should_be = 'Approved' if i < limit else 'Rejected'
+        current = (applicant.get('application') or {}).get('status')
+        if current == should_be:
+            continue
+
+        if should_be == 'Approved':
+            remarks = f'A scholarship slot became available (applicant limit: {limit}).'
+            notif_message = (STATUS_MESSAGES['Approved'] + ' ' + remarks) if results_visible else GENERIC_REVIEWED_MESSAGE
+        else:
+            remarks = (
+                f'This applicant met the eligibility criteria, but the accepted applicant '
+                f'limit ({limit}) was reached by higher-ranked applicants.'
+            )
+            notif_message = (
+                f'Your application met the eligibility criteria, but the accepted applicant '
+                f'limit ({limit}) has been reached by higher-ranked applicants. You have been '
+                f'waitlisted and may be promoted automatically if a slot opens up.'
+            ) if results_visible else GENERIC_REVIEWED_MESSAGE
+
+        db.applicants.update_one(
+            {"_id": applicant["_id"]},
+            {
+                "$set": {
+                    "application.status": should_be,
+                    "application.reviewed_at": now,
+                    "application.reviewed_by_name": reviewed_by,
+                    "application.rejection_reason": remarks if should_be == 'Rejected' else None,
+                },
+                "$push": {
+                    "audit_trail": {
+                        "action": f'Auto re-ranked due to applicant limit - now {should_be}',
+                        "performed_by": reviewed_by,
+                        "performed_by_role": "system",
+                        "old_status": current,
+                        "new_status": should_be,
+                        "remarks": remarks,
+                        "performed_at": now,
+                    }
+                }
+            }
+        )
+
+        notify_user_id = resolve_notify_user_id(db, applicant)
+        create_notification(
+            db, notify_user_id, applicant,
+            notif_message, STATUS_NOTIF_TYPE[should_be]
+        )
+
+def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
+    """Runs the ML eligibility decision for one applicant - shared by the
+    single-applicant and bulk verify routes. Returns (result_dict,
+    needs_recompute): needs_recompute is True when this applicant was found
+    Eligible, meaning the accepted-applicant pool must be recomputed
+    afterward. Callers processing several applicants should batch that into
+    one recompute_approvals() call rather than one per applicant, since it
+    re-evaluates the entire pool every time it runs."""
+    applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+    if not applicant:
+        return {"error": "Applicant not found"}, False
+
+    if (applicant.get('application') or {}).get('status') == 'Withdrawn':
+        return {"error": "This application was withdrawn by the applicant and can't be modified."}, False
+
+    # One tap does it all: OCR-check every uploaded required document that hasn't
+    # been checked yet (the selfie is manually compared instead, never OCR'd),
+    # then let the LGU see the results as warnings rather than gating on them -
+    # whether a document is genuine is their call, not an algorithm's.
+    required_labels = get_required_doc_labels(db, org_id)
+    to_check = [
+        d['document_name'] for d in applicant.get('documents', [])
+        if d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
+        and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')
+    ]
+    run_ocr_checks_concurrently(db, applicant, applicant_oid, to_check, org_id)
+    applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+    warnings = collect_verification_warnings(db, applicant, org_id)
+
+    row, ok = build_feature_row(applicant)
+    if not ok:
+        return {
+            "error": "This applicant was submitted before the updated eligibility "
+                     "model and can't be auto-decided. Ask them to resubmit using "
+                     "the current application form."
+        }, False
+
+    ml_score, ml_status = score_with_model(row)
+    old_status = (applicant.get('application') or {}).get('status', '')
+    breakdown = build_score_breakdown(applicant)
+
+    if ml_status == 'Not Eligible':
+        # Ineligible on the classifier's own terms - rejected outright, the
+        # accepted-applicant limit never even comes into play for this one.
+        final_status = 'Rejected'
+        rejection_reason = generate_rejection_reason(breakdown)
+        remarks = f'ML score: {ml_score} ({ml_status}) - {rejection_reason}'
+
+        db.applicants.update_one(
+            {"_id": applicant_oid},
+            {
+                "$set": {
+                    "application.status": final_status,
+                    "application.reviewed_at": now,
+                    "application.reviewed_by_name": reviewed_by,
+                    "ml_score": ml_score,
+                    "ml_status": ml_status,
+                    "application.rejection_reason": rejection_reason,
+                },
+                "$push": {
+                    "audit_trail": {
+                        "action": f'Documents verified by admin - model decided: {final_status}',
+                        "performed_by": reviewed_by,
+                        "performed_by_role": "admin",
+                        "old_status": old_status,
+                        "new_status": final_status,
+                        "remarks": remarks,
+                        "performed_at": now,
+                    }
+                }
+            }
+        )
+
+        notify_user_id = resolve_notify_user_id(db, applicant)
+        notif_message = (STATUS_MESSAGES[final_status] + ' ' + rejection_reason) if are_results_visible(db, org_id) else GENERIC_REVIEWED_MESSAGE
+        create_notification(db, notify_user_id, applicant, notif_message, STATUS_NOTIF_TYPE[final_status])
+        return {
+            "applicant_id": str(applicant_oid), "status": final_status,
+            "ml_score": ml_score, "ml_status": ml_status,
+            "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
+            "rejection_reason": rejection_reason, "reviewed_by": reviewed_by,
+            "warnings": warnings,
+        }, False
+
+    # Eligible on its own - but whether it's actually Approved depends on how
+    # it ranks against everyone else within the accepted applicant limit, so
+    # the final call is left to recompute_approvals(), run by the caller.
+    db.applicants.update_one(
+        {"_id": applicant_oid},
+        {"$set": {
+            "ml_score": ml_score,
+            "ml_status": ml_status,
+            "application.reviewed_by_name": reviewed_by,
+        }}
+    )
+    return {
+        "applicant_id": str(applicant_oid), "status": None,
+        "ml_score": ml_score, "ml_status": ml_status,
+        "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
+        "rejection_reason": None, "reviewed_by": reviewed_by,
+        "warnings": warnings,
+    }, True
+
+# ── VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
+@app.route('/api/applications/<applicant_id>/verify', methods=['PUT'])
+@require_permission('can_review_applicants')
+def verify_and_decide(applicant_id):
+    if not ml_classifier or not ml_regressor:
+        return jsonify({"error": "ML model not loaded"}), 500
+
+    applicant_oid = oid(applicant_id)
+    if not applicant_oid:
+        return jsonify({"error": "Invalid applicant id"}), 400
+
+    reviewed_by = g.current_user.get('email', 'Admin')
+
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        now = datetime.utcnow()
+        result, needs_recompute = _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now)
+        if "error" in result:
+            return jsonify(result), 404 if result["error"] == "Applicant not found" else 409
+
+        if needs_recompute:
+            limit = get_applicant_limit(db, org_id)
+            recompute_approvals(db, org_id, limit, reviewed_by=reviewed_by)
+            applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+            result["status"] = applicant['application']['status']
+            result["rejection_reason"] = applicant['application'].get('rejection_reason')
+
+        result["applicant_id"] = applicant_id
+        return jsonify(result)
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── BULK VERIFY DOCUMENTS & LET THE MODEL DECIDE ELIGIBILITY ──
+@app.route('/api/applications/bulk-verify', methods=['PUT'])
+@require_permission('can_review_applicants')
+def bulk_verify_and_decide():
+    if not ml_classifier or not ml_regressor:
+        return jsonify({"error": "ML model not loaded"}), 500
+
+    data = request.get_json() or {}
+    ids = data.get('applicant_ids') or []
+    if not isinstance(ids, list) or not ids:
+        return jsonify({"error": "applicant_ids must be a non-empty list"}), 400
+    if len(ids) > 100:
+        return jsonify({"error": "Can't process more than 100 applicants at once"}), 400
+
+    reviewed_by = g.current_user.get('email', 'Admin')
+
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        now = datetime.utcnow()
+        results = []
+        any_needs_recompute = False
+
+        for applicant_id in ids:
+            applicant_oid = oid(applicant_id)
+            if not applicant_oid:
+                results.append({"applicant_id": applicant_id, "error": "Invalid applicant id"})
+                continue
+            result, needs_recompute = _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now)
+            result["applicant_id"] = applicant_id
+            results.append(result)
+            any_needs_recompute = any_needs_recompute or needs_recompute
+
+        # Recompute the accepted-applicant pool once at the end, rather than once
+        # per eligible applicant - it re-evaluates everyone, so doing it per-item
+        # in a batch would be needlessly expensive.
+        if any_needs_recompute:
+            limit = get_applicant_limit(db, org_id)
+            recompute_approvals(db, org_id, limit, reviewed_by=reviewed_by)
+            for r in results:
+                if r.get("status") is None and "error" not in r:
+                    applicant = db.applicants.find_one({"_id": oid(r["applicant_id"]), "organization_id": org_id})
+                    r["status"] = applicant['application']['status']
+                    r["rejection_reason"] = applicant['application'].get('rejection_reason')
+
+        succeeded = sum(1 for r in results if "error" not in r)
+        return jsonify({"results": results, "succeeded": succeeded, "total": len(ids)})
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── SCORE SINGLE APPLICANT ──
+@app.route('/api/score-applicant/<applicant_id>', methods=['GET'])
+@require_permission('can_review_applicants')
+def score_applicant(applicant_id):
+    if not ml_classifier or not ml_regressor:
+        return jsonify({"error": "ML model not loaded"}), 500
+
+    try:
+        applicant_oid = oid(applicant_id)
+        if not applicant_oid:
+            return jsonify({"error": "Invalid applicant id"}), 400
+
+        db = get_db()
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": current_organization_oid()})
+
+        if not applicant:
+            return jsonify({"error": "Applicant not found"}), 404
+
+        org_id = current_organization_oid()
+        # This is only a preview fetched automatically on modal open, so it never
+        # runs OCR itself (that's the explicit "Run OCR Check" / "Start Eligibility"
+        # actions) - it just reports the score alongside whatever warnings exist.
+        warnings = collect_verification_warnings(db, applicant, org_id)
+
+        row, ok = build_feature_row(applicant)
+        if not ok:
+            return jsonify({
+                "error": "This applicant was submitted before the updated eligibility "
+                         "model and can't be scored with it. Ask them to resubmit using "
+                         "the current application form."
+            }), 409
+
+        ml_score, ml_status = score_with_model(row)
+
+        db.applicants.update_one(
+            {"_id": applicant_oid},
+            {"$set": {"ml_score": ml_score, "ml_status": ml_status}}
+        )
+
+        return jsonify({
+            "applicant_id": applicant_id,
+            "ml_score": ml_score,
+            "ml_status": ml_status,
+            "regressor_cutoff": ml_regressor_cutoff,
+            "breakdown": build_score_breakdown(applicant),
+            "warnings": warnings,
+        })
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── SCORE AND RANK ALL APPLICANTS ──
+@app.route('/api/rank-applicants', methods=['GET'])
+@require_permission('can_review_applicants')
+def rank_applicants():
+    if not ml_classifier or not ml_regressor:
+        return jsonify({"error": "ML model not loaded"}), 500
+
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        query = {"application.status": {"$nin": ["Rejected", "Newly Submitted"]}, "organization_id": org_id}
+        if request.args.get('cycle') == 'current':
+            query["cycle_id"] = get_current_cycle_id(db, org_id)
+        applicants = list(db.applicants.find(query))
+
+        ranked = []
+        for applicant in applicants:
+            try:
+                row, ok = build_feature_row(applicant)
+                if not ok:
+                    continue  # predates this model - see schema/ml_model.md
+
+                ml_score, ml_status = score_with_model(row)
+                academic = applicant.get('academic') or {}
+
+                ranked.append({
+                    'id': str(applicant['_id']),
+                    'full_name': applicant['full_name'],
+                    'city': derive_city(applicant.get('address')),
+                    'course': academic.get('course'),
+                    'gpa': academic.get('gpa'),
+                    'monthly_income': applicant.get('monthly_income'),
+                    'family_size': applicant.get('family_size'),
+                    'housing_situation': applicant.get('housing_situation'),
+                    'has_other_scholarship': bool(applicant.get('has_other_scholarship')),
+                    'application_status': (applicant.get('application') or {}).get('status'),
+                    'ml_score': ml_score,
+                    'ml_status': ml_status
+                })
+            except Exception:
+                continue
+
+        # Sort by ML score descending
+        ranked.sort(key=lambda x: x['ml_score'], reverse=True)
+        for i, r in enumerate(ranked):
+            r['rank'] = i + 1
+
+        return jsonify({"ranked": ranked})
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
