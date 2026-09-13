@@ -1,430 +1,55 @@
 {
-  "summary": {
-    "total_samples": 39,
-    "matched_expected": 39,
-    "match_rate_pct": 100.0,
-    "by_document_type": {
-      "Enrollment Form": {
-        "total": 9,
-        "matched": 9
-      },
-      "Proof of Income": {
-        "total": 8,
-        "matched": 8
-      },
-      "Barangay Endorsement": {
-        "total": 6,
-        "matched": 6
-      },
-      "School ID": {
-        "total": 5,
-        "matched": 5
-      },
-      "Grade 12 Grades": {
-        "total": 6,
-        "matched": 6
-      },
-      "4Ps Certificate": {
-        "total": 5,
-        "matched": 5
-      }
-    },
-    "mismatches": []
-  },
-  "results": [
+  "overall_match_rate": 0.8448,
+  "total_samples": 58,
+  "table_24_by_document_type": [
     {
-      "file": "enrollment_form/clean_01.jpg",
       "document_type": "Enrollment Form",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
+      "verified": 9,
+      "partially_verified": 2,
+      "failed_verification": 5,
+      "total": 16,
+      "mean_confidence": 64.1
     },
     {
-      "file": "enrollment_form/clean_02.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/clean_03.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/missing_field_01.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "missing_field",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 50,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/missing_field_02.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "missing_field",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 50,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/blurry_01.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/blurry_02.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/name_mismatch_01.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "name_mismatch",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "enrollment_form/wrong_document_01.jpg",
-      "document_type": "Enrollment Form",
-      "scenario": "wrong_document",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 25,
-      "flags": []
-    },
-    {
-      "file": "proof_of_income/clean_01.jpg",
       "document_type": "Proof of Income",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
+      "verified": 4,
+      "partially_verified": 2,
+      "failed_verification": 6,
+      "total": 12,
+      "mean_confidence": 43.1
     },
     {
-      "file": "proof_of_income/clean_02.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "proof_of_income/clean_03.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "proof_of_income/missing_field_01.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "missing_field",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 67,
-      "flags": []
-    },
-    {
-      "file": "proof_of_income/blurry_01.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "proof_of_income/blurry_02.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "proof_of_income/value_mismatch_01.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "value_mismatch",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 75,
-      "flags": [
-        "Declared monthly income (\u20b13,000) doesn't closely match the amount stated on this document (\u20b18,500) - worth a manual check."
-      ]
-    },
-    {
-      "file": "proof_of_income/handwritten_01.jpg",
-      "document_type": "Proof of Income",
-      "scenario": "handwritten",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 75,
-      "flags": []
-    },
-    {
-      "file": "barangay_endorsement/clean_01.jpg",
       "document_type": "Barangay Endorsement",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
+      "verified": 3,
+      "partially_verified": 2,
+      "failed_verification": 1,
+      "total": 6,
+      "mean_confidence": 72.3
     },
     {
-      "file": "barangay_endorsement/clean_02.jpg",
-      "document_type": "Barangay Endorsement",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "barangay_endorsement/clean_03.jpg",
-      "document_type": "Barangay Endorsement",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "barangay_endorsement/missing_field_01.jpg",
-      "document_type": "Barangay Endorsement",
-      "scenario": "missing_field",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 67,
-      "flags": []
-    },
-    {
-      "file": "barangay_endorsement/blurry_01.jpg",
-      "document_type": "Barangay Endorsement",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "barangay_endorsement/value_mismatch_01.jpg",
-      "document_type": "Barangay Endorsement",
-      "scenario": "value_mismatch",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 67,
-      "flags": []
-    },
-    {
-      "file": "school_id/clean_01.jpg",
       "document_type": "School ID",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
+      "verified": 5,
+      "partially_verified": 0,
+      "failed_verification": 5,
+      "total": 10,
+      "mean_confidence": 53.3
     },
     {
-      "file": "school_id/clean_02.jpg",
-      "document_type": "School ID",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "school_id/clean_03.jpg",
-      "document_type": "School ID",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "school_id/missing_field_01.jpg",
-      "document_type": "School ID",
-      "scenario": "missing_field",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "school_id/blurry_01.jpg",
-      "document_type": "School ID",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "grade_12_grades/clean_01.jpg",
       "document_type": "Grade 12 Grades",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
+      "verified": 4,
+      "partially_verified": 2,
+      "failed_verification": 3,
+      "total": 9,
+      "mean_confidence": 63.9
     },
     {
-      "file": "grade_12_grades/clean_02.jpg",
-      "document_type": "Grade 12 Grades",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "grade_12_grades/clean_03.jpg",
-      "document_type": "Grade 12 Grades",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "grade_12_grades/missing_field_01.jpg",
-      "document_type": "Grade 12 Grades",
-      "scenario": "missing_field",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 33,
-      "flags": []
-    },
-    {
-      "file": "grade_12_grades/blurry_01.jpg",
-      "document_type": "Grade 12 Grades",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
-    },
-    {
-      "file": "grade_12_grades/value_mismatch_01.jpg",
-      "document_type": "Grade 12 Grades",
-      "scenario": "value_mismatch",
-      "expected_status": "Partially Verified",
-      "actual_status": "Partially Verified",
-      "match": true,
-      "confidence": 75,
-      "flags": [
-        "Declared GWA (95) doesn't closely match the grade stated on this document (78.0) - worth a manual check."
-      ]
-    },
-    {
-      "file": "4ps_certificate/clean_01.jpg",
       "document_type": "4Ps Certificate",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "4ps_certificate/clean_02.jpg",
-      "document_type": "4Ps Certificate",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "4ps_certificate/clean_03.jpg",
-      "document_type": "4Ps Certificate",
-      "scenario": "clean",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "4ps_certificate/missing_field_01.jpg",
-      "document_type": "4Ps Certificate",
-      "scenario": "missing_field",
-      "expected_status": "Verified",
-      "actual_status": "Verified",
-      "match": true,
-      "confidence": 100,
-      "flags": []
-    },
-    {
-      "file": "4ps_certificate/blurry_01.jpg",
-      "document_type": "4Ps Certificate",
-      "scenario": "blurry",
-      "expected_status": "Failed Verification",
-      "actual_status": "Failed Verification",
-      "match": true,
-      "confidence": 0,
-      "flags": []
+      "verified": 4,
+      "partially_verified": 0,
+      "failed_verification": 1,
+      "total": 5,
+      "mean_confidence": 80.0
     }
-  ]
+  ],
+  "note": "Aggregated counts only - no applicant names or extracted text."
 }
