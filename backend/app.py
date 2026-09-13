@@ -44,7 +44,10 @@ import admin_management  # noqa: F401 - registers /api/admins, /api/admin-reques
 # free-tier instance awake, and for basic "is it up" checks.
 @app.route('/api/health')
 def health():
-    return jsonify({"status": "ok"})
+    response = jsonify({"status": "ok"})
+    # Cache for 30 seconds to reduce server load
+    response.headers['Cache-Control'] = 'public, max-age=30'
+    return response
 
 # ── TEST ROUTE ──
 @app.route('/api/test')
