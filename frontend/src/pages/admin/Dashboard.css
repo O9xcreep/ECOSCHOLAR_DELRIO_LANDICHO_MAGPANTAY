@@ -169,10 +169,11 @@
   color: var(--warning);
   border: 1px solid var(--warning-bg);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 16px;
+  padding: 16px;
 }
 
 .no-program-banner {
@@ -190,7 +191,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .btn-dismiss-banner {
@@ -513,6 +515,22 @@
 
   .btn-resolve {
     align-self: flex-end;
+  }
+}
+
+@media (max-width: 768px) {
+  .program-ended-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .program-ended-banner-actions {
+    justify-content: stretch;
+    flex-direction: column;
+  }
+
+  .program-ended-banner-actions button {
+    width: 100%;
   }
 }
 
