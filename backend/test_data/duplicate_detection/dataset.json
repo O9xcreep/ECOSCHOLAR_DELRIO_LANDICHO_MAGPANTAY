@@ -1,0 +1,378 @@
+{
+  "profile_template": {
+    "gender": "Male",
+    "religion": "Roman Catholic",
+    "citizenship": "Filipino",
+    "contactNumber": "09171234567",
+    "address": "123 Mabini St, San Isidro",
+    "fatherName": "Pedro Cruz",
+    "fatherOccupation": "Laborer/Driver",
+    "fatherEducation": "High School",
+    "motherName": "Maria Cruz",
+    "motherOccupation": "Unemployed",
+    "motherEducation": "Elementary",
+    "monthlyIncome": "8000",
+    "familySize": "5",
+    "numSiblings": "3",
+    "numSiblingsStudying": "2",
+    "housingSituation": "Rented",
+    "hasOtherScholarship": "no",
+    "otherScholarshipDetails": "",
+    "school": "Rizal National High School",
+    "schoolAddress": "San Isidro",
+    "course": "BS Computer Science",
+    "yearLevel": "1st Year",
+    "gpa": "88",
+    "academicYear": "2025-2026",
+    "semester": "1st Semester"
+  },
+  "legitimate_applicants": [
+    {
+      "id": "legit_01",
+      "full_name": "Juan Bautista0",
+      "email": "legit01@dataset.ecoscholar.test",
+      "dob": "2000-01-10"
+    },
+    {
+      "id": "legit_02",
+      "full_name": "Maria Bautista1",
+      "email": "legit02@dataset.ecoscholar.test",
+      "dob": "2001-02-11"
+    },
+    {
+      "id": "legit_03",
+      "full_name": "Pedro Bautista2",
+      "email": "legit03@dataset.ecoscholar.test",
+      "dob": "2002-03-12"
+    },
+    {
+      "id": "legit_04",
+      "full_name": "Ana Bautista3",
+      "email": "legit04@dataset.ecoscholar.test",
+      "dob": "2003-04-13"
+    },
+    {
+      "id": "legit_05",
+      "full_name": "Carlos Bautista4",
+      "email": "legit05@dataset.ecoscholar.test",
+      "dob": "2004-05-14"
+    },
+    {
+      "id": "legit_06",
+      "full_name": "Rosa Bautista5",
+      "email": "legit06@dataset.ecoscholar.test",
+      "dob": "2005-06-15"
+    },
+    {
+      "id": "legit_07",
+      "full_name": "Manuel Bautista6",
+      "email": "legit07@dataset.ecoscholar.test",
+      "dob": "2000-07-16"
+    },
+    {
+      "id": "legit_08",
+      "full_name": "Elena Bautista7",
+      "email": "legit08@dataset.ecoscholar.test",
+      "dob": "2001-08-17"
+    },
+    {
+      "id": "legit_09",
+      "full_name": "Mark Bautista8",
+      "email": "legit09@dataset.ecoscholar.test",
+      "dob": "2002-09-18"
+    },
+    {
+      "id": "legit_10",
+      "full_name": "Liza Bautista9",
+      "email": "legit10@dataset.ecoscholar.test",
+      "dob": "2003-01-10"
+    },
+    {
+      "id": "legit_11",
+      "full_name": "Jose Bautista10",
+      "email": "legit11@dataset.ecoscholar.test",
+      "dob": "2004-02-11"
+    },
+    {
+      "id": "legit_12",
+      "full_name": "Carmen Bautista11",
+      "email": "legit12@dataset.ecoscholar.test",
+      "dob": "2005-03-12"
+    },
+    {
+      "id": "legit_13",
+      "full_name": "Ramon Bautista12",
+      "email": "legit13@dataset.ecoscholar.test",
+      "dob": "2000-04-13"
+    },
+    {
+      "id": "legit_14",
+      "full_name": "Teresa Bautista13",
+      "email": "legit14@dataset.ecoscholar.test",
+      "dob": "2001-05-14"
+    },
+    {
+      "id": "legit_15",
+      "full_name": "Antonio Bautista14",
+      "email": "legit15@dataset.ecoscholar.test",
+      "dob": "2002-06-15"
+    },
+    {
+      "id": "legit_16",
+      "full_name": "Isabel Bautista15",
+      "email": "legit16@dataset.ecoscholar.test",
+      "dob": "2003-07-16"
+    },
+    {
+      "id": "legit_17",
+      "full_name": "Fernando Bautista16",
+      "email": "legit17@dataset.ecoscholar.test",
+      "dob": "2004-08-17"
+    },
+    {
+      "id": "legit_18",
+      "full_name": "Grace Bautista17",
+      "email": "legit18@dataset.ecoscholar.test",
+      "dob": "2005-09-18"
+    },
+    {
+      "id": "legit_19",
+      "full_name": "Daniel Bautista18",
+      "email": "legit19@dataset.ecoscholar.test",
+      "dob": "2000-01-10"
+    },
+    {
+      "id": "legit_20",
+      "full_name": "Corazon Bautista19",
+      "email": "legit20@dataset.ecoscholar.test",
+      "dob": "2001-02-11"
+    },
+    {
+      "id": "legit_21",
+      "full_name": "Rogelio Bautista20",
+      "email": "legit21@dataset.ecoscholar.test",
+      "dob": "2002-03-12"
+    },
+    {
+      "id": "legit_22",
+      "full_name": "Victor Bautista21",
+      "email": "legit22@dataset.ecoscholar.test",
+      "dob": "2003-04-13"
+    },
+    {
+      "id": "legit_23",
+      "full_name": "Josefina Bautista22",
+      "email": "legit23@dataset.ecoscholar.test",
+      "dob": "2004-05-14"
+    },
+    {
+      "id": "legit_24",
+      "full_name": "Benjamin Bautista23",
+      "email": "legit24@dataset.ecoscholar.test",
+      "dob": "2005-06-15"
+    },
+    {
+      "id": "legit_25",
+      "full_name": "Amelia Bautista24",
+      "email": "legit25@dataset.ecoscholar.test",
+      "dob": "2000-07-16"
+    },
+    {
+      "id": "legit_26",
+      "full_name": "Francisco Bautista25",
+      "email": "legit26@dataset.ecoscholar.test",
+      "dob": "2001-08-17"
+    },
+    {
+      "id": "legit_27",
+      "full_name": "Cristina Bautista26",
+      "email": "legit27@dataset.ecoscholar.test",
+      "dob": "2002-09-18"
+    },
+    {
+      "id": "legit_28",
+      "full_name": "Rafael Bautista27",
+      "email": "legit28@dataset.ecoscholar.test",
+      "dob": "2003-01-10"
+    },
+    {
+      "id": "legit_29",
+      "full_name": "Luz Bautista28",
+      "email": "legit29@dataset.ecoscholar.test",
+      "dob": "2004-02-11"
+    },
+    {
+      "id": "legit_30",
+      "full_name": "Ernesto Bautista29",
+      "email": "legit30@dataset.ecoscholar.test",
+      "dob": "2005-03-12"
+    }
+  ],
+  "duplicate_pairs": [
+    {
+      "pair_id": "dup_email_01",
+      "match_type": "email",
+      "target_id": "legit_01",
+      "attempt": {
+        "full_name": "Attacker Email 1",
+        "register_email": "attacker.email01@dataset.ecoscholar.test",
+        "application_email": "legit01@dataset.ecoscholar.test",
+        "dob": "2005-01-01"
+      }
+    },
+    {
+      "pair_id": "dup_email_02",
+      "match_type": "email",
+      "target_id": "legit_02",
+      "attempt": {
+        "full_name": "Attacker Email 2",
+        "register_email": "attacker.email02@dataset.ecoscholar.test",
+        "application_email": "legit02@dataset.ecoscholar.test",
+        "dob": "2005-02-02"
+      }
+    },
+    {
+      "pair_id": "dup_email_03",
+      "match_type": "email",
+      "target_id": "legit_03",
+      "attempt": {
+        "full_name": "Attacker Email 3",
+        "register_email": "attacker.email03@dataset.ecoscholar.test",
+        "application_email": "legit03@dataset.ecoscholar.test",
+        "dob": "2005-03-03"
+      }
+    },
+    {
+      "pair_id": "dup_email_04",
+      "match_type": "email",
+      "target_id": "legit_04",
+      "attempt": {
+        "full_name": "Attacker Email 4",
+        "register_email": "attacker.email04@dataset.ecoscholar.test",
+        "application_email": "legit04@dataset.ecoscholar.test",
+        "dob": "2005-04-04"
+      }
+    },
+    {
+      "pair_id": "dup_email_05",
+      "match_type": "email",
+      "target_id": "legit_05",
+      "attempt": {
+        "full_name": "Attacker Email 5",
+        "register_email": "attacker.email05@dataset.ecoscholar.test",
+        "application_email": "legit05@dataset.ecoscholar.test",
+        "dob": "2005-05-05"
+      }
+    },
+    {
+      "pair_id": "dup_email_06",
+      "match_type": "email",
+      "target_id": "legit_06",
+      "attempt": {
+        "full_name": "Attacker Email 6",
+        "register_email": "attacker.email06@dataset.ecoscholar.test",
+        "application_email": "legit06@dataset.ecoscholar.test",
+        "dob": "2005-06-06"
+      }
+    },
+    {
+      "pair_id": "dup_email_07",
+      "match_type": "email",
+      "target_id": "legit_07",
+      "attempt": {
+        "full_name": "Attacker Email 7",
+        "register_email": "attacker.email07@dataset.ecoscholar.test",
+        "application_email": "legit07@dataset.ecoscholar.test",
+        "dob": "2005-07-07"
+      }
+    },
+    {
+      "pair_id": "dup_email_08",
+      "match_type": "email",
+      "target_id": "legit_08",
+      "attempt": {
+        "full_name": "Attacker Email 8",
+        "register_email": "attacker.email08@dataset.ecoscholar.test",
+        "application_email": "legit08@dataset.ecoscholar.test",
+        "dob": "2005-08-08"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_01",
+      "match_type": "name_dob",
+      "target_id": "legit_09",
+      "attempt": {
+        "full_name": "Mark Bautista8",
+        "register_email": "attacker.namedob01@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob01@dataset.ecoscholar.test",
+        "dob": "2002-09-18"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_02",
+      "match_type": "name_dob",
+      "target_id": "legit_10",
+      "attempt": {
+        "full_name": "Liza Bautista9",
+        "register_email": "attacker.namedob02@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob02@dataset.ecoscholar.test",
+        "dob": "2003-01-10"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_03",
+      "match_type": "name_dob",
+      "target_id": "legit_11",
+      "attempt": {
+        "full_name": "Jose Bautista10",
+        "register_email": "attacker.namedob03@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob03@dataset.ecoscholar.test",
+        "dob": "2004-02-11"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_04",
+      "match_type": "name_dob",
+      "target_id": "legit_12",
+      "attempt": {
+        "full_name": "Carmen Bautista11",
+        "register_email": "attacker.namedob04@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob04@dataset.ecoscholar.test",
+        "dob": "2005-03-12"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_05",
+      "match_type": "name_dob",
+      "target_id": "legit_13",
+      "attempt": {
+        "full_name": "Ramon Bautista12",
+        "register_email": "attacker.namedob05@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob05@dataset.ecoscholar.test",
+        "dob": "2000-04-13"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_06",
+      "match_type": "name_dob",
+      "target_id": "legit_14",
+      "attempt": {
+        "full_name": "Teresa Bautista13",
+        "register_email": "attacker.namedob06@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob06@dataset.ecoscholar.test",
+        "dob": "2001-05-14"
+      }
+    },
+    {
+      "pair_id": "dup_namedob_07",
+      "match_type": "name_dob",
+      "target_id": "legit_15",
+      "attempt": {
+        "full_name": "Antonio Bautista14",
+        "register_email": "attacker.namedob07@dataset.ecoscholar.test",
+        "application_email": "attacker.namedob07@dataset.ecoscholar.test",
+        "dob": "2002-06-15"
+      }
+    }
+  ]
+}

@@ -1,0 +1,301 @@
+{
+  "summary": {
+    "total_applications_tested": 45,
+    "known_seeded_duplicate_pairs": 15,
+    "correctly_flagged_duplicates": 15,
+    "detection_rate_pct": 100.0,
+    "legitimate_incorrectly_flagged": 0,
+    "false_flag_rate_pct": 0.0,
+    "flagged_by_email_match": 8,
+    "flagged_by_name_dob_match": 7
+  },
+  "legitimate": [
+    {
+      "id": "legit_01",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_02",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_03",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_04",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_05",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_06",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_07",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_08",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_09",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_10",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_11",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_12",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_13",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_14",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_15",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_16",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_17",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_18",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_19",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_20",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_21",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_22",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_23",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_24",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_25",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_26",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_27",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_28",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_29",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    },
+    {
+      "id": "legit_30",
+      "status": 200,
+      "blocked": false,
+      "reason": null
+    }
+  ],
+  "duplicate_attempts": [
+    {
+      "pair_id": "dup_email_01",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_02",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_03",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_04",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_05",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_06",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_07",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_email_08",
+      "match_type": "email",
+      "status": 409,
+      "blocked": true,
+      "reason": "email"
+    },
+    {
+      "pair_id": "dup_namedob_01",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    },
+    {
+      "pair_id": "dup_namedob_02",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    },
+    {
+      "pair_id": "dup_namedob_03",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    },
+    {
+      "pair_id": "dup_namedob_04",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    },
+    {
+      "pair_id": "dup_namedob_05",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    },
+    {
+      "pair_id": "dup_namedob_06",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    },
+    {
+      "pair_id": "dup_namedob_07",
+      "match_type": "name_dob",
+      "status": 409,
+      "blocked": true,
+      "reason": "name_and_birthdate"
+    }
+  ]
+}
