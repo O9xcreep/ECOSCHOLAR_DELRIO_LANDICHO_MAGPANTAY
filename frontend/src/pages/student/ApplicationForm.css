@@ -198,6 +198,28 @@
   gap: 10px;
 }
 
+.draft-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.draft-saved-msg {
+  font-size: 12px;
+  color: #16a34a;
+  font-weight: 500;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .btn-draft {
   padding: 10px 20px;
   border: 1px solid #d1d5db;

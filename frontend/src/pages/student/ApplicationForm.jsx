@@ -741,6 +741,8 @@ function ApplicationForm() {
     otherScholarshipDetails: ''
   })
 
+  const [savedDraftTime, setSavedDraftTime] = useState(null)
+
   const [step2Data, setStep2Data] = useState({
     school: '', schoolAddress: '', course: '',
     yearLevel: '', gpa: '', academicYear: '', semester: ''
@@ -872,6 +874,23 @@ function ApplicationForm() {
 
   // Personal info collected at registration pre-fills Step 1 so it isn't retyped here.
   // Only blank fields are filled in, so anything the user has already started editing wins.
+  // Load saved draft if it exists
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('applicationDraft')
+    if (savedDraft) {
+      try {
+        const draft = JSON.parse(savedDraft)
+        setCurrentStep(draft.step || 1)
+        setStep1Data(draft.step1 || step1Data)
+        setStep2Data(draft.step2 || step2Data)
+        setStep3Data(draft.step3 || step3Data)
+        setExtraFieldsData(draft.extraFields || {})
+      } catch {
+        // Draft data is corrupted, ignore it
+      }
+    }
+  }, [])
+
   useEffect(() => {
     (async () => {
       try {
@@ -940,6 +959,21 @@ function ApplicationForm() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const handleSaveDraft = () => {
+    const draftData = {
+      step: currentStep,
+      step1: step1Data,
+      step2: step2Data,
+      step3: step3Data,
+      extraFields: extraFieldsData,
+      savedAt: new Date().toISOString(),
+    }
+    localStorage.setItem('applicationDraft', JSON.stringify(draftData))
+    setSavedDraftTime(new Date())
+    // Show confirmation message
+    setTimeout(() => setSavedDraftTime(null), 3000)
+  }
+
   const handleSubmit = async () => {
     const currentErrors = validateStep3(step3Data, privacyConsent, docRequirements)
     if (Object.keys(currentErrors).length > 0) {
@@ -998,6 +1032,8 @@ function ApplicationForm() {
 
       setSubmitSuccess(true)
       setSubmitting(false)
+      // Clear the draft after successful submission
+      localStorage.removeItem('applicationDraft')
 
     } catch {
       alert('Cannot connect to server. Please try again.')
@@ -1141,7 +1177,16 @@ function ApplicationForm() {
         />}
 
       <div className="form-footer">
-        <button className="btn-draft">Save Draft</button>
+        <div className="draft-section">
+          <button className="btn-draft" onClick={handleSaveDraft}>
+            {savedDraftTime ? 'Saved!' : 'Save Draft'}
+          </button>
+          {savedDraftTime && (
+            <span className="draft-saved-msg">
+              Draft saved at {savedDraftTime.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+        </div>
         <div className="footer-right">
           {currentStep > 1 && (
             <button className="btn-back" onClick={handleBack}>← Back</button>
