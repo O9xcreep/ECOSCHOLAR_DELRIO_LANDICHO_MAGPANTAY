@@ -78,7 +78,7 @@ function StudentDashboard() {
   const missing = documents.filter(d => d.status === 'Missing').length
   const requiredDocs = documents.filter(d => d.status !== 'Not Required').length
   const completion = application
-    ? Math.round((uploaded / Math.max(requiredDocs, 1)) * 100)
+    ? Math.min(100, Math.round((uploaded / Math.max(requiredDocs, 1)) * 100))
     : 0
 
   const getStepsDone = () => {
@@ -91,12 +91,12 @@ function StudentDashboard() {
 
   const stepsDone = getStepsDone()
 
-  // A withdrawn application (whether the student withdrew it themselves, or an
-  // admin requested changes) is a dead-end record - treat it like "no
-  // application" for the action button, so the student is pointed at starting
-  // a fresh one instead of "viewing" a record they can't do anything else with.
+  // When an admin requests changes, the application is marked Withdrawn but has
+  // an admin_comment. The student should be able to edit it, not start fresh.
+  // Only student-initiated withdrawals (no admin_comment) require a fresh application.
   const isWithdrawn = application?.application_status === 'Withdrawn'
-  const needsFreshApplication = !application || isWithdrawn
+  const adminRequestedChanges = isWithdrawn && application?.admin_comment
+  const needsFreshApplication = !application || (isWithdrawn && !application?.admin_comment)
 
   return (
     <div className="student-dashboard page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
@@ -240,7 +240,7 @@ function StudentDashboard() {
                   onClick={() => navigate(
                     needsFreshApplication ? '/student/application' : '/student/applicant-details'
                   )}>
-                  {needsFreshApplication ? 'Start Application →' : 'View My Application →'}
+                  {needsFreshApplication ? 'Start Application →' : adminRequestedChanges ? 'Continue Editing →' : 'View My Application →'}
                 </button>
               )}
             </div>

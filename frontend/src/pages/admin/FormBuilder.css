@@ -128,10 +128,31 @@
   border-radius: 8px;
 }
 
+.fb-doc-row {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
 .fb-required-toggle {
   font-size: 12px !important;
   color: #4b5563;
   white-space: nowrap;
+  margin-top: 0 !important;
+}
+
+.fb-doc-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.fb-doc-actions {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.toggle-inline {
   margin-top: 0 !important;
 }
 
@@ -291,4 +312,29 @@
 .fb-add-form .fb-btn-add {
   flex: 1;
   width: auto;
+}
+
+@media (max-width: 600px) {
+  .fb-doc-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .fb-doc-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .fb-doc-actions {
+    margin-left: 0;
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  .fb-doc-actions .fb-btn-delete,
+  .fb-doc-actions .fb-locked-tag {
+    width: 100%;
+    display: block;
+    text-align: center;
+  }
 }

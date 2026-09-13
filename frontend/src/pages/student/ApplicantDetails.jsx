@@ -227,7 +227,9 @@ function ApplicantDetails() {
   // Once reviewed (or withdrawn), documents are frozen - same rule the backend
   // enforces on POST /api/upload. Editing a decided/dead application's files
   // would change what was actually reviewed without a new review happening.
-  const docsLocked = status === 'Approved' || status === 'Rejected' || status === 'Withdrawn'
+  // Exception: if admin requested changes (Withdrawn + admin_comment), allow editing.
+  const adminRequestedChanges = status === 'Withdrawn' && application?.admin_comment
+  const docsLocked = (status === 'Approved' || status === 'Rejected' || status === 'Withdrawn') && !adminRequestedChanges
   const selfie = docs.find(d => d.document_name === SELFIE_DOC_LABEL)
   const checklistDocs = docs.filter(d => d.document_name !== SELFIE_DOC_LABEL)
   const uploaded = checklistDocs.filter(d => d.status === 'Uploaded').length
@@ -261,7 +263,7 @@ function ApplicantDetails() {
       }`}>
         <p>
           {displayed === 'Withdrawn' && application.admin_comment
-            ? `An admin requested changes to your application: ${application.admin_comment} Please submit a new application with the corrected information.`
+            ? `An admin requested changes to your application: ${application.admin_comment} Please update your application with the corrected information below.`
             : STATUS_MESSAGES[displayed] || 'Your application is being processed.'}
         </p>
 

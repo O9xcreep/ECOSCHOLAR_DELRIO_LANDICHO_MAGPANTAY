@@ -443,36 +443,40 @@ function FormBuilder() {
         ) : (
           <div className="fb-field-list">
             {docRequirements.map(doc => (
-              <div key={doc.id} className="fb-field-row">
+              <div key={doc.id} className="fb-field-row fb-doc-row">
                 <div className="fb-field-info">
                   <p className="fb-field-label">
                     {doc.label}
                     {doc.required && <span className="fb-required-star"> *</span>}
                   </p>
+                  <div className="fb-doc-controls">
+                    <label className="fb-checkbox-label fb-required-toggle">
+                      <input
+                        type="checkbox"
+                        checked={doc.required}
+                        onChange={() => toggleDocRequired(doc)}
+                        disabled={formLocked}
+                      />
+                      Required
+                    </label>
+                    <label className="toggle toggle-inline">
+                      <input
+                        type="checkbox"
+                        checked={doc.enabled}
+                        onChange={() => toggleDocEnabled(doc)}
+                        disabled={formLocked}
+                      />
+                      <span className="slider" />
+                    </label>
+                  </div>
                 </div>
-                <label className="fb-checkbox-label fb-required-toggle">
-                  <input
-                    type="checkbox"
-                    checked={doc.required}
-                    onChange={() => toggleDocRequired(doc)}
-                    disabled={formLocked}
-                  />
-                  Required
-                </label>
-                <label className="toggle">
-                  <input
-                    type="checkbox"
-                    checked={doc.enabled}
-                    onChange={() => toggleDocEnabled(doc)}
-                    disabled={formLocked}
-                  />
-                  <span className="slider" />
-                </label>
-                {doc.is_default ? (
-                  <span className="fb-locked-tag" title="Default document requirements can't be deleted - disable it or uncheck &quot;Required&quot; instead.">Default</span>
-                ) : (
-                  <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)} disabled={formLocked}>Delete</button>
-                )}
+                <div className="fb-doc-actions">
+                  {doc.is_default ? (
+                    <span className="fb-locked-tag" title="Default document requirements can't be deleted - disable it or uncheck &quot;Required&quot; instead.">Default</span>
+                  ) : (
+                    <button className="fb-btn-delete" onClick={() => deleteDocRequirement(doc)} disabled={formLocked}>Delete</button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
