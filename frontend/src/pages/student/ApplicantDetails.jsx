@@ -236,6 +236,12 @@ function ApplicantDetails() {
   const missing = checklistDocs.filter(d => d.status === 'Missing').length
   const totalRequired = checklistDocs.filter(d => d.required).length
 
+  // When admin requests changes, we're editing the existing application.
+  // Pass a flag to the form so it knows to update existing, not create new.
+  const editApplicationState = adminRequestedChanges
+    ? { from: 'edit', applicationId: application.id }
+    : null
+
   return (
     <div className="av-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
@@ -544,7 +550,11 @@ function ApplicantDetails() {
           onClick={() => navigate('/student/dashboard')}>
           ← Back to Dashboard
         </button>
-        {status === 'Withdrawn' ? (
+        {adminRequestedChanges ? (
+          <button className="av-btn-primary" onClick={() => navigate('/student/application', { state: editApplicationState })}>
+            Edit Application
+          </button>
+        ) : status === 'Withdrawn' ? (
           <button className="av-btn-primary" onClick={() => navigate('/student/application')}>
             Submit New Application
           </button>

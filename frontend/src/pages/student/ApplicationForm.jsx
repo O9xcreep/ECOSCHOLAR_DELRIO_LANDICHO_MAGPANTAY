@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, displayStatus } from '../../api'
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
@@ -710,9 +710,14 @@ function Step3({ data, onChange, errors, consent, onConsentChange, requirements 
 // ── MAIN FORM ──
 function ApplicationForm() {
   const navigate = useNavigate()
+  const location = useLocation()
 
   const user = JSON.parse(localStorage.getItem('user') || '{}')
   const lockedEmail = user.email || ''
+
+  // Check if we're editing an existing application (admin requested changes)
+  const editMode = location.state?.from === 'edit'
+  const editingApplicationId = location.state?.applicationId
 
   const [currentStep, setCurrentStep] = useState(1)
   const [errors, setErrors] = useState({})
@@ -752,13 +757,72 @@ function ApplicationForm() {
   const [hiddenBuiltins, setHiddenBuiltins] = useState([])
   const [extraFieldsData, setExtraFieldsData] = useState({})
 
+  // When editing an existing application (admin requested changes), load and pre-fill it.
+  // Don't send the user back to dashboard - they need to edit this application.
+  useEffect(() => {
+    if (!editMode) return
+    (async () => {
+      try {
+        const res = await apiFetch(`/api/student/application?email=${encodeURIComponent(lockedEmail)}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.application) {
+            // Pre-fill form with existing data
+            const app = data.application
+            setStep1Data(prev => ({
+              ...prev,
+              fullName: app.full_name || prev.fullName,
+              address: app.address || prev.address,
+              religion: app.religion || prev.religion,
+              gender: app.gender || prev.gender,
+              dob: app.date_of_birth || prev.dob,
+              citizenship: app.citizenship || prev.citizenship,
+              contactNumber: app.contact_number || prev.contactNumber,
+              fatherName: app.father_name || prev.fatherName,
+              fatherOccupation: app.father_occupation || prev.fatherOccupation,
+              fatherEducation: app.father_education || prev.fatherEducation,
+              motherName: app.mother_name || prev.motherName,
+              motherOccupation: app.mother_occupation || prev.motherOccupation,
+              motherEducation: app.mother_education || prev.motherEducation,
+              monthlyIncome: app.monthly_income || prev.monthlyIncome,
+              familySize: app.family_size || prev.familySize,
+              numSiblings: app.num_siblings ?? prev.numSiblings,
+              numSiblingsStudying: app.num_siblings_studying ?? prev.numSiblingsStudying,
+              housingSituation: app.housing_situation || prev.housingSituation,
+              hasOtherScholarship: app.has_other_scholarship || prev.hasOtherScholarship,
+              otherScholarshipDetails: app.other_scholarship_details || prev.otherScholarshipDetails,
+            }))
+            setStep2Data(prev => ({
+              ...prev,
+              school: app.school || prev.school,
+              schoolAddress: app.school_address || prev.schoolAddress,
+              course: app.course || prev.course,
+              yearLevel: app.year_level || prev.yearLevel,
+              gpa: app.gpa || prev.gpa,
+              academicYear: app.academic_year || prev.academicYear,
+              semester: app.semester || prev.semester,
+            }))
+          }
+        }
+      } catch {
+        // fail silently and let user proceed with empty form
+      }
+      setCycleCheckDone(true)
+    })()
+  }, [editMode])
+
   // A student who navigates here directly (bookmark, back button) while no
   // scholarship program is open, or who already has an application, gets sent
   // back to the dashboard rather than filling out a form that will just 403 on
   // submit - the dashboard shows the right message for either case. Fails open
   // on a network error so a flaky check never blocks a legitimate submission;
   // POST /api/apply enforces the real gate server-side regardless.
+  // Exception: skip this check when editing an existing application.
   useEffect(() => {
+    if (editMode) {
+      setCycleCheckDone(true)
+      return
+    }
     (async () => {
       try {
         const res = await apiFetch(`/api/student/application?email=${encodeURIComponent(lockedEmail)}`)
@@ -895,6 +959,7 @@ function ApplicationForm() {
           ...step2Data,
           applicationType: 'General Application',
           extraFields: extraFieldsData,
+          ...(editMode && { editMode: true }), // Flag to backend that this is an edit
         })
       })
 
@@ -1027,8 +1092,11 @@ function ApplicationForm() {
     return (
       <div className="form-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
         <div className="success-screen">
-          <h2>Application Submitted</h2>
-          <p>Your scholarship application has been successfully submitted.</p>
+          <h2>{editMode ? 'Application Updated' : 'Application Submitted'}</h2>
+          <p>{editMode
+            ? 'Your scholarship application has been successfully updated with the requested changes.'
+            : 'Your scholarship application has been successfully submitted.'
+          }</p>
           <p>You will be notified via email once your application has been reviewed.</p>
           <div className="success-details">
             <p>Check your email for confirmation</p>
@@ -1087,7 +1155,7 @@ function ApplicationForm() {
               className="btn-submit"
               onClick={handleSubmit}
               disabled={submitting}>
-              {submitting ? 'Submitting...' : 'Submit Application'}
+              {submitting ? (editMode ? 'Saving...' : 'Submitting...') : (editMode ? 'Save Changes' : 'Submit Application')}
             </button>
           )}
         </div>
