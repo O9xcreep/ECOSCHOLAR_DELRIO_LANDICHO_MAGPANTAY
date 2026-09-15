@@ -18,6 +18,7 @@ import pymongo
 pymongo.MongoClient = mongomock.MongoClient  # must happen before app.py imports MongoClient
 
 import gridfs
+from datetime import datetime
 from bson import ObjectId
 
 
@@ -156,6 +157,19 @@ def make_user(db):
         else:
             doc['organization_id'] = app_module.get_default_organization_id(db)
         user_id = db.users.insert_one(doc).inserted_id
+        # Mirrors the membership row every real account-creation path now
+        # inserts alongside its users doc (register()/create_admin_with_setup_
+        # email()/create_admin_from_approved_request()) - without this, a
+        # fixture-created lgu_member/lgu_admin/student has no memberships row,
+        # and has_permission()/list_admins()/etc. would treat them as having
+        # none. Skipped for role='admin' (Super Admin, never in memberships)
+        # and for deliberately untagged legacy accounts.
+        if role != 'admin' and doc.get('organization_id'):
+            db.memberships.insert_one({
+                'user_id': user_id, 'organization_id': doc['organization_id'], 'role': role,
+                'permissions': doc.get('permissions'), 'municipality': doc.get('municipality'),
+                'joined_at': datetime.utcnow(),
+            })
         return {'id': user_id, 'email': email, 'password': password, 'role': role,
                 'organization_id': doc.get('organization_id')}
     return _make

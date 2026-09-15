@@ -38,7 +38,15 @@ class TestRequirePermissionGating:
         headers = auth_headers('lgu_member', permissions={'can_review_applicants': True})
         assert client.get('/api/applicants', headers=headers).status_code == 200
 
-        db.users.update_one({'email': 'lgu_member@test.com'}, {'$set': {'permissions.can_review_applicants': False}})
+        # Permissions now live on the membership row (a member's permissions
+        # can differ per org) - the flat users.permissions field is just a
+        # cache of whichever org is currently active, so has_permission()
+        # reads memberships first.
+        user = db.users.find_one({'email': 'lgu_member@test.com'})
+        db.memberships.update_one(
+            {'user_id': user['_id'], 'organization_id': user['organization_id']},
+            {'$set': {'permissions.can_review_applicants': False}}
+        )
         assert client.get('/api/applicants', headers=headers).status_code == 403
 
     def test_student_role_is_forbidden(self, client, auth_headers):
@@ -180,21 +188,29 @@ class TestAdminSeatTransfer:
         assert res.status_code == 403
 
     def test_non_holder_lgu_admin_cannot_transfer(self, client, db):
-        """Defensive: if somehow two lgu_admin rows existed, only the actual current
-        holder (found via role='lgu_admin' lookup) can transfer - a stale/duplicate
-        one can't. (Normal flows never create a second one.)"""
+        """Defensive: if somehow two lgu_admin memberships existed for the same
+        org, only the actual current holder (found via role='lgu_admin' lookup)
+        can transfer - a stale/duplicate one can't. (Normal flows never create
+        a second one.)"""
         from werkzeug.security import generate_password_hash
         org_id = app_module.get_default_organization_id(db)
-        db.users.insert_one({'full_name': 'Real Admin', 'email': 'realadmin@test.com',
+        real_admin_id = db.users.insert_one({'full_name': 'Real Admin', 'email': 'realadmin@test.com',
                               'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
-                              'status': 'active', 'privacy_consent': True, 'organization_id': org_id})
-        db.users.insert_one({'full_name': 'Stale Admin', 'email': 'staleadmin@test.com',
+                              'status': 'active', 'privacy_consent': True, 'organization_id': org_id}).inserted_id
+        stale_admin_id = db.users.insert_one({'full_name': 'Stale Admin', 'email': 'staleadmin@test.com',
                               'password': generate_password_hash('TestPass123'), 'role': 'lgu_admin',
-                              'status': 'active', 'privacy_consent': True, 'organization_id': org_id})
+                              'status': 'active', 'privacy_consent': True, 'organization_id': org_id}).inserted_id
         target = db.users.insert_one({'full_name': 'Target', 'email': 'target2@test.com',
                                        'password': generate_password_hash('TestPass123'), 'role': 'lgu_member',
                                        'status': 'active', 'privacy_consent': True, 'organization_id': org_id,
                                        'permissions': {'can_manage_members': True, 'can_review_applicants': False, 'can_reset_program': False}}).inserted_id
+        # Transfer/membership lookups now go through `memberships`, not raw
+        # users.organization_id - mirror that for these hand-crafted fixtures.
+        db.memberships.insert_one({'user_id': real_admin_id, 'organization_id': org_id, 'role': 'lgu_admin', 'permissions': None, 'municipality': None})
+        db.memberships.insert_one({'user_id': stale_admin_id, 'organization_id': org_id, 'role': 'lgu_admin', 'permissions': None, 'municipality': None})
+        db.memberships.insert_one({'user_id': target, 'organization_id': org_id, 'role': 'lgu_member',
+                                    'permissions': {'can_manage_members': True, 'can_review_applicants': False, 'can_reset_program': False},
+                                    'municipality': None})
 
         res = client.post('/api/login', json={'email': 'staleadmin@test.com', 'password': 'TestPass123'})
         stale_headers = {'Authorization': f"Bearer {res.get_json()['token']}"}

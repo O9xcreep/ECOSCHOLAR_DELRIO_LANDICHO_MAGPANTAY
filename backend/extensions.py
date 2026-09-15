@@ -95,6 +95,8 @@ def _ensure_indexes():
         _mongo_db.document_requirements.create_index("organization_id")
         _mongo_db.program_cycles.create_index("organization_id")
         _mongo_db.admin_requests.create_index("organization_id")
+        _mongo_db.memberships.create_index([("user_id", 1), ("organization_id", 1)], unique=True)
+        _mongo_db.memberships.create_index("organization_id")
     except Exception as e:
         print(f"Warning: Could not create indexes: {e}")
 

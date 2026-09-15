@@ -1,12 +1,209 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch, getUser, setSession, logout } from '../../api'
+import { apiFetch, getUser, setSession, clearSession, logout } from '../../api'
 import Reveal from '../../components/Reveal'
 import Credits from '../../components/Credits'
 import pageBg from '../../assets/bg4.jpg'
 import './StudentSettings.css'
 
 const TABS = ['Profile', 'Security', 'Credits']
+
+// ── YOUR ORGANIZATIONS ──
+// A student's own membership list is self-service (no privilege risk, role
+// is always 'student') - unlike the admin-side equivalent, joining here
+// happens instantly, the same way registration already works with a join
+// code, no approval needed.
+function YourOrganizationsCard() {
+  const [memberships, setMemberships] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [switchingId, setSwitchingId] = useState('')
+  const [switchError, setSwitchError] = useState('')
+
+  const [joinCode, setJoinCode] = useState('')
+  const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
+  const [joinCodeError, setJoinCodeError] = useState('')
+  const [joinCodeChecking, setJoinCodeChecking] = useState(false)
+  const [joining, setJoining] = useState(false)
+  const [joinError, setJoinError] = useState('')
+
+  useEffect(() => {
+    apiFetch('/api/memberships')
+      .then(res => res.json())
+      .then(data => setMemberships(data.memberships || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSwitch = async (organizationId) => {
+    setSwitchError('')
+    setSwitchingId(organizationId)
+    try {
+      const res = await apiFetch('/api/organizations/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organization_id: organizationId })
+      })
+      const data = await res.json()
+      if (!res.ok) { setSwitchError(data.error || 'Failed to switch organization'); return }
+      setSession(data.user, data.token)
+      // Full reload - nothing on this page (or any other) re-reads "current
+      // org" reactively after mount, so an in-place update would leave every
+      // list/dashboard showing stale data from the previous org.
+      window.location.href = '/student/dashboard'
+    } catch {
+      setSwitchError('Cannot connect to server. Please try again.')
+    } finally {
+      setSwitchingId('')
+    }
+  }
+
+  const handleJoinCodeBlur = async () => {
+    const code = joinCode.trim().toUpperCase()
+    setJoinCodeOrgName('')
+    setJoinCodeError('')
+    if (!code) return
+    setJoinCodeChecking(true)
+    try {
+      const res = await apiFetch(`/api/organizations/lookup?code=${encodeURIComponent(code)}`)
+      const data = await res.json()
+      if (!res.ok) { setJoinCodeError(data.error || "That join code isn't valid. Check it with your LGU and try again."); return }
+      setJoinCodeOrgName(data.organization.name)
+    } catch {
+      setJoinCodeError('Cannot connect to server. Please try again.')
+    } finally {
+      setJoinCodeChecking(false)
+    }
+  }
+
+  const handleJoin = async () => {
+    setJoinError('')
+    if (!joinCode.trim()) { setJoinError('Enter a join code'); return }
+    setJoining(true)
+    try {
+      const res = await apiFetch('/api/organizations/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ join_code: joinCode.trim().toUpperCase() })
+      })
+      const data = await res.json()
+      if (!res.ok) { setJoinError(data.error || 'Failed to join organization'); return }
+      setSession(data.user, data.token)
+      window.location.href = '/student/dashboard'
+    } catch {
+      setJoinError('Cannot connect to server. Please try again.')
+    } finally {
+      setJoining(false)
+    }
+  }
+
+  return (
+    <div className="settings-card">
+      <h4 className="card-label">Your Organizations</h4>
+      {loading ? (
+        <p className="field-value" style={{ fontWeight: 400 }}>Loading...</p>
+      ) : (
+        memberships.map(m => (
+          <div key={m.organization_id} className="info-field full">
+            <div className="field-row">
+              <p className="field-value">
+                {m.organization_name || 'Unknown organization'}
+                {m.is_active && <span className="badge badge-green" style={{ marginLeft: '8px' }}>Active</span>}
+              </p>
+              {!m.is_active && (
+                <button className="btn-edit" onClick={() => handleSwitch(m.organization_id)} disabled={switchingId === m.organization_id}>
+                  {switchingId === m.organization_id ? 'Switching...' : 'Switch'}
+                </button>
+              )}
+            </div>
+          </div>
+        ))
+      )}
+      {switchError && <div className="security-error">{switchError}</div>}
+
+      <div className="info-field full" style={{ marginTop: '10px' }}>
+        <label>Join another LGU</label>
+        {joinError && <div className="security-error">{joinError}</div>}
+        <div className="edit-row">
+          <input
+            className="edit-input"
+            placeholder="LGU Join Code"
+            value={joinCode}
+            onChange={e => { setJoinCode(e.target.value); setJoinCodeOrgName(''); setJoinCodeError('') }}
+            onBlur={handleJoinCodeBlur}
+          />
+          <button className="btn-save" onClick={handleJoin} disabled={joining}>
+            {joining ? 'Joining...' : 'Join'}
+          </button>
+        </div>
+        {joinCodeChecking && <p className="field-value" style={{ fontWeight: 400 }}>Checking...</p>}
+        {joinCodeOrgName && <p className="field-value" style={{ fontWeight: 400, color: '#059669' }}>Joining {joinCodeOrgName}</p>}
+        {joinCodeError && <p className="field-value" style={{ fontWeight: 400, color: '#ef4444' }}>{joinCodeError}</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── DANGER ZONE (DELETE ACCOUNT) ──
+function DangerZoneCard() {
+  const navigate = useNavigate()
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [password, setPassword] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleDelete = async () => {
+    setError('')
+    setDeleting(true)
+    try {
+      const res = await apiFetch('/api/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to delete account'); return }
+      clearSession()
+      navigate('/login')
+    } catch {
+      setError('Cannot connect to server. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="settings-card">
+      <h4 className="card-label">Danger Zone</h4>
+      <div className="info-field full">
+        <label>Delete account</label>
+        <p className="field-value" style={{ fontWeight: 400, marginBottom: '10px' }}>
+          Permanently deletes your login. Your past application stays visible to admins, exactly as it
+          does today - only your ability to sign in is gone.
+        </p>
+        {!showConfirm ? (
+          <button className="btn-danger-outline" onClick={() => setShowConfirm(true)}>Delete Account</button>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-start' }}>
+            <input
+              type="password"
+              className="edit-input"
+              placeholder="Enter your password to confirm"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+            />
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <button className="btn-danger" onClick={handleDelete} disabled={deleting || !password}>
+                {deleting ? 'Deleting...' : 'Yes, Permanently Delete'}
+              </button>
+              <button className="btn-cancel-edit" onClick={() => { setShowConfirm(false); setPassword(''); setError('') }}>Cancel</button>
+            </div>
+            {error && <span style={{ fontSize: '13px', color: '#ef4444' }}>{error}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ── PROFILE TAB ──
 function ProfileTab() {
@@ -154,6 +351,8 @@ function ProfileTab() {
         </div>
       </div>
 
+      <YourOrganizationsCard />
+
       {/* Session */}
       <div className="settings-card">
         <h4 className="card-label">Session</h4>
@@ -176,6 +375,8 @@ function ProfileTab() {
           )}
         </div>
       </div>
+
+      <DangerZoneCard />
 
     </div>
   )

@@ -99,7 +99,12 @@ class TestDeleteAdmin:
 
         res = client.delete(f'/api/admins/{second_id}', headers=headers)
         assert res.status_code == 200
-        assert db.users.find_one({'email': 'second@test.com'}) is None
+        # The account itself isn't deleted - only removed from THIS org's
+        # team, since a login can belong to more than one org now. Full
+        # account deletion is self-service only (DELETE /api/account).
+        second_user = db.users.find_one({'email': 'second@test.com'})
+        assert second_user is not None
+        assert db.memberships.find_one({'user_id': second_user['_id'], 'organization_id': second_user['organization_id']}) is None
 
     def test_cannot_remove_the_admin_seat_holder(self, client, auth_headers, db):
         headers = auth_headers()

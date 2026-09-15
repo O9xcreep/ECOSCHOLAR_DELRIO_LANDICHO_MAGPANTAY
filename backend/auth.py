@@ -162,7 +162,14 @@ def has_permission(permission):
     if role != 'lgu_member':
         return False
     db = get_db()
-    user = db.users.find_one({"_id": oid(g.current_user.get('id'))})
+    user_oid = oid(g.current_user.get('id'))
+    # A member's permissions can now differ per organization (see memberships.py),
+    # so look them up for the token's own org, not just the user - falling back
+    # to the flat field only for accounts predating the memberships backfill.
+    membership = db.memberships.find_one({"user_id": user_oid, "organization_id": current_organization_oid()})
+    if membership is not None:
+        return bool(membership.get('permissions', {}).get(permission))
+    user = db.users.find_one({"_id": user_oid})
     return bool(user and user.get('permissions', {}).get(permission))
 
 def require_permission(permission):
@@ -314,7 +321,7 @@ def register():
         if db.users.find_one({"email": email}):
             return jsonify({"error": "An account with this email already exists"}), 409
 
-        db.users.insert_one({
+        result = db.users.insert_one({
             "full_name": full_name,
             "email": email,
             "password": generate_password_hash(password),
@@ -325,6 +332,14 @@ def register():
             "privacy_consent": True,
             **profile_data,
             "organization_id": organization["_id"],
+        })
+        db.memberships.insert_one({
+            "user_id": result.inserted_id,
+            "organization_id": organization["_id"],
+            "role": "student",
+            "permissions": None,
+            "municipality": None,
+            "joined_at": datetime.utcnow(),
         })
         create_and_send_otp(email, 'register', full_name)
 

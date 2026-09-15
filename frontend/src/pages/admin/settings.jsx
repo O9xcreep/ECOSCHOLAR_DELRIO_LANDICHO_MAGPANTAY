@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import writeExcelFile from 'write-excel-file/browser'
-import { apiFetch, getUser, setSession, logout, isFullAccess } from '../../api'
+import { apiFetch, getUser, setSession, clearSession, logout, isFullAccess } from '../../api'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
 import AdminGuide from './AdminGuide'
@@ -11,6 +11,268 @@ import pageBg from '../../assets/bg3.jpg'
 import './settings.css'
 
 const ALL_TABS = ['Profile', 'Security', 'System', 'Team', 'Guide', 'Credits']
+
+// ── YOUR ORGANIZATIONS ──
+// Lists every org this account belongs to (a login can now hold membership
+// in more than one), with a "Switch" action, plus a collapsible form to
+// request joining another one. Unlike a student's self-service join, this
+// always goes to that org's own admins for approval - a join code isn't a
+// secret credential, so letting staff self-attach to any org's team
+// unvetted would be a real privilege-escalation risk.
+function YourOrganizationsCard() {
+  const [memberships, setMemberships] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [switchingId, setSwitchingId] = useState('')
+  const [switchError, setSwitchError] = useState('')
+
+  const [showJoinForm, setShowJoinForm] = useState(false)
+  const [joinCode, setJoinCode] = useState('')
+  const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
+  const [joinCodeError, setJoinCodeError] = useState('')
+  const [joinCodeChecking, setJoinCodeChecking] = useState(false)
+  const [municipality, setMunicipality] = useState('')
+  const [contactNumber, setContactNumber] = useState('')
+  const [message, setMessage] = useState('')
+  const [proofFile, setProofFile] = useState(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const [submitSuccess, setSubmitSuccess] = useState('')
+
+  const loadMemberships = () => {
+    setLoading(true)
+    apiFetch('/api/memberships')
+      .then(res => res.json())
+      .then(data => setMemberships(data.memberships || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(loadMemberships, [])
+
+  const handleSwitch = async (organizationId) => {
+    setSwitchError('')
+    setSwitchingId(organizationId)
+    try {
+      const res = await apiFetch('/api/organizations/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organization_id: organizationId })
+      })
+      const data = await res.json()
+      if (!res.ok) { setSwitchError(data.error || 'Failed to switch organization'); return }
+      setSession(data.user, data.token)
+      // Full reload, not just setSession - nothing on this page (or any
+      // other) re-reads "current org" reactively after mount, so an
+      // in-place update would leave every list/dashboard showing stale data.
+      window.location.href = '/admin/dashboard'
+    } catch {
+      setSwitchError('Cannot connect to server. Please try again.')
+    } finally {
+      setSwitchingId('')
+    }
+  }
+
+  const handleJoinCodeBlur = async () => {
+    const code = joinCode.trim().toUpperCase()
+    setJoinCodeOrgName('')
+    setJoinCodeError('')
+    if (!code) return
+    setJoinCodeChecking(true)
+    try {
+      const res = await apiFetch(`/api/organizations/lookup?code=${encodeURIComponent(code)}`)
+      const data = await res.json()
+      if (!res.ok) { setJoinCodeError(data.error || "That join code isn't valid. Check it with your LGU and try again."); return }
+      setJoinCodeOrgName(data.organization.name)
+    } catch {
+      setJoinCodeError('Cannot connect to server. Please try again.')
+    } finally {
+      setJoinCodeChecking(false)
+    }
+  }
+
+  const handleSubmitJoinRequest = async () => {
+    setSubmitError('')
+    setSubmitSuccess('')
+    if (!joinCode.trim() || !municipality.trim() || !contactNumber.trim()) {
+      setSubmitError('Join code, municipality, and contact number are required')
+      return
+    }
+    if (!proofFile) {
+      setSubmitError('A valid ID or proof-of-employment document is required')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const formData = new FormData()
+      formData.append('join_code', joinCode.trim().toUpperCase())
+      formData.append('municipality', municipality.trim())
+      formData.append('contact_number', contactNumber.trim())
+      formData.append('message', message.trim())
+      formData.append('file', proofFile)
+      const res = await apiFetch('/api/admin-requests/join-org', { method: 'POST', body: formData })
+      const data = await res.json()
+      if (!res.ok) { setSubmitError(data.error || 'Failed to submit request'); return }
+      setSubmitSuccess(data.message || 'Your request has been submitted for review.')
+      setShowJoinForm(false)
+      setJoinCode(''); setJoinCodeOrgName(''); setMunicipality(''); setContactNumber(''); setMessage(''); setProofFile(null)
+    } catch {
+      setSubmitError('Cannot connect to server. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="settings-card">
+      <h4 className="card-label">Your Organizations</h4>
+      <p className="info-sub" style={{ marginBottom: '14px' }}>
+        Every organization your account belongs to. Switch which one is active, or request to join another.
+      </p>
+
+      {loading ? (
+        <p className="info-sub">Loading...</p>
+      ) : (
+        <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0' }}>
+          {memberships.map(m => (
+            <div key={m.organization_id} className="team-row" style={{ padding: '10px 0', borderBottom: '1px solid #F0F0F0' }}>
+              <div className="team-row-info">
+                <span className="info-value">
+                  {m.organization_name || 'Unknown organization'}
+                  <span className="badge" style={{ marginLeft: '8px', background: '#E0F2FE', color: '#075985' }}>
+                    {m.role === 'lgu_admin' ? 'Admin' : m.role === 'lgu_member' ? 'LGU Member' : 'Student'}
+                  </span>
+                  {m.is_active && <span className="badge badge-green" style={{ marginLeft: '8px' }}>Active</span>}
+                </span>
+              </div>
+              <div className="team-row-actions">
+                {!m.is_active && (
+                  <button className="btn-change" onClick={() => handleSwitch(m.organization_id)} disabled={switchingId === m.organization_id}>
+                    {switchingId === m.organization_id ? 'Switching...' : 'Switch'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {switchError && <div className="security-error" style={{ marginTop: '10px' }}>{switchError}</div>}
+
+      <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #F0F0F0' }}>
+        {!showJoinForm ? (
+          <button className="btn-primary" onClick={() => { setShowJoinForm(true); setSubmitSuccess('') }}>
+            Request to Join Another Organization
+          </button>
+        ) : (
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
+            {submitError && <div className="security-error">{submitError}</div>}
+            <div className="password-field">
+              <label>LGU Join Code</label>
+              <input
+                value={joinCode}
+                onChange={e => { setJoinCode(e.target.value); setJoinCodeOrgName(''); setJoinCodeError('') }}
+                onBlur={handleJoinCodeBlur}
+                placeholder="e.g. ABCD1234"
+              />
+              {joinCodeChecking && <span className="info-sub">Checking...</span>}
+              {joinCodeOrgName && <span className="info-sub" style={{ color: '#059669' }}>Joining {joinCodeOrgName}</span>}
+              {joinCodeError && <span className="info-sub" style={{ color: '#ef4444' }}>{joinCodeError}</span>}
+            </div>
+            <div className="password-fields">
+              <div className="password-field">
+                <label>Municipality</label>
+                <input value={municipality} onChange={e => setMunicipality(e.target.value)} />
+              </div>
+              <div className="password-field">
+                <label>Contact number</label>
+                <input value={contactNumber} onChange={e => setContactNumber(e.target.value)} />
+              </div>
+            </div>
+            <div className="password-field">
+              <label>Message (optional)</label>
+              <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Anything the reviewing admin should know" />
+            </div>
+            <div className="password-field">
+              <label>ID or proof of employment</label>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={e => setProofFile(e.target.files[0] || null)} />
+            </div>
+            <div>
+              <button className="btn-primary" onClick={handleSubmitJoinRequest} disabled={submitting}>
+                {submitting ? 'Submitting...' : 'Submit Request'}
+              </button>
+              <button className="btn-change" style={{ marginLeft: '8px' }} onClick={() => setShowJoinForm(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {submitSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{submitSuccess}</div>}
+      </div>
+    </div>
+  )
+}
+
+// ── DANGER ZONE (DELETE ACCOUNT) ──
+function DangerZoneCard() {
+  const navigate = useNavigate()
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [password, setPassword] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleDelete = async () => {
+    setError('')
+    setDeleting(true)
+    try {
+      const res = await apiFetch('/api/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to delete account'); return }
+      clearSession()
+      navigate('/login')
+    } catch {
+      setError('Cannot connect to server. Please try again.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="settings-card">
+      <h4 className="card-label">Danger Zone</h4>
+      <div className="settings-row">
+        <div className="info-item">
+          <span className="info-label">Delete account</span>
+          <span className="info-sub">
+            Permanently deletes your login. Past applicant/audit history stays visible to admins,
+            exactly as it does today when a teammate is removed - only your ability to sign in is gone.
+          </span>
+          {!showConfirm ? (
+            <button className="btn-danger-outline" onClick={() => setShowConfirm(true)}>Delete Account</button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px', alignItems: 'flex-start' }}>
+              <input
+                type="password"
+                className="settings-select"
+                style={{ background: '#fff' }}
+                placeholder="Enter your password to confirm"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button className="btn-danger" onClick={handleDelete} disabled={deleting || !password}>
+                  {deleting ? 'Deleting...' : 'Yes, Permanently Delete'}
+                </button>
+                <button className="btn-change" onClick={() => { setShowConfirm(false); setPassword(''); setError('') }}>Cancel</button>
+              </div>
+              {error && <span className="info-sub" style={{ color: '#ef4444' }}>{error}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 // ── PROFILE TAB ──
 function ProfileTab() {
@@ -104,6 +366,8 @@ function ProfileTab() {
         </div>
       </div>
 
+      {user.role !== 'admin' && <YourOrganizationsCard />}
+
       <div className="settings-card">
         <h4 className="card-label">Session</h4>
         <div className="settings-row">
@@ -129,6 +393,8 @@ function ProfileTab() {
           </div>
         </div>
       </div>
+
+      {user.role !== 'admin' && <DangerZoneCard />}
     </div>
   )
 }
@@ -837,7 +1103,10 @@ function AdminRequestsSection({ onApproved }) {
   }
 
   const confirmApproval = async (req) => {
-    if (!window.confirm(`Grant admin access to ${req.full_name} (${req.email}) with the permissions selected below? They already chose a password when applying, so they'll be able to sign in right away.`)) return
+    const confirmMsg = req.request_kind === 'add_membership'
+      ? `Add ${req.full_name} (${req.email}) to your team with the permissions selected below? They already have an account elsewhere - this just adds this organization to it.`
+      : `Grant admin access to ${req.full_name} (${req.email}) with the permissions selected below? They already chose a password when applying, so they'll be able to sign in right away.`
+    if (!window.confirm(confirmMsg)) return
     setActionError('')
     setActioningId(req.id)
     try {
@@ -848,10 +1117,12 @@ function AdminRequestsSection({ onApproved }) {
       })
       const data = await res.json()
       if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
-      if (data.admin) {
-        // Fully approved - remove it from the list.
+      if (data.admin || data.membership) {
+        // Fully approved - remove it from the list. An "add_membership"
+        // request (an existing admin/staff account joining this org) returns
+        // "membership" instead of "admin", since no new login was created.
         setRequests(prev => prev.filter(r => r.id !== req.id))
-        onApproved?.(data.admin)
+        onApproved?.()
       } else {
         // First approval only (can_manage_members was granted) - refresh so it
         // shows up as pending_second_approval instead of disappearing.
@@ -874,7 +1145,7 @@ function AdminRequestsSection({ onApproved }) {
       const data = await res.json()
       if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
       setRequests(prev => prev.filter(r => r.id !== req.id))
-      onApproved?.(data.admin)
+      onApproved?.()
     } catch {
       setActionError('Cannot connect to server. Please try again.')
     } finally {
@@ -891,7 +1162,7 @@ function AdminRequestsSection({ onApproved }) {
       const data = await res.json()
       if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
       setRequests(prev => prev.filter(r => r.id !== req.id))
-      onApproved?.(data.admin)
+      onApproved?.()
     } catch {
       setActionError('Cannot connect to server. Please try again.')
     } finally {
@@ -944,6 +1215,12 @@ function AdminRequestsSection({ onApproved }) {
               <div className="security-error" style={{ background: '#EFF6FF', color: '#1E40AF', marginBottom: '12px' }}>
                 New Organization Request — <strong>{req.organization_name}</strong> has no team yet, so this is
                 reviewed here as the platform Super Admin rather than by a peer admin.
+              </div>
+            )}
+            {req.request_kind === 'add_membership' && (
+              <div className="security-error" style={{ background: '#EFF6FF', color: '#1E40AF', marginBottom: '12px' }}>
+                Existing Account — {req.full_name} already has an EcoScholar login elsewhere and is asking to
+                join your team too, not create a new account.
               </div>
             )}
             <div className="settings-row" style={{ marginBottom: '10px' }}>
@@ -1251,7 +1528,7 @@ function TeamTab() {
   return (
     <div className="tab-content">
       <JoinCodeCard />
-      <AdminRequestsSection onApproved={(admin) => admin && setAdmins(prev => [...prev, admin])} />
+      <AdminRequestsSection onApproved={loadAdmins} />
       <div className="settings-card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
           <h4 className="card-label" style={{ marginBottom: 0 }}>Admin Accounts</h4>
