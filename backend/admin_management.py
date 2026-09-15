@@ -13,7 +13,8 @@ import gridfs
 
 from extensions import app, limiter, get_db, DEBUG, FRONTEND_URL, _fs
 from helpers import oid, iso, send_email_async, get_default_organization_id, \
-    generate_unique_join_code, find_active_organization_by_code, serialize_organization
+    generate_unique_join_code, find_active_organization_by_code, serialize_organization, \
+    get_organization_municipality
 from auth import require_permission, require_auth, current_organization_oid, ADMIN_PERMISSIONS, \
     create_and_send_otp, verify_otp, issue_token, _admin_apply_serializer, ADMIN_APPLY_TOKEN_MAX_AGE
 from documents import allowed_file, ALLOWED_EXTENSIONS, safe_mime_for
@@ -128,12 +129,14 @@ def create_admin_account():
     if db.users.find_one({"email": email}):
         return jsonify({"error": "An account with this email already exists"}), 409
 
+    org_id = current_organization_oid()
     admin_doc = create_admin_with_setup_email(
         full_name=full_name,
         email=email,
         role='lgu_member',
         permissions=permissions,
-        organization_id=current_organization_oid(),
+        municipality=get_organization_municipality(db, org_id),
+        organization_id=org_id,
     )
     return jsonify({"admin": serialize_admin(admin_doc)}), 201
 
@@ -563,8 +566,8 @@ def submit_admin_request():
         return jsonify({"error": "This session is invalid."}), 400
     email = (payload.get('email') or '').strip().lower()
 
-    if not full_name or not email or not municipality or not contact_number or not password:
-        return jsonify({"error": "Full name, password, municipality, and contact number are required"}), 400
+    if not full_name or not email or not contact_number or not password:
+        return jsonify({"error": "Full name, password, and contact number are required"}), 400
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
@@ -595,12 +598,15 @@ def submit_admin_request():
         org_name = (request.form.get('org_name') or '').strip()
         if not org_name:
             return jsonify({"error": "Organization name is required"}), 400
+        if not municipality:
+            return jsonify({"error": "Municipality is required"}), 400
         organization_id = db.organizations.insert_one({
             "name": org_name,
             "join_code": generate_unique_join_code(db),
             "status": "pending",
             "created_at": datetime.utcnow(),
             "founding_admin_request_id": None,
+            "municipality": municipality,
         }).inserted_id
     else:
         join_code = (request.form.get('join_code') or '').strip().upper()
@@ -608,6 +614,9 @@ def submit_admin_request():
         if not organization:
             return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 400
         organization_id = organization["_id"]
+        # Everyone joining an existing org shares its municipality already -
+        # inherit it instead of asking each applicant to redundantly pick one.
+        municipality = organization.get("municipality", "")
 
     filename = secure_filename(file.filename)
     unique_filename = f"admin-request_{email}_{filename}"
@@ -658,12 +667,11 @@ def request_join_org():
         return jsonify({"error": "Only admin/LGU staff accounts can request to join another organization"}), 403
 
     join_code = (request.form.get('join_code') or '').strip().upper()
-    municipality = (request.form.get('municipality') or '').strip()
     contact_number = (request.form.get('contact_number') or '').strip()
     message = (request.form.get('message') or '').strip()
 
-    if not join_code or not municipality or not contact_number:
-        return jsonify({"error": "Join code, municipality, and contact number are required"}), 400
+    if not join_code or not contact_number:
+        return jsonify({"error": "Join code and contact number are required"}), 400
 
     file = request.files.get('file')
     if not file or file.filename == '':
@@ -675,6 +683,9 @@ def request_join_org():
     organization = find_active_organization_by_code(db, join_code)
     if not organization:
         return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 400
+    # Already a member of that org's municipality, whatever it is - inherit
+    # it rather than asking again.
+    municipality = organization.get('municipality', '')
 
     user_oid = oid(g.current_user['id'])
     if organization["_id"] == current_organization_oid():

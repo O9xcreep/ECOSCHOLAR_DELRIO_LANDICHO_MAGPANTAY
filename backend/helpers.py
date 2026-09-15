@@ -249,6 +249,16 @@ def get_organization_name(db, organization_id):
     org = db.organizations.find_one({"_id": organization_id})
     return org.get("name") if org else None
 
+def get_organization_municipality(db, organization_id):
+    """The org's own municipality, set once by whoever founded it. Anyone
+    joining an existing org (invite, join code, or approved request) inherits
+    this instead of being asked to redundantly pick their own - one
+    organization is one LGU, so everyone under it already serves it."""
+    if not organization_id:
+        return ''
+    org = db.organizations.find_one({"_id": organization_id})
+    return (org or {}).get("municipality", "") or ''
+
 def serialize_organization(org):
     return {
         "id": str(org["_id"]),

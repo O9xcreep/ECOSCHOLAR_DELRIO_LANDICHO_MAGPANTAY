@@ -224,6 +224,69 @@ const css = `
     background: #fff;
   }
 
+  .lp-file-upload {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-input);
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition);
+  }
+
+  .lp-file-upload:hover { border-color: var(--brand-light); background: #fff; }
+
+  .lp-file-upload:has(.lp-file-upload-input:focus-visible) {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(61,111,163,.12);
+    background: #fff;
+  }
+
+  .lp-file-upload-input {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .lp-file-upload-icon {
+    flex-shrink: 0;
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: rgba(61,111,163,.1);
+    color: var(--brand);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .lp-file-upload-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .lp-file-upload-text.has-file { color: var(--text-primary); font-weight: 500; }
+
+  .lp-file-upload-btn {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    border-radius: 8px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+
   .lp-link {
     background: none; border: none;
     font-family: 'DM Sans', sans-serif;
@@ -506,11 +569,13 @@ function ApplyForm() {
     if (!password)             return 'Password is required'
     if (password.length < 8)   return 'Password must be at least 8 characters'
     if (password !== confirmPassword) return 'Passwords do not match'
-    if (!municipality)         return 'Municipality is required'
     if (!contactNumber.trim()) return 'Contact number is required'
     if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, ''))) return 'Enter a valid Philippine mobile number'
     if (data.orgMode === 'create') {
       if (!data.orgName.trim()) return 'Organization name is required'
+      // Only asked once, when founding a brand-new organization - anyone
+      // joining an existing one inherits its municipality automatically.
+      if (!municipality) return 'Municipality is required'
     } else if (!data.joinCode.trim()) {
       return 'A valid LGU join code is required'
     }
@@ -796,18 +861,23 @@ function ApplyForm() {
         )}
       </div>
 
-      <div className="lp-field">
-        <label>Municipality</label>
-        <select
-          className="lp-input"
-          value={data.municipality}
-          onChange={e => { setData(p => ({ ...p, municipality: e.target.value })); setFormError('') }}>
-          <option value="">Select your city or municipality</option>
-          {ADDRESS_CITIES.map(c => (
-            <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
-          ))}
-        </select>
-      </div>
+      {data.orgMode === 'create' && (
+        <div className="lp-field">
+          <label>Municipality</label>
+          <select
+            className="lp-input"
+            value={data.municipality}
+            onChange={e => { setData(p => ({ ...p, municipality: e.target.value })); setFormError('') }}>
+            <option value="">Select your city or municipality</option>
+            {ADDRESS_CITIES.map(c => (
+              <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
+            ))}
+          </select>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            This becomes your new organization's municipality - everyone who later joins it inherits this automatically.
+          </p>
+        </div>
+      )}
 
       <div className="lp-field">
         <label>Contact Number</label>
@@ -833,22 +903,29 @@ function ApplyForm() {
       </div>
 
       <div className="lp-field">
-        <label>Valid ID or Proof of Employment</label>
+        <label htmlFor="proofFile">Valid ID or Proof of Employment</label>
         <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '-2px 0 8px' }}>
           Submit an appointment letter, employee identification, or contract of service (COS) - PDF, JPG, or PNG, up to 5MB.
           This document will be reviewed by an administrator before your request is approved.
         </p>
-        <input
-          className="lp-input"
-          type="file"
-          accept=".pdf,.jpg,.jpeg,.png"
-          onChange={e => { setProofFile(e.target.files[0] || null); setFormError('') }}
-        />
-        {proofFile && (
-          <p style={{ fontSize: '12.5px', color: 'var(--brand)', marginTop: '6px' }}>
-            Selected file: {proofFile.name}
-          </p>
-        )}
+        <label className="lp-file-upload" htmlFor="proofFile">
+          <input
+            id="proofFile"
+            className="lp-file-upload-input"
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png"
+            onChange={e => { setProofFile(e.target.files[0] || null); setFormError('') }}
+          />
+          <span className="lp-file-upload-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </span>
+          <span className={`lp-file-upload-text${proofFile ? ' has-file' : ''}`}>
+            {proofFile ? proofFile.name : 'No file chosen'}
+          </span>
+          <span className="lp-file-upload-btn">Browse</span>
+        </label>
       </div>
 
       <button className="lp-btn" onClick={handleSendCode} disabled={sendingCode}>

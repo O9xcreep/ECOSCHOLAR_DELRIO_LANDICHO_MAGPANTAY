@@ -234,6 +234,11 @@ class TestViewProofOfEmployment:
 
 class TestApproveAdminRequest:
     def test_approve_creates_admin_account(self, client, db, auth_headers):
+        # Joining an existing org inherits ITS municipality rather than
+        # whatever the applicant typed - set on the default org here so the
+        # created account's municipality can be asserted below.
+        org_id = app_module.get_default_organization_id(db)
+        db.organizations.update_one({'_id': org_id}, {'$set': {'municipality': 'Liliw'}})
         submit_request(client, db)
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
 
@@ -248,6 +253,15 @@ class TestApproveAdminRequest:
 
         updated_req = db.admin_requests.find_one({'_id': req['_id']})
         assert updated_req['status'] == 'approved'
+
+    def test_join_mode_ignores_submitted_municipality_uses_orgs_own(self, client, db):
+        """Joining an EXISTING org always inherits its municipality - the
+        submitted form value (still sent by older clients) is ignored."""
+        org_id = app_module.get_default_organization_id(db)
+        db.organizations.update_one({'_id': org_id}, {'$set': {'municipality': 'San Pablo'}})
+        submit_request(client, db, municipality='Something Else Entirely')
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        assert req['municipality'] == 'San Pablo'
 
     def test_can_approve_with_specific_permissions(self, client, db, auth_headers):
         submit_request(client, db)
@@ -474,3 +488,21 @@ class TestRejectAdminRequest:
         req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
         res = client.post(f'/api/admin-requests/{req["_id"]}/reject', headers=auth_headers('student'))
         assert res.status_code == 403
+
+
+class TestFoundingOrgMunicipality:
+    """org_mode='create' has no existing org to inherit a municipality from -
+    it's asked once here, and becomes that new org's own municipality for
+    everyone who joins it afterward (see test_join_mode_ignores_submitted_
+    municipality_uses_orgs_own above)."""
+
+    def test_create_mode_requires_municipality(self, client, db):
+        res = submit_request(client, db, org_mode='create', org_name='New LGU', municipality='')
+        assert res.status_code == 400
+
+    def test_create_mode_stores_municipality_on_new_org(self, client, db):
+        res = submit_request(client, db, org_mode='create', org_name='New LGU', municipality='Pila')
+        assert res.status_code == 201
+        org = db.organizations.find_one({'name': 'New LGU'})
+        assert org is not None
+        assert org['municipality'] == 'Pila'

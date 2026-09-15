@@ -30,7 +30,6 @@ function YourOrganizationsCard() {
   const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
   const [joinCodeError, setJoinCodeError] = useState('')
   const [joinCodeChecking, setJoinCodeChecking] = useState(false)
-  const [municipality, setMunicipality] = useState('')
   const [contactNumber, setContactNumber] = useState('')
   const [message, setMessage] = useState('')
   const [proofFile, setProofFile] = useState(null)
@@ -93,8 +92,8 @@ function YourOrganizationsCard() {
   const handleSubmitJoinRequest = async () => {
     setSubmitError('')
     setSubmitSuccess('')
-    if (!joinCode.trim() || !municipality.trim() || !contactNumber.trim()) {
-      setSubmitError('Join code, municipality, and contact number are required')
+    if (!joinCode.trim() || !contactNumber.trim()) {
+      setSubmitError('Join code and contact number are required')
       return
     }
     if (!proofFile) {
@@ -105,7 +104,6 @@ function YourOrganizationsCard() {
     try {
       const formData = new FormData()
       formData.append('join_code', joinCode.trim().toUpperCase())
-      formData.append('municipality', municipality.trim())
       formData.append('contact_number', contactNumber.trim())
       formData.append('message', message.trim())
       formData.append('file', proofFile)
@@ -114,7 +112,7 @@ function YourOrganizationsCard() {
       if (!res.ok) { setSubmitError(data.error || 'Failed to submit request'); return }
       setSubmitSuccess(data.message || 'Your request has been submitted for review.')
       setShowJoinForm(false)
-      setJoinCode(''); setJoinCodeOrgName(''); setMunicipality(''); setContactNumber(''); setMessage(''); setProofFile(null)
+      setJoinCode(''); setJoinCodeOrgName(''); setContactNumber(''); setMessage(''); setProofFile(null)
     } catch {
       setSubmitError('Cannot connect to server. Please try again.')
     } finally {
@@ -177,15 +175,9 @@ function YourOrganizationsCard() {
               {joinCodeOrgName && <span className="info-sub" style={{ color: '#059669' }}>Joining {joinCodeOrgName}</span>}
               {joinCodeError && <span className="info-sub" style={{ color: '#ef4444' }}>{joinCodeError}</span>}
             </div>
-            <div className="password-fields">
-              <div className="password-field">
-                <label>Municipality</label>
-                <input value={municipality} onChange={e => setMunicipality(e.target.value)} />
-              </div>
-              <div className="password-field">
-                <label>Contact number</label>
-                <input value={contactNumber} onChange={e => setContactNumber(e.target.value)} />
-              </div>
+            <div className="password-field">
+              <label>Contact number</label>
+              <input value={contactNumber} onChange={e => setContactNumber(e.target.value)} />
             </div>
             <div className="password-field">
               <label>Message (optional)</label>
