@@ -31,10 +31,12 @@ const STEPS = [
           <li><strong>Accepted Applicant Limit</strong> - how many slots this program has (adjustable later too, from here or the Ranking page).</li>
           <li><strong>Result Visibility</strong> - whether students see an Approved/Rejected decision the moment it's made, or only after a date you set.</li>
           <li><strong>Batch</strong> - name the program by academic year, e.g. 2025-2026.</li>
-          <li><strong>Application deadline</strong> - optional, but once set it's a hard cutoff: applications close automatically the moment it passes, with no extra step needed from you.</li>
+          <li><strong>Application deadline</strong> - required: a hard cutoff that applications close automatically the moment it passes, with no extra step needed from you.</li>
         </ul>
         <p>
           Click <strong>Set Up Scholarship Program</strong> and students can start applying immediately.
+          Once the program is live, you can still extend or tighten the deadline at any time from
+          the "Update current program's deadline" section in the same card - no reset needed.
         </p>
       </>
     ),
