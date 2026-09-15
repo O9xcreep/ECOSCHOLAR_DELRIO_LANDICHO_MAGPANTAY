@@ -35,6 +35,7 @@
   background: #fafafa;
   flex-shrink: 0;
   min-width: 0;
+  gap: 12px;
 }
 
 .modal-applicant-info {
@@ -42,9 +43,14 @@
   align-items: center;
   gap: 14px;
   min-width: 0;
+  flex: 1;
 }
 
 .modal-applicant-info > div {
+  min-width: 0;
+}
+
+.modal-name-block {
   min-width: 0;
 }
 
@@ -66,12 +72,9 @@
   font-size: 18px;
   font-weight: 700;
   color: #1e293b;
-  /* break-word (not "anywhere") - a normal name should wrap at the space
-     between words first; "anywhere" was breaking every short name into one
-     character per line the moment the header got even a little tight, e.g.
-     on a phone screen. Only an actually unbreakable string (no spaces) falls
-     back to breaking mid-word, which is what this is really here for. */
-  overflow-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-course {
@@ -79,14 +82,18 @@
   color: var(--accent);
   font-weight: 500;
   margin-top: 2px;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-email {
   font-size: 12px;
   color: #4d4d4d;
   margin-top: 2px;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-header-right {
@@ -477,6 +484,9 @@
   .ml-score-card {
     flex-direction: column;
   }
+  .ml-breakdown {
+    min-width: 0;
+  }
 
   .modal-overlay {
     padding: 8px;
@@ -495,6 +505,19 @@
   .modal-header-right {
     margin-left: auto;
   }
+
+  .modal-avatar {
+    width: 42px;
+    height: 42px;
+  }
+
+  .modal-name {
+    font-size: 16px;
+  }
+
+  .modal-body {
+    padding: 16px;
+  }
 }
 
 /* ── OCR ── */
@@ -511,6 +534,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .doc-item-actions {

@@ -95,17 +95,15 @@ const SORT_OPTIONS = [
 const PAGE_SIZE = 20
 
 // One applications table + its own pagination. `reviewable` decides whether
-// rows get a select checkbox + Verify button (Needs Attention) or just View
-// (Decided) - within any single section every row shares that same nature,
-// so this never has to branch per-row the way one shared "All" table used to.
+// a row's status badge shows the raw application_status (Needs Attention) or
+// the display-computed status (Decided) - within any single section every
+// row shares that same nature, so this never has to branch per-row the way
+// one shared "All" table used to.
 function ApplicationsTableCard({
   title, apps, total, page, pages, loading, loadError, onRetry,
-  reviewable, selected, onToggleSelect, onToggleAll, onView, onVerify,
+  reviewable, onView,
   onPrevPage, onNextPage,
 }) {
-  const ids = apps.map(a => a.id)
-  const allSelected = reviewable && ids.length > 0 && ids.every(id => selected.includes(id))
-
   return (
     <Reveal className="table-card">
       {title && (
@@ -134,11 +132,6 @@ function ApplicationsTableCard({
         <table className="app-table">
           <thead>
             <tr>
-              {reviewable && (
-                <th>
-                  <input type="checkbox" checked={allSelected} onChange={() => onToggleAll(ids)} />
-                </th>
-              )}
               <th>APPLICANT</th>
               <th>APPLICATION</th>
               <th>COURSE</th>
@@ -152,17 +145,7 @@ function ApplicationsTableCard({
             {apps.map((app, i) => {
                 const displayed = reviewable ? app.application_status : displayStatus(app.application_status, app.ml_status)
                 return (
-                <tr key={app.id}
-                  className={selected.includes(app.id) ? 'selected-row' : ''}>
-                  {reviewable && (
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(app.id)}
-                        onChange={() => onToggleSelect(app.id)}
-                      />
-                    </td>
-                  )}
+                <tr key={app.id}>
                   <td>
                     <div className="applicant-cell">
                       <div className="mini-avatar"
@@ -207,14 +190,6 @@ function ApplicationsTableCard({
                         onClick={() => onView(app)}>
                         View
                       </button>
-                      {reviewable && (
-                        <button
-                          className="action-btn approve"
-                          title="Verify documents & let the model decide eligibility"
-                          onClick={() => onVerify(app)}>
-                          Verify
-                        </button>
-                      )}
                     </div>
                   </td>
                 </tr>
@@ -245,10 +220,8 @@ function Applications() {
   const [activeTab, setActiveTab] = useState('All')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('')
-  const [selected, setSelected] = useState([])
   const [selectedApplicant, setSelectedApplicant] = useState(null)
   const [tabCounts, setTabCounts] = useState({})
-  const [bulkVerifying, setBulkVerifying] = useState(false)
 
   // ── Single-tab view (any tab except "All") ──
   const [applications, setApplications] = useState([])
@@ -380,7 +353,7 @@ function Applications() {
   useEffect(() => { fetchTabCounts() }, [fetchTabCounts])
 
   useEffect(() => {
-    setPage(1); setNeedsPage(1); setWaitlistedPage(1); setDecidedPage(1); setSelected([])
+    setPage(1); setNeedsPage(1); setWaitlistedPage(1); setDecidedPage(1)
   }, [activeTab, search, sort])
 
   const refresh = () => {
@@ -388,60 +361,6 @@ function Applications() {
     if (activeTab === 'All') { fetchNeeds(); fetchWaitlisted(); fetchDecided() }
     else fetchApplications()
   }
-
-  const toggleSelect = (id) => {
-    setSelected(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    )
-  }
-
-  const toggleAllIn = (ids) => {
-    const allSelected = ids.length > 0 && ids.every(id => selected.includes(id))
-    setSelected(prev => allSelected ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])])
-  }
-
-  const handleVerifyOne = async (app) => {
-    if (!window.confirm(
-      `Confirm ${app.full_name}'s documents are correct and complete. ` +
-      `The eligibility model will then decide Approved/Rejected automatically.`
-    )) return
-    const res = await apiFetch(`/api/applications/${app.id}/verify`, { method: 'PUT' })
-    const data = await res.json()
-    if (!res.ok) alert(data.error || 'Could not decide eligibility for this applicant')
-    refresh()
-  }
-
-  const handleBulkVerify = async () => {
-    if (!window.confirm(
-      `Verify documents for ${selected.length} selected applicant(s)? ` +
-      `The eligibility model will decide Approved/Rejected automatically for each.`
-    )) return
-    setBulkVerifying(true)
-    try {
-      const res = await apiFetch('/api/applications/bulk-verify', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applicant_ids: selected })
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        alert(data.error || 'Bulk verification failed')
-      } else {
-        const failed = (data.results || []).filter(r => r.error)
-        if (failed.length > 0) {
-          alert(`${data.succeeded} of ${data.total} verified successfully. ${failed.length} could not be processed (e.g. pre-model submissions).`)
-        }
-      }
-      setSelected([])
-      refresh()
-    } catch {
-      alert('Cannot connect to server. Please try again.')
-    } finally {
-      setBulkVerifying(false)
-    }
-  }
-
-  const reviewableIds = applications.filter(a => REVIEWABLE_STATUSES.includes(a.application_status)).map(a => a.id)
 
   return (
     <div className="applications-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
@@ -502,16 +421,6 @@ function Applications() {
         </div>
       </div>
 
-      {selected.length > 0 && (
-        <div className="bulk-action-bar">
-          <span>{selected.length} selected</span>
-          <button className="btn-bulk-verify" onClick={handleBulkVerify} disabled={bulkVerifying}>
-            {bulkVerifying ? 'Verifying…' : `Verify Selected (${selected.length})`}
-          </button>
-          <button className="btn-bulk-cancel" onClick={() => setSelected([])}>Clear</button>
-        </div>
-      )}
-
       {activeTab === 'All' ? (
         <>
           <ApplicationsTableCard
@@ -519,8 +428,7 @@ function Applications() {
             apps={needsApps} total={needsTotal} page={needsPage} pages={needsPages}
             loading={needsLoading} loadError={needsError} onRetry={fetchNeeds}
             reviewable={true}
-            selected={selected} onToggleSelect={toggleSelect} onToggleAll={toggleAllIn}
-            onView={setSelectedApplicant} onVerify={handleVerifyOne}
+            onView={setSelectedApplicant}
             onPrevPage={() => setNeedsPage(p => p - 1)}
             onNextPage={() => setNeedsPage(p => p + 1)}
           />
@@ -529,8 +437,7 @@ function Applications() {
             apps={waitlistedApps} total={waitlistedTotal} page={waitlistedPage} pages={waitlistedPages}
             loading={waitlistedLoading} loadError={waitlistedError} onRetry={fetchWaitlisted}
             reviewable={false}
-            selected={selected} onToggleSelect={toggleSelect} onToggleAll={toggleAllIn}
-            onView={setSelectedApplicant} onVerify={handleVerifyOne}
+            onView={setSelectedApplicant}
             onPrevPage={() => setWaitlistedPage(p => p - 1)}
             onNextPage={() => setWaitlistedPage(p => p + 1)}
           />
@@ -539,8 +446,7 @@ function Applications() {
             apps={decidedApps} total={decidedTotal} page={decidedPage} pages={decidedPages}
             loading={decidedLoading} loadError={decidedError} onRetry={fetchDecided}
             reviewable={false}
-            selected={selected} onToggleSelect={toggleSelect} onToggleAll={toggleAllIn}
-            onView={setSelectedApplicant} onVerify={handleVerifyOne}
+            onView={setSelectedApplicant}
             onPrevPage={() => setDecidedPage(p => p - 1)}
             onNextPage={() => setDecidedPage(p => p + 1)}
           />
@@ -550,9 +456,7 @@ function Applications() {
           apps={applications} total={total} page={page} pages={pages}
           loading={loading} loadError={loadError} onRetry={fetchApplications}
           reviewable={REVIEWABLE_STATUSES.includes(activeTab)}
-          selected={selected} onToggleSelect={toggleSelect}
-          onToggleAll={() => toggleAllIn(reviewableIds)}
-          onView={setSelectedApplicant} onVerify={handleVerifyOne}
+          onView={setSelectedApplicant}
           onPrevPage={() => setPage(p => p - 1)}
           onNextPage={() => setPage(p => p + 1)}
         />

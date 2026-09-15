@@ -207,7 +207,7 @@ class TestProgramCyclesAndStatsIsolation:
         org_a, headers_a, org_b, headers_b = two_orgs_with_admins(db, make_user, client)
         client.put('/api/settings', headers=headers_a, json={'reset_password': 'ResetPass123'})
 
-        res = client.post('/api/program-reset', headers=headers_a, json={'password': 'ResetPass123'})
+        res = client.post('/api/program-reset', headers=headers_a, json={'password': 'ResetPass123', 'deadline': '2099-01-01T00:00:00'})
         assert res.status_code == 200
 
         cycles_a = client.get('/api/program-cycles', headers=headers_a).get_json()['cycles']

@@ -288,7 +288,12 @@ def run_ocr_checks_concurrently(db, applicant, applicant_oid, document_names, or
     persists results sequentially."""
     if not document_names:
         return []
-    with ThreadPoolExecutor(max_workers=min(4, len(document_names))) as pool:
+    # Capped at 2 (not 4) - each doc can render up to MAX_PDF_PAGES pages at
+    # 200dpi through Tesseract, and 4-way concurrency was exceeding available
+    # RAM on a small instance, getting the process OOM-killed mid-request.
+    # This is a memory-pressure fix, not a correctness one - don't raise it
+    # back without addressing that first.
+    with ThreadPoolExecutor(max_workers=min(2, len(document_names))) as pool:
         results = list(pool.map(
             lambda name: compute_ocr_result(applicant, applicant_oid, name),
             document_names
@@ -329,14 +334,19 @@ def upload_document():
             org_id = current_organization_oid()
             now = datetime.utcnow()
 
-            # Documents are frozen once the application is reviewed or withdrawn.
+            # Documents are frozen once the application is reviewed or withdrawn -
+            # except when an admin has requested changes (Withdrawn + admin_comment
+            # set), which puts it back in the student's hands. Mirrors the frontend's
+            # adminRequestedChanges unlock logic in ApplicantDetails.jsx.
             status_doc = db.applicants.find_one(
-                {"_id": applicant_oid, "organization_id": org_id}, {"application.status": 1}
+                {"_id": applicant_oid, "organization_id": org_id}, {"application.status": 1, "application.admin_comment": 1}
             )
             if not status_doc:
                 return jsonify({"error": "Applicant not found"}), 404
-            current_status = (status_doc.get('application') or {}).get('status')
-            if current_status in ('Approved', 'Rejected', 'Withdrawn'):
+            application_info = status_doc.get('application') or {}
+            current_status = application_info.get('status')
+            admin_requested_changes = current_status == 'Withdrawn' and bool(application_info.get('admin_comment'))
+            if current_status in ('Approved', 'Rejected') or (current_status == 'Withdrawn' and not admin_requested_changes):
                 return jsonify({"error": "This application has already been reviewed and its documents can no longer be changed."}), 400
 
             applicant = db.applicants.find_one(

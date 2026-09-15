@@ -367,7 +367,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               {(profile.full_name || 'A')
                 .split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
             </div>
-            <div>
+            <div className="modal-name-block">
               <h2 className="modal-name" id="applicant-modal-name">{profile.full_name}</h2>
               <p className="modal-course">{profile.course} — {profile.year_level}</p>
               <p className="modal-email">{profile.email}</p>

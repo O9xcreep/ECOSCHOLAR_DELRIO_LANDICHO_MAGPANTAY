@@ -44,6 +44,12 @@ def get_applicants():
         base_query = {"organization_id": org_id}
         if request.args.get('cycle') == 'current':
             base_query["cycle_id"] = get_current_cycle_id(db, org_id)
+        # A withdrawn-then-resubmitted applicant leaves an old Withdrawn record
+        # behind, linked via superseded_by (set in submit_application). Hide it
+        # from the live queue by default so it doesn't show up twice; opt-in
+        # via include_superseded=true for callers that want the full history.
+        if request.args.get('include_superseded') != 'true':
+            base_query["application.superseded_by"] = {"$exists": False}
 
         required_labels = get_required_doc_labels(db, org_id)
 
@@ -174,6 +180,12 @@ def applicant_status_counts():
         base_query = {"organization_id": org_id}
         if request.args.get('cycle') == 'current':
             base_query["cycle_id"] = get_current_cycle_id(db, org_id)
+        # A withdrawn-then-resubmitted applicant leaves an old Withdrawn record
+        # behind, linked via superseded_by (set in submit_application). Hide it
+        # from the live queue by default so it doesn't show up twice; opt-in
+        # via include_superseded=true for callers that want the full history.
+        if request.args.get('include_superseded') != 'true':
+            base_query["application.superseded_by"] = {"$exists": False}
 
         required_labels = get_required_doc_labels(db, org_id)
 
@@ -400,6 +412,22 @@ def submit_application():
         }
 
         result = db.applicants.insert_one(applicant_doc)
+
+        # Link any old Withdrawn record(s) for this same person/cycle to the new
+        # one, so the live Applications queue (get_applicants/applicant_status_counts)
+        # can hide the superseded record instead of showing the same applicant
+        # twice - once Withdrawn under Decided, once fresh under Needs Attention.
+        # Nothing is deleted; superseded_by is purely a display-time filter.
+        db.applicants.update_many(
+            {
+                "email": email,
+                "cycle_id": current_cycle_id,
+                "organization_id": org_id,
+                "application.status": "Withdrawn",
+                "_id": {"$ne": result.inserted_id},
+            },
+            {"$set": {"application.superseded_by": result.inserted_id}}
+        )
 
         return jsonify({
             "message": "Application submitted successfully!",

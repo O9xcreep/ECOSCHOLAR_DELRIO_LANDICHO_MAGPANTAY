@@ -502,6 +502,32 @@ input:disabled + .slider {
 .badge-purple { background: var(--accent-light); color: var(--accent-dark); }
 .badge-gray   { background: #f3f4f6; color: #4b5563; }
 
+/* ── TEAM ROW ── */
+.team-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.team-row-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.team-row-info .info-value,
+.team-row-info .info-sub {
+  overflow-wrap: break-word;
+}
+
+.team-row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
 /* ── RESPONSIVE ── */
 @media (max-width: 768px) {
   .notif-grid {
@@ -509,5 +535,12 @@ input:disabled + .slider {
   }
   .roles-grid {
     grid-template-columns: 1fr;
+  }
+  .team-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .team-row-actions {
+    justify-content: flex-start;
   }
 }

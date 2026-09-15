@@ -255,6 +255,11 @@ function SystemTab() {
   const [resetError, setResetError] = useState('')
   const [resetSuccess, setResetSuccess] = useState('')
 
+  const [updateDeadlineValue, setUpdateDeadlineValue] = useState('')
+  const [updatingDeadline, setUpdatingDeadline] = useState(false)
+  const [updateDeadlineError, setUpdateDeadlineError] = useState('')
+  const [updateDeadlineSuccess, setUpdateDeadlineSuccess] = useState('')
+
   const [exportCycles, setExportCycles] = useState([])
   const [exportRangePreset, setExportRangePreset] = useState('all')
   const [exportFrom, setExportFrom] = useState('')
@@ -351,6 +356,28 @@ function SystemTab() {
       setResetError('Cannot connect to server. Please try again.')
     } finally {
       setResetting(false)
+    }
+  }
+
+  const handleUpdateDeadline = async () => {
+    setUpdateDeadlineError('')
+    setUpdateDeadlineSuccess('')
+    setUpdatingDeadline(true)
+    try {
+      const res = await apiFetch('/api/program-cycles/current/deadline', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deadline: localInputValueToUtcIso(updateDeadlineValue) })
+      })
+      const data = await res.json()
+      if (!res.ok) { setUpdateDeadlineError(data.error || 'Failed to update the deadline'); return }
+      setCurrentCycle(data)
+      setUpdateDeadlineValue('')
+      setUpdateDeadlineSuccess('Deadline updated.')
+    } catch {
+      setUpdateDeadlineError('Cannot connect to server. Please try again.')
+    } finally {
+      setUpdatingDeadline(false)
     }
   }
 
@@ -563,7 +590,7 @@ function SystemTab() {
           <h5 className="settings-subcard-title">{isFirstSetup ? 'Set Up Scholarship Program' : 'Reset & Start New Program'}</h5>
           <p className="info-sub" style={{ marginBottom: '14px' }}>
             {isFirstSetup
-              ? "Students can't apply until a scholarship program is open. Set an optional " +
+              ? "Students can't apply until a scholarship program is open. Set a " +
                 "deadline (applications close automatically once it passes), then start the program."
               : "Archives every current applicant record and starts a brand new program. Nothing " +
                 "is deleted - past programs stay fully visible in Reports - but student " +
@@ -646,7 +673,7 @@ function SystemTab() {
             </div>
             <div>
               <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-                Application deadline (optional)
+                Application deadline <span style={{ color: '#c23b3b' }}>*</span>
               </label>
               <input
                 type="datetime-local"
@@ -655,14 +682,9 @@ function SystemTab() {
                 value={newCycleDeadline}
                 onChange={e => setNewCycleDeadline(e.target.value)}
               />
-              {newCycleDeadline && (
-                <button className="btn-change" style={{ marginLeft: '8px' }}
-                  onClick={() => setNewCycleDeadline('')}>
-                  Clear
-                </button>
-              )}
               <p className="info-sub" style={{ marginTop: '4px' }}>
-                Leave blank for no cutoff - applications close automatically once this passes.
+                Applications close automatically once this passes. Required to start a program -
+                it can be extended or tightened later from the section below while the program is live.
               </p>
             </div>
             <div>
@@ -679,13 +701,37 @@ function SystemTab() {
             </div>
             <div>
               <button className="btn-danger" onClick={handleProgramReset}
-                disabled={resetting || !resetConfirmPassword || !resetPasswordSet}>
+                disabled={resetting || !resetConfirmPassword || !resetPasswordSet || !newCycleDeadline}>
                 {resetting ? 'Setting up...' : isFirstSetup ? 'Set Up Scholarship Program' : 'Reset & Start New Program'}
               </button>
             </div>
           </div>
           {resetError && <div className="security-error" style={{ marginTop: '10px' }}>{resetError}</div>}
           {resetSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{resetSuccess}</div>}
+
+          {currentCycle && !currentCycle.closed_at && (
+            <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #F0F0F0' }}>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Update current program's deadline
+              </label>
+              <input
+                type="datetime-local"
+                className="settings-select"
+                style={{ background: '#fff' }}
+                value={updateDeadlineValue}
+                onChange={e => setUpdateDeadlineValue(e.target.value)}
+              />
+              <button className="btn-primary" style={{ marginLeft: '8px' }}
+                onClick={handleUpdateDeadline} disabled={updatingDeadline || !updateDeadlineValue}>
+                {updatingDeadline ? 'Updating...' : 'Update Deadline'}
+              </button>
+              <p className="info-sub" style={{ marginTop: '4px' }}>
+                Extend or tighten the deadline for the program that's currently running - no reset needed.
+              </p>
+              {updateDeadlineError && <div className="security-error" style={{ marginTop: '10px' }}>{updateDeadlineError}</div>}
+              {updateDeadlineSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{updateDeadlineSuccess}</div>}
+            </div>
+          )}
         </div>
       </div>
       )}
@@ -1302,8 +1348,8 @@ function TeamTab() {
               const isAdminSeat = admin.role === 'lgu_admin'
               return (
               <div key={admin.id} className="info-item" style={{ flexDirection: 'column', alignItems: 'stretch', padding: '12px 0', borderBottom: '1px solid #F0F0F0', gap: '8px', minWidth: 0, width: '100%' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                  <div style={{ minWidth: 0 }}>
+                <div className="team-row">
+                  <div className="team-row-info">
                     <span className="info-value" style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 4px' }}>
                       {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
                       <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? '#dbe7f3' : '#E0F2FE', color: isAdminSeat ? '#2c5580' : '#075985' }}>
@@ -1311,12 +1357,12 @@ function TeamTab() {
                       </span>
                       {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}
                     </span>
-                    <span className="info-sub" style={{ display: 'block', wordBreak: 'break-word' }}>{admin.email}</span>
+                    <span className="info-sub" style={{ display: 'block' }}>{admin.email}</span>
                     {admin.municipality && (
                       <span className="info-sub" style={{ display: 'block' }}>{admin.municipality}</span>
                     )}
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flexShrink: 0 }}>
+                  <div className="team-row-actions">
                     {!admin.password_set && (
                       <button
                         className="btn-change"

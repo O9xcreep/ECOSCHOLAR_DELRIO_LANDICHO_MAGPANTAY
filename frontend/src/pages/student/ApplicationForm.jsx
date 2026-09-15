@@ -655,7 +655,9 @@ function Step3({ data, onChange, errors, consent, onConsentChange, requirements 
             <div
               className={`upload-box ${errors[req.label] ? 'upload-error' : ''}`}
               onClick={() => document.getElementById(`doc-${req.id}`).click()}>
-              {data[req.label] ? (
+              {data[req.label]?.existing ? (
+                <span className="upload-filename">Uploaded: {data[req.label].name} (click to replace)</span>
+              ) : data[req.label] ? (
                 <span className="upload-filename">{data[req.label].name}</span>
               ) : (
                 <span className="upload-placeholder">Click to upload (PDF, JPG, PNG)</span>
@@ -804,6 +806,19 @@ function ApplicationForm() {
               academicYear: app.academic_year || prev.academicYear,
               semester: app.semester || prev.semester,
             }))
+
+            // Documents already uploaded on this application, keyed by label so
+            // Step3 can show "already uploaded" instead of "Missing" on reopen.
+            // serialize_document doesn't return a real filename, only
+            // document_name, so that doubles as the display name here.
+            const existingByLabel = {}
+            for (const doc of data.documents || []) {
+              if (doc.status === 'Uploaded') {
+                existingByLabel[doc.document_name] = { name: doc.document_name, existing: true }
+              }
+            }
+            // Anything the student already touched this session wins over the pre-fill.
+            setStep3Data(prev => ({ ...existingByLabel, ...prev }))
           }
         }
       } catch {
@@ -1017,7 +1032,7 @@ function ApplicationForm() {
 
       // ── Upload documents (step3Data is keyed by document label) ──
       for (const [label, file] of Object.entries(step3Data)) {
-        if (file) {
+        if (file instanceof File) {
           const formData = new FormData()
           formData.append('file', file)
           formData.append('applicant_id', applicantId)

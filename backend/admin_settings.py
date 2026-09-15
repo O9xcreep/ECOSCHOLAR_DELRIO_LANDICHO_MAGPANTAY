@@ -173,15 +173,15 @@ def program_reset():
     password = data.get('password') or ''
     label = data.get('label')
 
-    deadline = None
     raw_deadline = data.get('deadline')
-    if raw_deadline:
-        try:
-            deadline = datetime.fromisoformat(raw_deadline.replace('Z', '+00:00')).replace(tzinfo=None)
-        except (ValueError, AttributeError):
-            return jsonify({"error": "deadline must be an ISO date/time string, or null"}), 400
-        if deadline <= datetime.utcnow():
-            return jsonify({"error": "deadline must be in the future"}), 400
+    if not raw_deadline:
+        return jsonify({"error": "An application deadline is required to start a program."}), 400
+    try:
+        deadline = datetime.fromisoformat(raw_deadline.replace('Z', '+00:00')).replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return jsonify({"error": "deadline must be an ISO date/time string"}), 400
+    if deadline <= datetime.utcnow():
+        return jsonify({"error": "deadline must be in the future"}), 400
 
     try:
         db = get_db()
@@ -208,6 +208,40 @@ def program_reset():
             **serialize_settings(db, org_id),
             "new_cycle_id": str(new_cycle_id),
         })
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── UPDATE CURRENT CYCLE'S DEADLINE ──
+# Lets an admin extend or tighten the deadline of the program that's already
+# running, without going through the destructive archive-and-start-new flow
+# that POST /api/program-reset requires. Gated by can_review_applicants (not
+# can_reset_program) since nothing here is destructive.
+@app.route('/api/program-cycles/current/deadline', methods=['PUT'])
+@require_permission('can_review_applicants')
+def update_current_cycle_deadline():
+    data = request.get_json() or {}
+    raw_deadline = data.get('deadline')
+    if not raw_deadline:
+        return jsonify({"error": "An application deadline is required."}), 400
+    try:
+        deadline = datetime.fromisoformat(raw_deadline.replace('Z', '+00:00')).replace(tzinfo=None)
+    except (ValueError, AttributeError):
+        return jsonify({"error": "deadline must be an ISO date/time string"}), 400
+    if deadline <= datetime.utcnow():
+        return jsonify({"error": "deadline must be in the future"}), 400
+
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        cycle = get_current_cycle(db, org_id)
+        if not cycle:
+            return jsonify({"error": "No program is currently running."}), 400
+        db.program_cycles.update_one({"_id": cycle["_id"]}, {"$set": {"deadline": deadline}})
+        updated_cycle = db.program_cycles.find_one({"_id": cycle["_id"]})
+        return jsonify(serialize_cycle(updated_cycle))
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:

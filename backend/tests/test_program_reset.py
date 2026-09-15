@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 import app as app_module
 
 
+FUTURE_DEADLINE = '2099-01-01T00:00:00'
+
+
 def set_reset_password(db, password='ResetPass123'):
     org_id = app_module.get_default_organization_id(db)
     db.settings.update_one(
@@ -51,7 +54,7 @@ class TestProgramResetEndpoint:
     def test_lgu_member_with_can_reset_program_is_allowed(self, client, auth_headers, db):
         set_reset_password(db, 'CorrectPass1')
         headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
-        res = client.post('/api/program-reset', headers=headers, json={'password': 'CorrectPass1'})
+        res = client.post('/api/program-reset', headers=headers, json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         assert res.status_code == 200
 
     def test_lgu_admin_can_reset_without_any_explicit_permission_flag(self, client, db):
@@ -65,23 +68,23 @@ class TestProgramResetEndpoint:
         res = client.post('/api/login', json={'email': 'lguadmin@test.com', 'password': 'TestPass123'})
         headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
         set_reset_password(db, 'CorrectPass1')
-        res = client.post('/api/program-reset', headers=headers, json={'password': 'CorrectPass1'})
+        res = client.post('/api/program-reset', headers=headers, json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         assert res.status_code == 200
 
     def test_fails_when_no_reset_password_configured(self, client, auth_headers):
-        res = client.post('/api/program-reset', headers=auth_headers(), json={'password': 'anything'})
+        res = client.post('/api/program-reset', headers=auth_headers(), json={'password': 'anything', 'deadline': FUTURE_DEADLINE})
         assert res.status_code == 400
         assert 'reset confirmation password' in res.get_json()['error'].lower()
 
     def test_wrong_password_rejected(self, client, auth_headers, db):
         set_reset_password(db, 'CorrectPass1')
-        res = client.post('/api/program-reset', headers=auth_headers(), json={'password': 'WrongPass1'})
+        res = client.post('/api/program-reset', headers=auth_headers(), json={'password': 'WrongPass1', 'deadline': FUTURE_DEADLINE})
         assert res.status_code == 403
 
     def test_correct_password_resets_and_opens_new_cycle(self, client, auth_headers, db):
         set_reset_password(db, 'CorrectPass1')
         res = client.post('/api/program-reset', headers=auth_headers(),
-                           json={'password': 'CorrectPass1', 'label': 'My New Cycle'})
+                           json={'password': 'CorrectPass1', 'label': 'My New Cycle', 'deadline': FUTURE_DEADLINE})
         assert res.status_code == 200
         body = res.get_json()
         assert body['current_cycle']['label'] == 'My New Cycle'
@@ -90,8 +93,8 @@ class TestProgramResetEndpoint:
 
     def test_second_reset_closes_first_and_opens_second(self, client, auth_headers, db):
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'label': 'Cycle A'})
-        res = client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'label': 'Cycle B'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'label': 'Cycle A', 'deadline': FUTURE_DEADLINE})
+        res = client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'label': 'Cycle B', 'deadline': FUTURE_DEADLINE})
         body = res.get_json()
         assert body['current_cycle']['label'] == 'Cycle B'
         cycle_a = db.program_cycles.find_one({'label': 'Cycle A'})
@@ -101,7 +104,7 @@ class TestProgramResetEndpoint:
         org_id = app_module.get_default_organization_id(db)
         set_reset_password(db, 'CorrectPass1')
         db.settings.update_one({'organization_id': org_id}, {'$set': {'results_visible_override': True}})
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         assert db.settings.find_one({'organization_id': org_id}).get('results_visible_override') is False
 
     def test_first_reset_backfills_cycle_id_onto_pre_existing_data(self, client, auth_headers, db):
@@ -110,7 +113,7 @@ class TestProgramResetEndpoint:
         empty 'Cycle 0' and a separate legacy bucket for the same data."""
         applicant_id = db.applicants.insert_one({'full_name': 'Pre-existing', 'email': 'pre@test.com'}).inserted_id
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
 
         cycle0 = db.program_cycles.find_one({'label': 'Program 0 (before program tracking)'})
         assert cycle0 is not None
@@ -124,7 +127,7 @@ class TestProgramResetEndpoint:
             'application': {'status': 'Approved'},
         }).inserted_id
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         assert db.applicants.find_one({'_id': applicant_id}) is not None
 
 
@@ -141,7 +144,7 @@ class TestProgramCyclesListing:
 
     def test_after_reset_current_cycle_listed_as_current(self, client, auth_headers, db):
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'label': 'New'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'label': 'New', 'deadline': FUTURE_DEADLINE})
         res = client.get('/api/program-cycles', headers=auth_headers())
         cycles = res.get_json()['cycles']
         current = [c for c in cycles if c['label'] == 'New'][0]
@@ -161,7 +164,7 @@ class TestCurrentCycleScoping:
         admin_res = client.post('/api/login', json={'email': 'admin2@test.com', 'password': 'TestPass123'})
         admin_headers = {'Authorization': f"Bearer {admin_res.get_json()['token']}"}
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=admin_headers, json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=admin_headers, json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
 
         res = client.post('/api/login', json={'email': 'reapply@test.com', 'password': 'TestPass123'})
         student_headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
@@ -187,7 +190,7 @@ class TestCurrentCycleScoping:
         admin_res = client.post('/api/login', json={'email': 'admin3@test.com', 'password': 'TestPass123'})
         admin_headers = {'Authorization': f"Bearer {admin_res.get_json()['token']}"}
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=admin_headers, json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=admin_headers, json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
 
         res = client.post('/api/login', json={'email': 'closed@test.com', 'password': 'TestPass123'})
         student_headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
@@ -198,7 +201,7 @@ class TestCurrentCycleScoping:
         db.applicants.insert_one({'full_name': 'Archived', 'email': 'archived@test.com',
                                    'application': {'status': 'Approved'}})
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         res = client.get('/api/applicants', headers=auth_headers())
         names = [a['full_name'] for a in res.get_json()['applicants']]
         assert 'Archived' in names
@@ -207,7 +210,7 @@ class TestCurrentCycleScoping:
         db.applicants.insert_one({'full_name': 'Archived2', 'email': 'archived2@test.com',
                                    'application': {'status': 'Newly Submitted'}})
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         res = client.get('/api/applicants?cycle=current', headers=auth_headers())
         names = [a['full_name'] for a in res.get_json()['applicants']]
         assert 'Archived2' not in names
@@ -218,7 +221,7 @@ class TestCurrentCycleScoping:
         db.applicants.insert_one({'full_name': 'Archived3', 'email': 'archived3@test.com',
                                    'application': {'status': 'Newly Submitted'}})
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
         res = client.get('/api/applicants', headers=auth_headers())
         names = [a['full_name'] for a in res.get_json()['applicants']]
         assert 'Archived3' in names
@@ -229,7 +232,7 @@ class TestCurrentCycleScoping:
             'application': {'status': 'Approved'},
         }).inserted_id
         set_reset_password(db, 'CorrectPass1')
-        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1'})
+        client.post('/api/program-reset', headers=auth_headers(), json={'password': 'CorrectPass1', 'deadline': FUTURE_DEADLINE})
 
         org_id = app_module.get_default_organization_id(db)
         new_id = db.applicants.insert_one({
