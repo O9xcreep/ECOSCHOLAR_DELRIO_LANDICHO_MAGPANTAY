@@ -35,8 +35,8 @@ const STEPS = [
         </ul>
         <p>
           Click <strong>Set Up Scholarship Program</strong> and students can start applying immediately.
-          Once the program is live, you can still extend or tighten the deadline at any time from
-          the "Update current program's deadline" section in the same card - no reset needed.
+          Once the program is live, that same deadline field grows an <strong>Update Deadline</strong> button
+          next to it - change the date and click it to extend or tighten the cutoff at any time, no reset needed.
         </p>
       </>
     ),

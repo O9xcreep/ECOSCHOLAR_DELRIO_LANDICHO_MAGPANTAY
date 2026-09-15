@@ -255,7 +255,6 @@ function SystemTab() {
   const [resetError, setResetError] = useState('')
   const [resetSuccess, setResetSuccess] = useState('')
 
-  const [updateDeadlineValue, setUpdateDeadlineValue] = useState('')
   const [updatingDeadline, setUpdatingDeadline] = useState(false)
   const [updateDeadlineError, setUpdateDeadlineError] = useState('')
   const [updateDeadlineSuccess, setUpdateDeadlineSuccess] = useState('')
@@ -290,6 +289,11 @@ function SystemTab() {
 
         setResetPasswordSet(!!data.reset_password_set)
         setCurrentCycle(data.current_cycle || null)
+        // Pre-fill the shared deadline field with the live cycle's current
+        // deadline, so "Update Deadline" has something sensible to start from.
+        if (data.current_cycle && !data.current_cycle.closed_at) {
+          setNewCycleDeadline(utcStringToLocalInputValue(data.current_cycle.deadline))
+        }
       })
       .catch(() => {})
   }
@@ -349,7 +353,6 @@ function SystemTab() {
 
       setResetSuccess(`Done - ${data.archived_applicant_count} applicant(s) archived. "${data.current_cycle.label}" has started.`)
       setResetConfirmPassword('')
-      setNewCycleDeadline('')
       setCurrentCycle(data.current_cycle)
       setApprovedCount(data.approved_count)
     } catch {
@@ -367,12 +370,11 @@ function SystemTab() {
       const res = await apiFetch('/api/program-cycles/current/deadline', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deadline: localInputValueToUtcIso(updateDeadlineValue) })
+        body: JSON.stringify({ deadline: localInputValueToUtcIso(newCycleDeadline) })
       })
       const data = await res.json()
       if (!res.ok) { setUpdateDeadlineError(data.error || 'Failed to update the deadline'); return }
       setCurrentCycle(data)
-      setUpdateDeadlineValue('')
       setUpdateDeadlineSuccess('Deadline updated.')
     } catch {
       setUpdateDeadlineError('Cannot connect to server. Please try again.')
@@ -683,8 +685,10 @@ function SystemTab() {
                 onChange={e => setNewCycleDeadline(e.target.value)}
               />
               <p className="info-sub" style={{ marginTop: '4px' }}>
-                Applications close automatically once this passes. Required to start a program -
-                it can be extended or tightened later from the section below while the program is live.
+                Applications close automatically once this passes.{' '}
+                {currentCycle && !currentCycle.closed_at
+                  ? 'Click "Update Deadline" to change it for the program that\'s currently running, or "Reset & Start New Program" to archive everything and start fresh with this date.'
+                  : 'Required to start the program.'}
               </p>
             </div>
             <div>
@@ -699,39 +703,23 @@ function SystemTab() {
                 onChange={e => setResetConfirmPassword(e.target.value)}
               />
             </div>
-            <div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {currentCycle && !currentCycle.closed_at && (
+                <button className="btn-primary" onClick={handleUpdateDeadline}
+                  disabled={updatingDeadline || !newCycleDeadline}>
+                  {updatingDeadline ? 'Updating...' : 'Update Deadline'}
+                </button>
+              )}
               <button className="btn-danger" onClick={handleProgramReset}
                 disabled={resetting || !resetConfirmPassword || !resetPasswordSet || !newCycleDeadline}>
                 {resetting ? 'Setting up...' : isFirstSetup ? 'Set Up Scholarship Program' : 'Reset & Start New Program'}
               </button>
             </div>
           </div>
+          {updateDeadlineError && <div className="security-error" style={{ marginTop: '10px' }}>{updateDeadlineError}</div>}
+          {updateDeadlineSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{updateDeadlineSuccess}</div>}
           {resetError && <div className="security-error" style={{ marginTop: '10px' }}>{resetError}</div>}
           {resetSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{resetSuccess}</div>}
-
-          {currentCycle && !currentCycle.closed_at && (
-            <div style={{ marginTop: '18px', paddingTop: '18px', borderTop: '1px solid #F0F0F0' }}>
-              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-                Update current program's deadline
-              </label>
-              <input
-                type="datetime-local"
-                className="settings-select"
-                style={{ background: '#fff' }}
-                value={updateDeadlineValue}
-                onChange={e => setUpdateDeadlineValue(e.target.value)}
-              />
-              <button className="btn-primary" style={{ marginLeft: '8px' }}
-                onClick={handleUpdateDeadline} disabled={updatingDeadline || !updateDeadlineValue}>
-                {updatingDeadline ? 'Updating...' : 'Update Deadline'}
-              </button>
-              <p className="info-sub" style={{ marginTop: '4px' }}>
-                Extend or tighten the deadline for the program that's currently running - no reset needed.
-              </p>
-              {updateDeadlineError && <div className="security-error" style={{ marginTop: '10px' }}>{updateDeadlineError}</div>}
-              {updateDeadlineSuccess && <div className="info-sub" style={{ color: '#059669', marginTop: '10px' }}>{updateDeadlineSuccess}</div>}
-            </div>
-          )}
         </div>
       </div>
       )}
