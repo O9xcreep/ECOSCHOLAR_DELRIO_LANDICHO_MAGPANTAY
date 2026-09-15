@@ -1042,7 +1042,6 @@ function SystemTab() {
 const EMPTY_APPROVAL_PERMISSIONS = { can_review_applicants: false, can_manage_members: false, can_reset_program: false }
 
 function AdminRequestsSection({ onApproved }) {
-  const currentUser = getUser() || {}
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -1109,33 +1108,10 @@ function AdminRequestsSection({ onApproved }) {
       })
       const data = await res.json()
       if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
-      if (data.admin || data.membership) {
-        // Fully approved - remove it from the list. An "add_membership"
-        // request (an existing admin/staff account joining this org) returns
-        // "membership" instead of "admin", since no new login was created.
-        setRequests(prev => prev.filter(r => r.id !== req.id))
-        onApproved?.()
-      } else {
-        // First approval only (can_manage_members was granted) - refresh so it
-        // shows up as pending_second_approval instead of disappearing.
-        setApprovingId('')
-        loadRequests()
-      }
-    } catch {
-      setActionError('Cannot connect to server. Please try again.')
-    } finally {
-      setActioningId(null)
-    }
-  }
-
-  const handleFoundingApproval = async (req) => {
-    if (!window.confirm(`Approve "${req.organization_name}" as a new organization and create ${req.full_name} (${req.email}) as its Admin?`)) return
-    setActionError('')
-    setActioningId(req.id)
-    try {
-      const res = await apiFetch(`/api/admin-requests/${req.id}/approve`, { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) { setActionError(data.error || 'Failed to approve request'); return }
+      // Always finalizes on this one approval, whatever permissions were
+      // granted. An "add_membership" request (an existing admin/staff account
+      // joining this org) returns "membership" instead of "admin", since no
+      // new login was created.
       setRequests(prev => prev.filter(r => r.id !== req.id))
       onApproved?.()
     } catch {
@@ -1145,8 +1121,8 @@ function AdminRequestsSection({ onApproved }) {
     }
   }
 
-  const handleSecondApproval = async (req) => {
-    if (!window.confirm(`Give the second approval for ${req.full_name} (${req.email})? This confirms the same admin-tier grant ${req.first_approval?.admin_name || 'the first admin'} already approved.`)) return
+  const handleFoundingApproval = async (req) => {
+    if (!window.confirm(`Approve "${req.organization_name}" as a new organization and create ${req.full_name} (${req.email}) as its Admin?`)) return
     setActionError('')
     setActioningId(req.id)
     try {
@@ -1199,8 +1175,6 @@ function AdminRequestsSection({ onApproved }) {
       {actionError && <div className="security-error" style={{ marginBottom: '10px' }}>{actionError}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {requests.map(req => {
-          const awaitingSecond = req.status === 'pending_second_approval'
-          const isSecondApprover = awaitingSecond && req.first_approval?.admin_id !== currentUser.id
           return (
           <div key={req.id} style={{ border: '1px solid #F0F0F0', borderRadius: '12px', padding: '16px 18px' }}>
             {req.is_founding && (
@@ -1254,28 +1228,10 @@ function AdminRequestsSection({ onApproved }) {
               </div>
             )}
 
-            {awaitingSecond && (
-              <div className="security-error" style={{ background: '#FEF3C7', color: '#92400E', marginBottom: '12px' }}>
-                First approval given by <strong>{req.first_approval?.admin_name}</strong> (grants team-management access) -
-                a second, different admin must confirm before this account is created.
-              </div>
-            )}
-
             {req.is_founding ? (
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button className="btn-primary" onClick={() => handleFoundingApproval(req)} disabled={actioningId === req.id}>
                   {actioningId === req.id ? 'Working...' : 'Approve New Organization'}
-                </button>
-                <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
-                  Reject
-                </button>
-              </div>
-            ) : awaitingSecond ? (
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="btn-primary" onClick={() => handleSecondApproval(req)}
-                  disabled={actioningId === req.id || !isSecondApprover}
-                  title={!isSecondApprover ? "You gave the first approval - a different admin must give the second" : undefined}>
-                  {actioningId === req.id ? 'Working...' : 'Give Second Approval'}
                 </button>
                 <button className="btn-danger-outline" onClick={() => handleReject(req)} disabled={actioningId === req.id}>
                   Reject
@@ -1303,9 +1259,8 @@ function AdminRequestsSection({ onApproved }) {
                 </div>
                 {pendingPermissions.can_manage_members && (
                   <p className="info-sub" style={{ color: '#92400E' }}>
-                    {currentUser.role === 'admin'
-                      ? '"Manage team members" lets this account approve future admins - as the Super Admin, your approval alone activates it, same as everywhere else you already grant this permission.'
-                      : '"Manage team members" lets this account approve future admins - granting it here will need a second, different admin\'s confirmation before the account is actually created.'}
+                    "Manage team members" lets this account invite, remove, and approve future admins - make sure
+                    you trust whoever you're granting this to.
                   </p>
                 )}
                 <div style={{ display: 'flex', gap: '8px' }}>

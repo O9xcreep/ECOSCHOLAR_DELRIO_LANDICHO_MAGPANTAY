@@ -831,13 +831,11 @@ def approve_admin_request(request_id):
 
     now = datetime.utcnow()
     current_admin_id = g.current_user['id']
-    current_admin_name = g.current_user.get('email', 'Admin')
 
     if is_founding:
         # No peer review is possible for a brand-new organization - the Super
         # Admin's review already served as the vetting step, so the founding
-        # account is created directly as the org's lgu_admin (full access),
-        # skipping the two-person can_manage_members gate below.
+        # account is created directly as the org's lgu_admin (full access).
         admin_doc = create_admin_from_approved_request(req, 'lgu_admin', None)
         db.organizations.update_one({"_id": req["organization_id"]}, {"$set": {"status": "active"}})
         db.admin_requests.update_one({"_id": request_oid}, {"$set": {
@@ -845,63 +843,12 @@ def approve_admin_request(request_id):
         }})
         return jsonify({"message": "Organization approved", "admin": serialize_admin(admin_doc)}), 201
 
-    # Second approval: finalize using the permissions the FIRST admin already
-    # granted, recorded on first_approval - the second admin confirms that
-    # same grant rather than re-choosing permissions from scratch.
-    if req.get("status") == "pending_second_approval":
-        first_approval = req.get("first_approval") or {}
-        org_member_count = db.memberships.count_documents({
-            "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": req.get("organization_id"),
-        })
-        # Normally the same admin can't give both approvals, but if the org
-        # still has no one else (the bootstrap case), refusing here would
-        # leave the request stuck with no possible second approver.
-        if first_approval.get("admin_id") == current_admin_id and org_member_count > 1:
-            return jsonify({"error": "You already gave the first approval for this request - a different admin has to give the second."}), 400
-
-        granted = first_approval.get("permissions_granted")
-        db.admin_requests.update_one({"_id": request_oid}, {"$set": {
-            "status": "approved",
-            "reviewed_at": now,
-            "reviewed_by": current_admin_id,
-            "second_approval": {"admin_id": current_admin_id, "admin_name": current_admin_name, "approved_at": now},
-        }})
-        if is_add_membership:
-            membership_doc = create_membership_from_approved_request(req, granted)
-            return jsonify({"message": "Admin request approved", "membership": serialize_membership(membership_doc, db)}), 201
-        admin_doc = create_admin_from_approved_request(req, 'lgu_member', granted)
-        return jsonify({"message": "Admin request approved", "admin": serialize_admin(admin_doc)}), 201
-
-    # Always approved as a plain LGU Member - same as create_admin_account(), the
-    # Admin seat only changes hands via POST /api/admins/<id>/transfer-admin.
+    # Always approved as a plain LGU Member on a single approval, whatever
+    # permissions are granted (including can_manage_members) - the Admin seat
+    # only changes hands via POST /api/admins/<id>/transfer-admin.
     data = request.get_json(silent=True) or {}
     raw = data.get('permissions') or {}
     permissions = {p: bool(raw.get(p)) for p in ADMIN_PERMISSIONS}
-
-    # The two-person gate exists to stop a single compromised/careless LGU
-    # admin from unilaterally creating more admins. The platform Super Admin
-    # already bypasses every other permission check (including granting this
-    # exact permission directly via PUT /api/admins/<id>/permissions), so
-    # its single approval finalizes the account immediately, same as the
-    # founding-org path above.
-    #
-    # A brand-new org's founder is a harder case: right after founding, the
-    # org has exactly one member, so demanding a different second admin is
-    # impossible to satisfy until a second team member exists.
-    org_member_count = db.memberships.count_documents({
-        "role": {"$in": ["lgu_admin", "lgu_member"]}, "organization_id": req.get("organization_id"),
-    })
-    is_sole_member = org_member_count <= 1
-
-    if permissions.get('can_manage_members') and g.current_user.get('role') != 'admin' and not is_sole_member:
-        db.admin_requests.update_one({"_id": request_oid}, {"$set": {
-            "status": "pending_second_approval",
-            "first_approval": {
-                "admin_id": current_admin_id, "admin_name": current_admin_name,
-                "permissions_granted": permissions, "approved_at": now,
-            },
-        }})
-        return jsonify({"message": "First approval recorded - a second admin must also approve before this account is activated."})
 
     db.admin_requests.update_one({"_id": request_oid}, {"$set": {
         "status": "approved",
