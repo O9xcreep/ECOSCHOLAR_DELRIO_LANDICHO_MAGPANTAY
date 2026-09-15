@@ -63,6 +63,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const [remarks, setRemarks] = useState('')
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
+  const remarksRef = useRef(null)
 
   // ALL HOOKS BEFORE EARLY RETURN
 
@@ -272,7 +273,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   }
 
   const handleRequestChanges = async () => {
-    if (!remarks.trim()) return
+    if (!remarks.trim()) {
+      alert('Please enter a comment describing what needs to change before requesting changes.')
+      remarksRef.current?.focus()
+      return
+    }
     if (!window.confirm(
       "Send this comment to the applicant and mark their application as needing changes? " +
       "They'll be able to edit and resubmit."
@@ -703,6 +708,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </label>
               <textarea
                 id="applicant-remarks"
+                ref={remarksRef}
                 rows={2}
                 placeholder="e.g. what's missing, or why this decision is being reconsidered..."
                 value={remarks}
@@ -752,7 +758,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
             )}
             {isPending && (
               <button className="btn-reject-modal"
-                disabled={updating || !remarks.trim()}
+                disabled={updating}
                 onClick={handleRequestChanges}>
                 {updating ? 'Sending...' : 'Request Changes'}
               </button>
