@@ -13,6 +13,41 @@ def make_second_org(db, name='Second Org', code='SECOND01'):
     }).inserted_id
 
 
+class TestLoginBackfillsMembership:
+    """Accounts created before the memberships feature shipped have no
+    membership row yet - login() creates one lazily so nobody needs a manual
+    migration script to run first (see migrate_phase_b_memberships.py, which
+    does the same thing in bulk for accounts that never log in again)."""
+
+    def test_login_creates_missing_membership_for_legacy_account(self, client, db):
+        from werkzeug.security import generate_password_hash
+        org_id = app_module.get_default_organization_id(db)
+        user_id = db.users.insert_one({
+            'full_name': 'Legacy Member', 'email': 'legacy@test.com',
+            'password': generate_password_hash('TestPass123'), 'role': 'lgu_member',
+            'status': 'active', 'privacy_consent': True, 'organization_id': org_id,
+            'permissions': {'can_review_applicants': True, 'can_manage_members': False, 'can_reset_program': False},
+        }).inserted_id
+        assert db.memberships.find_one({'user_id': user_id}) is None
+
+        res = client.post('/api/login', json={'email': 'legacy@test.com', 'password': 'TestPass123'})
+        assert res.status_code == 200
+
+        membership = db.memberships.find_one({'user_id': user_id, 'organization_id': org_id})
+        assert membership is not None
+        assert membership['role'] == 'lgu_member'
+        assert membership['permissions']['can_review_applicants'] is True
+
+    def test_login_does_not_duplicate_existing_membership(self, client, db, make_user):
+        user = make_user(email='notlegacy@test.com', password='TestPass123', role='student')
+        client.post('/api/login', json={'email': 'notlegacy@test.com', 'password': 'TestPass123'})
+        assert db.memberships.count_documents({'user_id': user['id']}) == 1
+
+    def test_super_admin_login_creates_no_membership(self, client, auth_headers, db):
+        auth_headers()
+        assert db.memberships.count_documents({}) == 0
+
+
 class TestStudentSelfServiceJoin:
     def test_join_creates_membership_and_switches(self, client, db, make_user):
         user = make_user(email='stu@test.com', password='TestPass123', role='student')

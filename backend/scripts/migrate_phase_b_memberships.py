@@ -6,9 +6,13 @@ directly) keep working for accounts that existed before this feature
 shipped. Purely additive; safe to re-run since a (user_id, organization_id)
 pair that already has a membership row is skipped.
 
-MUST run before deploying the has_permission()/admin_management.py changes
-that read from `memberships` - otherwise every existing lgu_member's
-permission checks (and every org's Team tab) break until this has run.
+NOT strictly required: login() (auth.py) now does this same backfill lazily
+for one account at a time, the moment it logs in - so any account that logs
+in at least once self-heals with no script needed. This script only matters
+for closing the gap immediately/in bulk (e.g. an account with an
+already-valid session that won't call login() again until its token expires,
+or an account that may never log in again but still needs to show up
+correctly in the Team tab right away).
 
 Usage (from backend/): ./venv/Scripts/python.exe scripts/migrate_phase_b_memberships.py"""
 import os

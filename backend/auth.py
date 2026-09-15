@@ -219,6 +219,21 @@ def login():
                 "email": user['email'],
             }), 403
 
+        # An account created before the memberships feature has no membership
+        # row for its own org yet - backfill it here on login instead of
+        # requiring a one-time migration script to run first. Mirrors
+        # migrate_phase_b_memberships.py's logic; harmless to also run that
+        # script separately, this just makes it unnecessary for any account
+        # that logs in at least once.
+        if user['role'] != 'admin' and user.get('organization_id'):
+            if not db.memberships.find_one({"user_id": user['_id'], "organization_id": user['organization_id']}):
+                db.memberships.insert_one({
+                    "user_id": user['_id'], "organization_id": user['organization_id'], "role": user['role'],
+                    "permissions": user.get('permissions') if user['role'] == 'lgu_member' else None,
+                    "municipality": user.get('municipality') if user['role'] in ('lgu_admin', 'lgu_member') else None,
+                    "joined_at": user.get('created_at') or datetime.utcnow(),
+                })
+
         user_payload = {
             "id": str(user['_id']),
             "full_name": user['full_name'],
