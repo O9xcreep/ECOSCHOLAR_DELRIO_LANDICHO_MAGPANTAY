@@ -47,6 +47,66 @@ class TestCreateFormField:
         assert res.get_json()['field']['options'] == []
 
 
+class TestFormConfigPermissionGating:
+    """Form fields, document requirements, and the built-in-field toggles are
+    all "the form" - gated by can_reset_program (full-access roles always
+    have it). The rest of PUT /api/settings (accepted-applicant limit, result
+    visibility, the reset confirmation password) stays full-access-only."""
+
+    NEW_FIELD = {'key': 'perm_test_field', 'label': 'Perm Test', 'type': 'text', 'section': 'personal'}
+
+    def test_lgu_member_with_can_reset_program_can_create_a_form_field(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        res = client.post('/api/form-fields', headers=headers, json=self.NEW_FIELD)
+        assert res.status_code == 201
+
+    def test_lgu_member_without_can_reset_program_cannot_create_a_form_field(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True, 'can_manage_members': True})
+        res = client.post('/api/form-fields', headers=headers, json=self.NEW_FIELD)
+        assert res.status_code == 403
+
+    def test_lgu_member_with_can_reset_program_can_create_a_document_requirement(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        res = client.post('/api/document-requirements', headers=headers, json={'label': 'Barangay Certificate', 'required': True})
+        assert res.status_code == 201
+
+    def test_lgu_member_without_can_reset_program_cannot_create_a_document_requirement(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True})
+        res = client.post('/api/document-requirements', headers=headers, json={'label': 'Barangay Certificate', 'required': True})
+        assert res.status_code == 403
+
+    def test_lgu_member_with_can_reset_program_can_toggle_hidden_builtin_fields(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        res = client.put('/api/settings', headers=headers, json={'hidden_builtin_fields': ['religion']})
+        assert res.status_code == 200
+        assert res.get_json()['hidden_builtin_fields'] == ['religion']
+
+    def test_lgu_member_without_can_reset_program_cannot_toggle_hidden_builtin_fields(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True})
+        res = client.put('/api/settings', headers=headers, json={'hidden_builtin_fields': ['religion']})
+        assert res.status_code == 403
+
+    def test_can_reset_program_alone_does_not_unlock_the_other_settings(self, client, auth_headers):
+        """max_accepted, result visibility, and the reset password stay
+        full-access-only even for a member who can reset the program."""
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        assert client.put('/api/settings', headers=headers, json={'max_accepted': 5}).status_code == 403
+        assert client.put('/api/settings', headers=headers, json={'results_visible_override': True}).status_code == 403
+        assert client.put('/api/settings', headers=headers, json={'reset_password': 'newpassword1'}).status_code == 403
+
+    def test_mixing_a_restricted_key_with_hidden_builtin_fields_is_rejected(self, client, auth_headers):
+        """A can_reset_program member can't smuggle a restricted setting past
+        the gate by bundling it in the same request as an allowed one."""
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        res = client.put('/api/settings', headers=headers,
+                          json={'hidden_builtin_fields': ['religion'], 'max_accepted': 999})
+        assert res.status_code == 403
+
+    def test_lgu_admin_can_still_change_every_setting(self, client, auth_headers):
+        headers = auth_headers('lgu_admin')
+        assert client.put('/api/settings', headers=headers, json={'max_accepted': 7}).status_code == 200
+
+
 class TestFormLockedWhileProgramOpen:
     """The form can only be edited before a program starts or after it ends;
     changing what's expected mid-program would invalidate submissions in flight."""

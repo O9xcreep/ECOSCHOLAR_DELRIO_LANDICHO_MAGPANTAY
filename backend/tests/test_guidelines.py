@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""Application Guidelines: student-facing read, admin-only edit, stored as a
-single HTML blob on the org's settings doc instead of hardcoded in the
-frontend."""
+"""Application Guidelines: student-facing read, edit gated by can_reset_program
+(full-access roles always have it; an lgu_member needs it explicitly granted),
+stored as a single HTML blob on the org's settings doc instead of hardcoded in
+the frontend."""
 import app as app_module
 
 
@@ -30,10 +31,17 @@ class TestUpdateGuidelines:
         res = client.put('/api/guidelines', headers=auth_headers('student'), json={'html': '<p>Hi</p>'})
         assert res.status_code == 403
 
-    def test_lgu_member_cannot_edit_even_with_permissions(self, client, auth_headers):
-        headers = auth_headers('lgu_member', permissions={'can_manage_members': True, 'can_reset_program': True})
+    def test_lgu_member_without_can_reset_program_cannot_edit(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_manage_members': True, 'can_review_applicants': True})
         res = client.put('/api/guidelines', headers=headers, json={'html': '<p>Hi</p>'})
         assert res.status_code == 403
+
+    def test_lgu_member_with_can_reset_program_can_edit(self, client, auth_headers):
+        """Anyone trusted to reset the program can also configure the
+        guidelines shown to students - same trust boundary as the form."""
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        res = client.put('/api/guidelines', headers=headers, json={'html': '<p>Hi</p>'})
+        assert res.status_code == 200
 
     def test_admin_can_update_and_it_is_reflected_on_read(self, client, db, auth_headers):
         headers = auth_headers()

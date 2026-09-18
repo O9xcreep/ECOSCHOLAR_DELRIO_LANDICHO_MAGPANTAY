@@ -1032,8 +1032,8 @@ function SystemTab() {
       </div>
       )}
 
-      {canManageSystemConfig && <FormBuilder />}
-      {canManageSystemConfig && <GuidelinesEditor />}
+      {canResetProgram && <FormBuilder />}
+      {canResetProgram && <GuidelinesEditor />}
     </div>
   )
 }
@@ -1254,7 +1254,7 @@ function AdminRequestsSection({ onApproved }) {
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                     <input type="checkbox" checked={pendingPermissions.can_reset_program}
                       onChange={e => setPendingPermissions(p => ({ ...p, can_reset_program: e.target.checked }))} />
-                    Reset the program
+                    Manage the program (reset, form, guidelines)
                   </label>
                 </div>
                 {pendingPermissions.can_manage_members && (
@@ -1529,7 +1529,7 @@ function TeamTab() {
                   checked={form.permissions.can_reset_program}
                   onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_reset_program: e.target.checked } }))}
                 />
-                Reset the program (archive the current program and start a new one)
+                Manage the program (reset/start it, and edit the application form and guidelines)
               </label>
             </div>
 
@@ -1635,7 +1635,7 @@ function TeamTab() {
                         disabled={admin.id === currentUser.id || savingPermissionsId === admin.id}
                         onChange={() => handleTogglePermission(admin, 'can_reset_program')}
                       />
-                      Reset program
+                      Manage program (reset, form, guidelines)
                     </label>
                   </div>
                 )}

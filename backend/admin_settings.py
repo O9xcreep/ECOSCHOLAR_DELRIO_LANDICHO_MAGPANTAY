@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from extensions import app, limiter, get_db, DEBUG
 from helpers import oid, iso, get_applicant_limit, are_results_visible, get_current_cycle, \
     get_current_cycle_id, is_cycle_open, form_is_locked, FORM_LOCKED_ERROR, do_program_reset
-from auth import require_auth, require_role, require_permission, current_organization_oid, \
+from auth import require_auth, require_permission, current_organization_oid, \
     is_full_access_role, has_permission, PROFILE_FIELDS
 from documents import get_doc_requirements_collection, serialize_doc_requirement, DEFAULT_DOC_LABELS
 from ml_scoring import recompute_approvals
@@ -62,9 +62,22 @@ def get_settings():
     return jsonify(serialize_settings(db, current_organization_oid()))
 
 @app.route('/api/settings', methods=['PUT'])
-@require_role('admin', 'lgu_admin')
+@require_auth
 def update_settings():
     data = request.get_json() or {}
+
+    # hidden_builtin_fields is part of "the form" itself (see form_is_locked
+    # below) - anyone trusted to reset the program can configure it, same as
+    # custom fields/document requirements/guidelines. Every other setting
+    # here (accepted-applicant limit, result visibility, the reset
+    # confirmation password) stays full-access-only.
+    is_full_access = is_full_access_role(g.current_user.get('role'))
+    FULL_ACCESS_ONLY_KEYS = {'max_accepted', 'results_visible_after', 'results_visible_override', 'reset_password'}
+    if any(k in data for k in FULL_ACCESS_ONLY_KEYS) and not is_full_access:
+        return jsonify({"error": "Forbidden"}), 403
+    if 'hidden_builtin_fields' in data and not (is_full_access or has_permission('can_reset_program')):
+        return jsonify({"error": "Forbidden"}), 403
+
     set_fields = {}
     unset_fields = {}
     db = get_db()
@@ -290,7 +303,7 @@ def list_form_fields():
     })
 
 @app.route('/api/form-fields', methods=['POST'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def create_form_field():
     data = request.get_json() or {}
     key = (data.get('key') or '').strip()
@@ -339,7 +352,7 @@ def create_form_field():
     return jsonify({"field": serialize_form_field(doc)}), 201
 
 @app.route('/api/form-fields/<field_id>', methods=['PUT'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def update_form_field(field_id):
     field_oid = oid(field_id)
     if not field_oid:
@@ -374,7 +387,7 @@ def update_form_field(field_id):
     return jsonify({"field": serialize_form_field(updated)})
 
 @app.route('/api/form-fields/<field_id>', methods=['DELETE'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def delete_form_field(field_id):
     field_oid = oid(field_id)
     if not field_oid:
@@ -400,7 +413,7 @@ def list_doc_requirements():
     return jsonify({"requirements": [serialize_doc_requirement(d) for d in docs]})
 
 @app.route('/api/document-requirements', methods=['POST'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def create_doc_requirement():
     data = request.get_json() or {}
     label = (data.get('label') or '').strip()
@@ -428,7 +441,7 @@ def create_doc_requirement():
     return jsonify({"requirement": serialize_doc_requirement(doc)}), 201
 
 @app.route('/api/document-requirements/<req_id>', methods=['PUT'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def update_doc_requirement(req_id):
     req_oid = oid(req_id)
     if not req_oid:
@@ -462,7 +475,7 @@ def update_doc_requirement(req_id):
     return jsonify({"requirement": serialize_doc_requirement(updated)})
 
 @app.route('/api/document-requirements/<req_id>', methods=['DELETE'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def delete_doc_requirement(req_id):
     req_oid = oid(req_id)
     if not req_oid:
@@ -549,7 +562,7 @@ def get_guidelines():
     return jsonify({"html": doc.get("guidelines_html", DEFAULT_GUIDELINES_HTML)})
 
 @app.route('/api/guidelines', methods=['PUT'])
-@require_role('admin', 'lgu_admin')
+@require_permission('can_reset_program')
 def update_guidelines():
     data = request.get_json() or {}
     html = data.get('html')
