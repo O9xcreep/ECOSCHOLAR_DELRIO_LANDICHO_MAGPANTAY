@@ -119,8 +119,8 @@ const STEPS = [
       <>
         <p>
           From <strong>Settings &rarr; Team</strong>, invite other LGU staff and choose what they
-          can do: review applicants, manage the team, and/or manage the program (reset or start it,
-          and edit the application form and student guidelines). Any single admin's approval
+          can do: review applicants, manage the team, and/or manage the program (set the applicant limit and result visibility, reset
+          or start it, and edit the application form and student guidelines). Any single admin's approval
           finalizes a new member, whichever permissions are granted - so only grant
           "manage team" to someone you trust to invite and remove others.
         </p>

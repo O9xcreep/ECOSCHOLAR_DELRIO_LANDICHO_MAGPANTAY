@@ -48,10 +48,11 @@ class TestCreateFormField:
 
 
 class TestFormConfigPermissionGating:
-    """Form fields, document requirements, and the built-in-field toggles are
-    all "the form" - gated by can_reset_program (full-access roles always
-    have it). The rest of PUT /api/settings (accepted-applicant limit, result
-    visibility, the reset confirmation password) stays full-access-only."""
+    """Form fields, document requirements, guidelines, and every program
+    setting (accepted-applicant limit, result visibility, the reset
+    confirmation password, built-in-field toggles) are all gated by
+    can_reset_program - full-access roles always have it, an lgu_member needs
+    it explicitly granted."""
 
     NEW_FIELD = {'key': 'perm_test_field', 'label': 'Perm Test', 'type': 'text', 'section': 'personal'}
 
@@ -86,21 +87,19 @@ class TestFormConfigPermissionGating:
         res = client.put('/api/settings', headers=headers, json={'hidden_builtin_fields': ['religion']})
         assert res.status_code == 403
 
-    def test_can_reset_program_alone_does_not_unlock_the_other_settings(self, client, auth_headers):
-        """max_accepted, result visibility, and the reset password stay
-        full-access-only even for a member who can reset the program."""
+    def test_lgu_member_with_can_reset_program_can_change_every_program_setting(self, client, auth_headers):
         headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        assert client.put('/api/settings', headers=headers, json={'max_accepted': 5}).status_code == 200
+        assert client.put('/api/settings', headers=headers, json={'results_visible_override': True}).status_code == 200
+        res = client.put('/api/settings', headers=headers, json={'reset_password': 'newpassword1'})
+        assert res.status_code == 200
+        assert res.get_json()['reset_password_set'] is True
+
+    def test_lgu_member_without_can_reset_program_cannot_change_any_program_setting(self, client, auth_headers):
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True, 'can_manage_members': True})
         assert client.put('/api/settings', headers=headers, json={'max_accepted': 5}).status_code == 403
         assert client.put('/api/settings', headers=headers, json={'results_visible_override': True}).status_code == 403
         assert client.put('/api/settings', headers=headers, json={'reset_password': 'newpassword1'}).status_code == 403
-
-    def test_mixing_a_restricted_key_with_hidden_builtin_fields_is_rejected(self, client, auth_headers):
-        """A can_reset_program member can't smuggle a restricted setting past
-        the gate by bundling it in the same request as an allowed one."""
-        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
-        res = client.put('/api/settings', headers=headers,
-                          json={'hidden_builtin_fields': ['religion'], 'max_accepted': 999})
-        assert res.status_code == 403
 
     def test_lgu_admin_can_still_change_every_setting(self, client, auth_headers):
         headers = auth_headers('lgu_admin')

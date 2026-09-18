@@ -62,22 +62,9 @@ def get_settings():
     return jsonify(serialize_settings(db, current_organization_oid()))
 
 @app.route('/api/settings', methods=['PUT'])
-@require_auth
+@require_permission('can_reset_program')
 def update_settings():
     data = request.get_json() or {}
-
-    # hidden_builtin_fields is part of "the form" itself (see form_is_locked
-    # below) - anyone trusted to reset the program can configure it, same as
-    # custom fields/document requirements/guidelines. Every other setting
-    # here (accepted-applicant limit, result visibility, the reset
-    # confirmation password) stays full-access-only.
-    is_full_access = is_full_access_role(g.current_user.get('role'))
-    FULL_ACCESS_ONLY_KEYS = {'max_accepted', 'results_visible_after', 'results_visible_override', 'reset_password'}
-    if any(k in data for k in FULL_ACCESS_ONLY_KEYS) and not is_full_access:
-        return jsonify({"error": "Forbidden"}), 403
-    if 'hidden_builtin_fields' in data and not (is_full_access or has_permission('can_reset_program')):
-        return jsonify({"error": "Forbidden"}), 403
-
     set_fields = {}
     unset_fields = {}
     db = get_db()

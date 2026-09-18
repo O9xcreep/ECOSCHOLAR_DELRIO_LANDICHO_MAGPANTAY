@@ -771,8 +771,6 @@ function SystemTab() {
           itself (its name, deadline, and starting it).
         </p>
 
-        {canManageSystemConfig && (
-        <>
         <div className="settings-subcard">
           <h5 className="settings-subcard-title">Accepted Applicant Limit</h5>
           <p className="info-sub" style={{ marginBottom: '14px' }}>
@@ -843,8 +841,6 @@ function SystemTab() {
           </div>
           {visibilityError && <div className="security-error" style={{ marginTop: '10px' }}>{visibilityError}</div>}
         </div>
-        </>
-        )}
 
         <div className="settings-subcard">
           <h5 className="settings-subcard-title">{isFirstSetup ? 'Set Up Scholarship Program' : 'Reset & Start New Program'}</h5>
@@ -871,8 +867,6 @@ function SystemTab() {
             </p>
           )}
 
-          {canManageSystemConfig && (
-          <>
           <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px', marginBottom: '14px' }}>
             <div>
               <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
@@ -894,15 +888,6 @@ function SystemTab() {
           </div>
           {resetPasswordError && <div className="security-error" style={{ marginBottom: '10px' }}>{resetPasswordError}</div>}
           {resetPasswordSuccess && <div className="info-sub" style={{ color: '#059669', marginBottom: '10px' }}>Reset confirmation password updated.</div>}
-          </>
-          )}
-
-          {!canManageSystemConfig && !resetPasswordSet && (
-            <p className="info-sub" style={{ marginBottom: '14px' }}>
-              No reset confirmation password has been set yet - ask the LGU's Admin to
-              set one in this same section before you can reset the program.
-            </p>
-          )}
 
           <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '10px' }}>
             <div>
@@ -1254,7 +1239,7 @@ function AdminRequestsSection({ onApproved }) {
                   <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', color: 'var(--text-secondary, #4b5563)' }}>
                     <input type="checkbox" checked={pendingPermissions.can_reset_program}
                       onChange={e => setPendingPermissions(p => ({ ...p, can_reset_program: e.target.checked }))} />
-                    Manage the program (reset, form, guidelines)
+                    Manage the program (settings, reset, form, guidelines)
                   </label>
                 </div>
                 {pendingPermissions.can_manage_members && (
@@ -1529,7 +1514,7 @@ function TeamTab() {
                   checked={form.permissions.can_reset_program}
                   onChange={e => setForm(p => ({ ...p, permissions: { ...p.permissions, can_reset_program: e.target.checked } }))}
                 />
-                Manage the program (reset/start it, and edit the application form and guidelines)
+                Manage the program (applicant limit, result visibility, reset/start it, application form, and guidelines)
               </label>
             </div>
 
@@ -1635,7 +1620,7 @@ function TeamTab() {
                         disabled={admin.id === currentUser.id || savingPermissionsId === admin.id}
                         onChange={() => handleTogglePermission(admin, 'can_reset_program')}
                       />
-                      Manage program (reset, form, guidelines)
+                      Manage program (settings, reset, form, guidelines)
                     </label>
                   </div>
                 )}
