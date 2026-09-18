@@ -50,6 +50,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const [updating, setUpdating] = useState(false)
   const [updateSuccess, setUpdateSuccess] = useState('')
   const [runningOcr, setRunningOcr] = useState(false)
+  const [ocrProgress, setOcrProgress] = useState(null) // { done, total } while documents are being OCR-checked
   const [ocrCheckWarnings, setOcrCheckWarnings] = useState(null)
   const [auditTrail, setAuditTrail] = useState([])
   const [loadingAudit, setLoadingAudit] = useState(false)
@@ -64,6 +65,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const modalRef = useRef(null)
   const closeBtnRef = useRef(null)
   const remarksRef = useRef(null)
+  const currentApplicantIdRef = useRef(null)
 
   // ALL HOOKS BEFORE EARLY RETURN
 
@@ -101,6 +103,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   }, [applicant, onClose])
 
  useEffect(() => {
+  currentApplicantIdRef.current = applicant?.id ?? null
   if (!applicant) return
 
   setRemarks('')
@@ -193,24 +196,58 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   // drive actual behavior (buttons, overrides) off the real stored status.
   const displayCurrentStatus = displayStatus(currentStatus, applicant.ml_status)
 
+  // OCR-checks every pending document, one per request: OCR is slow on a small
+  // server, and a single request covering all of them can outlive the server's
+  // timeout and get dropped. Each finished document is saved server-side, so a
+  // dropped connection only costs the document in flight - checking again
+  // picks up where it stopped. Resolves { ok: true, warnings } or
+  // { ok: false, message } (no message when the modal moved to another
+  // applicant); network failures reject.
+  const checkAllDocuments = async () => {
+    const applicantId = profile.id
+    const attempted = []
+    let done = 0
+    try {
+      while (true) {
+        const response = await apiFetch(`/api/applications/${applicantId}/check-documents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ exclude: attempted })
+        })
+        const data = await response.json()
+        if (!response.ok) return { ok: false, message: data.error || 'Could not run the OCR check' }
+        if (currentApplicantIdRef.current !== applicantId) return { ok: false }
+
+        done += data.results.length
+        attempted.push(...data.results.map(r => r.document_name))
+        setOcrProgress({ done, total: done + data.remaining })
+
+        const docsResponse = await apiFetch(`/api/documents/${applicantId}`).catch(() => null)
+        const docsData = docsResponse ? await docsResponse.json().catch(() => null) : null
+        if (docsData && currentApplicantIdRef.current === applicantId) {
+          setDocuments(docsData.documents || [])
+        }
+
+        if (data.remaining === 0 || data.results.length === 0) {
+          return { ok: true, warnings: data.warnings || [] }
+        }
+      }
+    } finally {
+      setOcrProgress(null)
+    }
+  }
+
   const handleRunOcrCheck = async () => {
     setRunningOcr(true)
     try {
-      const response = await apiFetch(`/api/applications/${profile.id}/check-documents`, {
-        method: 'POST'
-      })
-      const data = await response.json()
-      if (response.ok) {
-        setOcrCheckWarnings(data.warnings || [])
-        apiFetch(`/api/documents/${profile.id}`)
-          .then(res => res.json())
-          .then(docsData => setDocuments(docsData.documents || []))
-          .catch(() => {})
-      } else {
-        alert(data.error || 'Could not run the OCR check')
+      const outcome = await checkAllDocuments()
+      if (outcome.ok) {
+        setOcrCheckWarnings(outcome.warnings)
+      } else if (outcome.message) {
+        alert(outcome.message)
       }
     } catch {
-      alert('Cannot connect to server')
+      alert('Lost connection to the server during the OCR check. Documents already checked were saved - tap "Run OCR Check" to continue.')
     }
     setRunningOcr(false)
   }
@@ -317,6 +354,15 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
     setUpdating(true)
     try {
+      // OCR first, a document at a time, so the decision request below finds
+      // nothing left to OCR and stays fast.
+      const ocr = await checkAllDocuments()
+      if (!ocr.ok) {
+        if (ocr.message) alert(ocr.message)
+        setUpdating(false)
+        return
+      }
+
       const response = await apiFetch(`/api/applications/${applicant.id}/verify`, {
         method: 'PUT'
       })
@@ -334,7 +380,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
         alert(data.error || 'Could not decide eligibility for this applicant')
       }
     } catch {
-      alert('Cannot connect to server')
+      alert('Cannot connect to server. Documents already OCR-checked were saved - tap "Start Eligibility" again to continue.')
     }
     setUpdating(false)
   }
@@ -602,9 +648,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               <span>Submitted Documents</span>
               <button
                 className="btn-verify-doc"
-                disabled={runningOcr}
+                disabled={runningOcr || updating}
                 onClick={handleRunOcrCheck}>
-                {runningOcr ? 'Running OCR...' : 'Run OCR Check'}
+                {runningOcr
+                  ? (ocrProgress ? `Running OCR (${ocrProgress.done}/${ocrProgress.total})...` : 'Running OCR...')
+                  : 'Run OCR Check'}
               </button>
             </div>
             <div className="docs-grid">
@@ -744,30 +792,32 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           <div className="footer-actions">
             {isApproved && (
               <button className="btn-reject-modal"
-                disabled={updating}
+                disabled={updating || runningOcr}
                 onClick={() => handleStatusUpdate('Newly Submitted')}>
                 {updating ? 'Updating...' : 'Revoke Approval'}
               </button>
             )}
             {isRejected && (
               <button className="btn-approve-modal"
-                disabled={updating}
+                disabled={updating || runningOcr}
                 onClick={() => handleStatusUpdate('Newly Submitted')}>
                 {updating ? 'Updating...' : 'Reconsider'}
               </button>
             )}
             {isPending && (
               <button className="btn-reject-modal"
-                disabled={updating}
+                disabled={updating || runningOcr}
                 onClick={handleRequestChanges}>
                 {updating ? 'Sending...' : 'Request Changes'}
               </button>
             )}
             {isPending && (
               <button className="btn-approve-modal"
-                disabled={updating}
+                disabled={updating || runningOcr}
                 onClick={handleVerifyAndDecide}>
-                {updating ? 'Starting...' : 'Start Eligibility'}
+                {updating
+                  ? (ocrProgress ? `Checking documents ${ocrProgress.done}/${ocrProgress.total}...` : 'Starting...')
+                  : 'Start Eligibility'}
               </button>
             )}
             {isWithdrawn && (

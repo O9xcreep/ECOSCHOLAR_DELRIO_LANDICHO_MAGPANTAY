@@ -283,24 +283,35 @@ def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
     persist_ocr_result(db, applicant_oid, org_id, result)
     return result
 
+def documents_needing_ocr(applicant, required_labels):
+    """Names of uploaded required documents that haven't been OCR-checked
+    yet. The selfie is never OCR'd - it's compared manually against the ID."""
+    return [
+        d['document_name'] for d in applicant.get('documents', [])
+        if d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
+        and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')
+    ]
+
 def run_ocr_checks_concurrently(db, applicant, applicant_oid, document_names, org_id):
-    """Runs OCR for several documents in parallel via a thread pool, then
-    persists results sequentially."""
+    """Runs OCR for several documents in parallel via a thread pool. Each
+    result is saved the moment its document finishes, not after the whole
+    batch - if the request is killed partway (gunicorn --timeout), the
+    documents already done aren't lost and re-OCR'd from scratch."""
     if not document_names:
         return []
+
+    def check_and_save(name):
+        result = compute_ocr_result(applicant, applicant_oid, name)
+        persist_ocr_result(db, applicant_oid, org_id, result)
+        return result
+
     # Capped at 2 (not 4) - each doc can render up to MAX_PDF_PAGES pages at
     # 200dpi through Tesseract, and 4-way concurrency was exceeding available
     # RAM on a small instance, getting the process OOM-killed mid-request.
     # This is a memory-pressure fix, not a correctness one - don't raise it
     # back without addressing that first.
     with ThreadPoolExecutor(max_workers=min(2, len(document_names))) as pool:
-        results = list(pool.map(
-            lambda name: compute_ocr_result(applicant, applicant_oid, name),
-            document_names
-        ))
-    for result in results:
-        persist_ocr_result(db, applicant_oid, org_id, result)
-    return results
+        return list(pool.map(check_and_save, document_names))
 
 # ── UPLOAD DOCUMENT ──
 @app.route('/api/upload', methods=['POST'])
@@ -510,15 +521,26 @@ def verify_document_route():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
-# ── OCR-CHECK ALL DOCUMENTS FOR ONE APPLICANT ──
+# ── OCR-CHECK ONE APPLICANT'S DOCUMENTS, ONE DOCUMENT PER REQUEST ──
+# On a small instance a single document takes ~20s+ of OCR, so checking them
+# all in one request can pass gunicorn's --timeout, which kills the worker and
+# leaves the browser with a dropped connection. The caller loops until
+# `remaining` is 0, sending back the names it has already attempted as
+# `exclude` so a document that errors can't be picked again and stall the loop.
+OCR_DOCS_PER_REQUEST = 1
+
 @app.route('/api/applications/<applicant_id>/check-documents', methods=['POST'])
 @require_permission('can_review_applicants')
-@limiter.limit("10 per minute")
+@limiter.limit("60 per minute")
 def check_documents_route(applicant_id):
     try:
         applicant_oid = oid(applicant_id)
         if not applicant_oid:
             return jsonify({"error": "Invalid applicant id"}), 400
+
+        body = request.get_json(silent=True)
+        raw_exclude = body.get('exclude') if isinstance(body, dict) else None
+        exclude = {n for n in raw_exclude if isinstance(n, str)} if isinstance(raw_exclude, list) else set()
 
         db = get_db()
         org_id = current_organization_oid()
@@ -527,16 +549,13 @@ def check_documents_route(applicant_id):
             return jsonify({"error": "Applicant not found"}), 404
 
         required_labels = get_required_doc_labels(db, org_id)
-        to_check = [
-            d['document_name'] for d in applicant.get('documents', [])
-            if d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
-            and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')
-        ]
-        results = run_ocr_checks_concurrently(db, applicant, applicant_oid, to_check, org_id)
+        pending = [n for n in documents_needing_ocr(applicant, required_labels) if n not in exclude]
+        batch = pending[:OCR_DOCS_PER_REQUEST]
+        results = run_ocr_checks_concurrently(db, applicant, applicant_oid, batch, org_id)
 
         applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
         warnings = collect_verification_warnings(db, applicant, org_id)
-        return jsonify({"results": results, "warnings": warnings})
+        return jsonify({"results": results, "warnings": warnings, "remaining": len(pending) - len(batch)})
 
     except Exception as e:
         app.logger.error(str(e))

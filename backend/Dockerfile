@@ -15,6 +15,10 @@ COPY . .
 
 # Tesseract lives on PATH in this image (not the Windows path baked into ocr.py's default)
 ENV TESSERACT_CMD=/usr/bin/tesseract
+# Tesseract otherwise starts one OpenMP thread per visible core, and on a host
+# with a fractional CPU share (Render free) those threads just fight each other
+# and slow every OCR run down.
+ENV OMP_THREAD_LIMIT=1
 
 EXPOSE 5000
 # Render (and most PaaS hosts) inject $PORT at runtime - the app must bind to

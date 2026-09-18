@@ -11,7 +11,7 @@ from helpers import oid, EDUCATION_LABEL_FIX, income_to_bracket, STATUS_MESSAGES
     get_current_cycle_id, resolve_notify_user_id, create_notification, ml_education_map, derive_city
 from auth import require_permission, current_organization_oid
 from documents import get_required_doc_labels, collect_verification_warnings, \
-    run_ocr_checks_concurrently, SELFIE_DOC_LABEL
+    run_ocr_checks_concurrently, documents_needing_ocr
 
 # ── LOAD ML MODEL (EcoScholar classifier + regressor) ──
 # ecoscholar_predict.py loads its .joblib/.json files at import time; a missing
@@ -197,11 +197,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     # is compared manually, never OCR'd); results are surfaced as warnings
     # only, since document authenticity is the LGU's call, not an algorithm's.
     required_labels = get_required_doc_labels(db, org_id)
-    to_check = [
-        d['document_name'] for d in applicant.get('documents', [])
-        if d.get('document_name') in required_labels and d.get('status') == 'Uploaded'
-        and d.get('document_name') != SELFIE_DOC_LABEL and not d.get('ocr_status')
-    ]
+    to_check = documents_needing_ocr(applicant, required_labels)
     run_ocr_checks_concurrently(db, applicant, applicant_oid, to_check, org_id)
     applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
     warnings = collect_verification_warnings(db, applicant, org_id)

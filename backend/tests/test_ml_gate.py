@@ -4,8 +4,14 @@ documents.run_ocr_check) only ever surface warnings, never block
 GET /api/score-applicant/<id> or PUT /api/applications/<id>/verify. POST
 .../check-documents runs the same OCR pass standalone, before a decision."""
 import app as app_module
+import documents as documents_module
 
 REQUIRED_LABELS = ['Form A', 'Form B', app_module.SELFIE_DOC_LABEL]
+
+
+def fake_ocr_result(applicant, applicant_oid, document_name):
+    """Stands in for compute_ocr_result, which needs a real GridFS file."""
+    return {'document_name': document_name, 'status': 'Verified', 'confidence': 90, 'flags': []}
 
 
 def seed_required_docs(db):
@@ -187,10 +193,66 @@ class TestCheckDocumentsRoute:
         body = res.get_json()
         assert res.status_code == 200
         assert any('could not be OCR-checked' in w for w in body['warnings'])
-        # Form A + Form B are checked concurrently; each result must stay
-        # attributed to its own document (regression: a shared temp filename
-        # once let concurrent checks corrupt each other).
-        assert {r['document_name'] for r in body['results']} == {'Form A', 'Form B'}
+        assert [r['document_name'] for r in body['results']] == ['Form A']
+        assert body['remaining'] == 1
+
+    def test_checks_one_document_per_request_and_saves_each_immediately(
+            self, client, db, auth_headers, monkeypatch):
+        """A whole applicant's OCR in one request can outlive the server's
+        request timeout, so each call does one document and reports how many
+        are left; the result is saved as soon as it's done."""
+        monkeypatch.setattr(documents_module, 'compute_ocr_result', fake_ocr_result)
+        seed_required_docs(db)
+        applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs(ocr_status=None))
+        headers = auth_headers('admin')
+        url = f'/api/applications/{applicant_id}/check-documents'
+
+        first = client.post(url, headers=headers).get_json()
+        assert [r['document_name'] for r in first['results']] == ['Form A']
+        assert first['remaining'] == 1
+        saved = {d['document_name']: d.get('ocr_status') for d in db.applicants.find_one({'_id': applicant_id})['documents']}
+        assert saved['Form A'] == 'Verified'
+        assert saved['Form B'] is None
+
+        second = client.post(url, headers=headers).get_json()
+        assert [r['document_name'] for r in second['results']] == ['Form B']
+        assert second['remaining'] == 0
+
+        third = client.post(url, headers=headers).get_json()
+        assert third['results'] == []
+        assert third['remaining'] == 0
+        saved = {d['document_name']: d.get('ocr_status') for d in db.applicants.find_one({'_id': applicant_id})['documents']}
+        assert saved[app_module.SELFIE_DOC_LABEL] is None  # selfie is never OCR'd
+
+    def test_exclude_keeps_a_failing_document_from_stalling_the_loop(self, client, db, auth_headers):
+        """No gridfs_id here, so each document errors and is never saved -
+        without `exclude` the same first document would be picked forever."""
+        seed_required_docs(db)
+        applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs(ocr_status=None))
+        headers = auth_headers('admin')
+        url = f'/api/applications/{applicant_id}/check-documents'
+
+        first = client.post(url, headers=headers, json={'exclude': []}).get_json()
+        assert [r['document_name'] for r in first['results']] == ['Form A']
+        assert first['remaining'] == 1
+
+        second = client.post(url, headers=headers, json={'exclude': ['Form A']}).get_json()
+        assert [r['document_name'] for r in second['results']] == ['Form B']
+        assert second['remaining'] == 0
+
+        third = client.post(url, headers=headers, json={'exclude': ['Form A', 'Form B']}).get_json()
+        assert third['results'] == []
+        assert third['remaining'] == 0
+
+    def test_malformed_exclude_is_ignored(self, client, db, auth_headers):
+        seed_required_docs(db)
+        applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs(ocr_status=None))
+        headers = auth_headers('admin')
+        url = f'/api/applications/{applicant_id}/check-documents'
+        for body in ({'exclude': 'Form A'}, {'exclude': {'Form A': 1}}, {'exclude': [1, None]}, ['Form A']):
+            res = client.post(url, headers=headers, json=body)
+            assert res.status_code == 200
+            assert [r['document_name'] for r in res.get_json()['results']] == ['Form A']
 
     def test_no_warnings_when_already_verified(self, client, db, auth_headers):
         seed_required_docs(db)
