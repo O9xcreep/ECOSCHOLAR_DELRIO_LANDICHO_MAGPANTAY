@@ -168,6 +168,30 @@ def get_applicants():
             raise
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
+# ── EXPORT ALL APPLICANTS ──
+# Feeds Settings -> System's Data Export, which anyone who can manage the
+# program may use even without can_review_applicants (that permission gates the
+# Applications/Ranking pages, not this). Same rows as an unpaginated
+# GET /api/applicants: every cycle, minus superseded withdrawn records.
+@app.route('/api/applicants/export', methods=['GET'])
+@require_permission('can_reset_program')
+def export_applicants():
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        required_labels = get_required_doc_labels(db, org_id)
+        applicants = []
+        for doc in db.applicants.find({"organization_id": org_id, "application.superseded_by": {"$exists": False}}):
+            flat = serialize_applicant(doc)
+            flat['application_status'] = compute_admin_status(doc, required_labels)
+            applicants.append(flat)
+        return jsonify({"applicants": applicants})
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
 # ── APPLICANT TAB/BADGE COUNTS (ALL AT ONCE) ── returns per-tab counts for the
 # Applications page in one query pass, instead of one request per tab (three
 # of which would otherwise each re-fetch and recompute the same status pool).

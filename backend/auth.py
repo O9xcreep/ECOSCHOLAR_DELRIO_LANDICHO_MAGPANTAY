@@ -183,6 +183,18 @@ def require_permission(permission):
         return wrapper
     return decorator
 
+def require_any_permission(*permissions):
+    """Passes if the caller has at least one of the given permissions."""
+    def decorator(f):
+        @wraps(f)
+        @require_auth
+        def wrapper(*args, **kwargs):
+            if not any(has_permission(p) for p in permissions):
+                return jsonify({"error": "Forbidden"}), 403
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
 # ── AUTH: LOGIN ──
 @app.route('/api/login', methods=['POST'])
 @limiter.limit("8 per minute")

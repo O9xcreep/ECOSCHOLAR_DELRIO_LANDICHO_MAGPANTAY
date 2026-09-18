@@ -322,3 +322,69 @@ class TestProgramDeadline:
         body = res.get_json()
         assert body['application'] is None
         assert body['current_cycle']['is_open'] is True
+
+
+class TestProgramManagerAccess:
+    """Settings -> System is for anyone with can_reset_program, so the data it
+    reads/writes has to be reachable with just that permission - not also
+    can_review_applicants, which gates the Applications/Ranking pages."""
+
+    PROGRAM_ONLY = {'can_reset_program': True}
+    REVIEW_ONLY = {'can_review_applicants': True}
+
+    def test_program_manager_can_export_applicants(self, client, auth_headers, db):
+        db.applicants.insert_one({'full_name': 'Exportable', 'email': 'exp@test.com',
+                                   'application': {'status': 'Approved'}})
+        res = client.get('/api/applicants/export', headers=auth_headers('lgu_member', permissions=self.PROGRAM_ONLY))
+        assert res.status_code == 200
+        assert [a['full_name'] for a in res.get_json()['applicants']] == ['Exportable']
+
+    def test_export_requires_can_reset_program(self, client, auth_headers):
+        res = client.get('/api/applicants/export', headers=auth_headers('lgu_member', permissions=self.REVIEW_ONLY))
+        assert res.status_code == 403
+        assert client.get('/api/applicants/export', headers=auth_headers('student')).status_code == 403
+
+    def test_export_hides_superseded_withdrawn_records(self, client, auth_headers, db):
+        db.applicants.insert_one({'full_name': 'Old', 'email': 'a@test.com',
+                                   'application': {'status': 'Withdrawn', 'superseded_by': 'newer'}})
+        db.applicants.insert_one({'full_name': 'New', 'email': 'a@test.com',
+                                   'application': {'status': 'Newly Submitted'}})
+        res = client.get('/api/applicants/export', headers=auth_headers('lgu_admin'))
+        assert [a['full_name'] for a in res.get_json()['applicants']] == ['New']
+
+    def test_cycle_list_readable_with_either_permission(self, client, auth_headers):
+        assert client.get('/api/program-cycles', headers=auth_headers('lgu_member', permissions=self.PROGRAM_ONLY)).status_code == 200
+        assert client.get('/api/program-cycles', headers=auth_headers('lgu_member', permissions=self.REVIEW_ONLY)).status_code == 200
+
+    def test_cycle_list_forbidden_without_either_permission(self, client, auth_headers):
+        res = client.get('/api/program-cycles', headers=auth_headers('lgu_member', permissions={'can_manage_members': True}))
+        assert res.status_code == 403
+
+
+class TestUpdateCurrentCycleDeadline:
+    URL = '/api/program-cycles/current/deadline'
+
+    def _future(self, days=5):
+        return (datetime.utcnow() + timedelta(days=days)).isoformat()
+
+    def test_program_manager_can_extend_the_live_deadline(self, client, auth_headers, db, open_cycle):
+        headers = auth_headers('lgu_member', permissions={'can_reset_program': True})
+        res = client.put(self.URL, headers=headers, json={'deadline': self._future()})
+        assert res.status_code == 200
+        assert res.get_json()['deadline'] is not None
+        assert db.program_cycles.find_one({'_id': open_cycle})['deadline'] is not None
+
+    def test_requires_can_reset_program(self, client, auth_headers, open_cycle):
+        headers = auth_headers('lgu_member', permissions={'can_review_applicants': True})
+        assert client.put(self.URL, headers=headers, json={'deadline': self._future()}).status_code == 403
+
+    def test_deadline_is_required(self, client, auth_headers, open_cycle):
+        assert client.put(self.URL, headers=auth_headers(), json={}).status_code == 400
+
+    def test_past_deadline_rejected(self, client, auth_headers, open_cycle):
+        past = (datetime.utcnow() - timedelta(days=1)).isoformat()
+        assert client.put(self.URL, headers=auth_headers(), json={'deadline': past}).status_code == 400
+
+    def test_no_running_program_rejected(self, client, auth_headers):
+        res = client.put(self.URL, headers=auth_headers(), json={'deadline': self._future()})
+        assert res.status_code == 400

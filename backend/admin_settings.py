@@ -10,7 +10,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from extensions import app, limiter, get_db, DEBUG
 from helpers import oid, iso, get_applicant_limit, are_results_visible, get_current_cycle, \
     get_current_cycle_id, is_cycle_open, form_is_locked, FORM_LOCKED_ERROR, do_program_reset
-from auth import require_auth, require_permission, current_organization_oid, \
+from auth import require_auth, require_permission, require_any_permission, current_organization_oid, \
     is_full_access_role, has_permission, PROFILE_FIELDS
 from documents import get_doc_requirements_collection, serialize_doc_requirement, DEFAULT_DOC_LABELS
 from ml_scoring import recompute_approvals
@@ -137,8 +137,10 @@ def update_settings():
         return jsonify({"error": "Something went wrong. Please try again."}), 500
 
 # ── LIST PROGRAM CYCLES ──
+# Readable by anyone who reviews applicants (Reports) or manages the program
+# (Settings -> System's export range picker and program info).
 @app.route('/api/program-cycles', methods=['GET'])
-@require_permission('can_review_applicants')
+@require_any_permission('can_review_applicants', 'can_reset_program')
 def list_program_cycles():
     db = get_db()
     org_id = current_organization_oid()
@@ -217,10 +219,10 @@ def program_reset():
 # ── UPDATE CURRENT CYCLE'S DEADLINE ──
 # Lets an admin extend or tighten the deadline of the program that's already
 # running, without going through the destructive archive-and-start-new flow
-# that POST /api/program-reset requires. Gated by can_review_applicants (not
-# can_reset_program) since nothing here is destructive.
+# that POST /api/program-reset requires. Gated by can_reset_program, same as
+# the rest of the program settings it sits next to in Settings -> System.
 @app.route('/api/program-cycles/current/deadline', methods=['PUT'])
-@require_permission('can_review_applicants')
+@require_permission('can_reset_program')
 def update_current_cycle_deadline():
     data = request.get_json() or {}
     raw_deadline = data.get('deadline')

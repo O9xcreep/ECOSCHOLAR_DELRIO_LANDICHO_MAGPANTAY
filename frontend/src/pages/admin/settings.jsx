@@ -480,8 +480,7 @@ function localInputValueToUtcIso(localStr) {
 
 function SystemTab() {
   const currentUser = getUser() || {}
-  const canManageSystemConfig = isFullAccess(currentUser)
-  const canResetProgram = canManageSystemConfig || !!currentUser.permissions?.can_reset_program
+  const canResetProgram = isFullAccess(currentUser) || !!currentUser.permissions?.can_reset_program
 
   const [slots, setSlots] = useState(20)
   const [savedLimit, setSavedLimit] = useState(20)
@@ -706,8 +705,9 @@ function SystemTab() {
   const handleExportExcel = async () => {
     setExporting(true)
     try {
-      const res = await apiFetch('/api/applicants')
+      const res = await apiFetch('/api/applicants/export')
       const data = await res.json()
+      if (!res.ok) { alert(data.error || 'Failed to export applicants'); return }
       let applicants = data.applicants || []
       if (exportFrom) applicants = applicants.filter(a => a.submitted_at && a.submitted_at.slice(0, 10) >= exportFrom)
       if (exportTo) applicants = applicants.filter(a => a.submitted_at && a.submitted_at.slice(0, 10) <= exportTo)
@@ -967,7 +967,7 @@ function SystemTab() {
       </div>
       )}
 
-      {canManageSystemConfig && (
+      {canResetProgram && (
       <div className="settings-card">
         <h4 className="card-label">Data Export</h4>
         <p className="info-sub" style={{ marginBottom: '14px' }}>
