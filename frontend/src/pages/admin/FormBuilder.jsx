@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { apiFetch } from '../../api'
+import { apiFetch, connectionErrorMessage } from '../../api'
 import './FormBuilder.css'
 
 const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select', 'checkbox']
@@ -132,7 +132,7 @@ function FormBuilder() {
       setNewDoc(EMPTY_NEW_DOC)
       setShowAddDoc(false)
     } catch {
-      setDocError('Cannot connect to server. Please try again.')
+      setDocError(connectionErrorMessage())
     } finally {
       setSavingDoc(false)
     }
@@ -228,7 +228,7 @@ function FormBuilder() {
       setNewField(EMPTY_NEW_FIELD)
       setShowAddForm(false)
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setSaving(false)
     }

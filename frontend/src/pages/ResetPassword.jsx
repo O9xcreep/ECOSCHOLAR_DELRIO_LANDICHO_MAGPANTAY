@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { API_BASE_URL } from '../api'
+import { API_BASE_URL, fetchWithTimeout, connectionErrorMessage } from '../api'
 
 const css = `
   .rp-page {
@@ -77,7 +77,7 @@ function ResetPassword() {
 
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/reset-password`, {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, new_password: newPassword })
@@ -89,7 +89,7 @@ function ResetPassword() {
         setSuccess(true)
       }
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     }
     setLoading(false)
   }, [token, newPassword, confirmPassword])

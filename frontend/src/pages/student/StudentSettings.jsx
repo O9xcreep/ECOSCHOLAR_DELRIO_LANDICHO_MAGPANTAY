@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch, getUser, setSession, clearSession, logout } from '../../api'
+import { apiFetch, getUser, setSession, clearSession, logout, connectionErrorMessage } from '../../api'
 import Reveal from '../../components/Reveal'
 import Credits from '../../components/Credits'
 import pageBg from '../../assets/bg4.jpg'
@@ -51,7 +51,7 @@ function YourOrganizationsCard() {
       // list/dashboard showing stale data from the previous org.
       window.location.href = '/student/dashboard'
     } catch {
-      setSwitchError('Cannot connect to server. Please try again.')
+      setSwitchError(connectionErrorMessage())
     } finally {
       setSwitchingId('')
     }
@@ -69,7 +69,7 @@ function YourOrganizationsCard() {
       if (!res.ok) { setJoinCodeError(data.error || "That join code isn't valid. Check it with your LGU and try again."); return }
       setJoinCodeOrgName(data.organization.name)
     } catch {
-      setJoinCodeError('Cannot connect to server. Please try again.')
+      setJoinCodeError(connectionErrorMessage())
     } finally {
       setJoinCodeChecking(false)
     }
@@ -90,7 +90,7 @@ function YourOrganizationsCard() {
       setSession(data.user, data.token)
       window.location.href = '/student/dashboard'
     } catch {
-      setJoinError('Cannot connect to server. Please try again.')
+      setJoinError(connectionErrorMessage())
     } finally {
       setJoining(false)
     }
@@ -165,7 +165,7 @@ function DangerZoneCard() {
       clearSession()
       navigate('/login')
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setDeleting(false)
     }
@@ -270,7 +270,7 @@ function ProfileTab() {
       if (key === 'fullName') setSession({ ...user, full_name: data.fullName }, localStorage.getItem('token'))
       setEditing(null)
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setSaving(false)
     }
@@ -415,7 +415,7 @@ function SecurityTab() {
       setSuccess(true)
       setPasswords({ current: '', newPass: '', confirm: '' })
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setSaving(false)
     }

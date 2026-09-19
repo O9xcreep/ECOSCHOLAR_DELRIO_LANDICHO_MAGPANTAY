@@ -1,5 +1,27 @@
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5000'
 
+// A request that never connects makes the browser hang ~40s before failing, with
+// nothing on screen to say why. Give up sooner so the user gets an answer.
+export const REQUEST_TIMEOUT_MS = 15000
+
+// fetch that aborts (rejecting with an AbortError) if the server hasn't started
+// responding within timeoutMs. The timer stops once headers arrive, so a slow
+// response body is never cut off.
+export function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timer))
+}
+
+// Message for when fetch itself fails (offline, blocked, DNS, timeout) as opposed
+// to the server answering with an error.
+export function connectionErrorMessage() {
+  if (navigator.onLine === false) {
+    return 'You appear to be offline. Check your internet connection and try again.'
+  }
+  return "Can't reach the server. Check your internet connection, or try again in a minute."
+}
+
 // A "Rejected" applicant who was actually eligible just lost their slot to a
 // higher-ranked applicant (see the accepted-applicant limit on the Ranking page) -
 // display that as "Waitlisted" rather than "Rejected", since it isn't a judgment

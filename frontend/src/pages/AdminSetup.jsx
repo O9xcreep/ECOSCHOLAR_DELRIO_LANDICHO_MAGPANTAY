@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { API_BASE_URL } from '../api'
+import { API_BASE_URL, fetchWithTimeout, connectionErrorMessage } from '../api'
 
 // For a team member an existing admin invited directly (Settings > Team > Add
 // Admin, or Resend Invite) - they got an emailed 6-digit code, not a link.
@@ -79,7 +79,7 @@ function AdminSetup() {
 
     setLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/admins/verify-setup-code`, {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/admins/verify-setup-code`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim().toLowerCase(), code: code.trim() })
@@ -91,7 +91,7 @@ function AdminSetup() {
       }
       navigate(`/apply-admin?token=${encodeURIComponent(data.token)}`)
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setLoading(false)
     }
@@ -102,14 +102,14 @@ function AdminSetup() {
     if (!email.trim()) { setError('Enter your email first'); return }
     setResendLoading(true)
     try {
-      await fetch(`${API_BASE_URL}/api/admins/resend-setup-otp`, {
+      await fetchWithTimeout(`${API_BASE_URL}/api/admins/resend-setup-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim().toLowerCase() })
       })
       setResendMessage('If that email has a pending invite, a new code has been sent.')
     } catch {
-      setResendMessage('Cannot connect to server. Please try again.')
+      setResendMessage(connectionErrorMessage())
     } finally {
       setResendLoading(false)
     }

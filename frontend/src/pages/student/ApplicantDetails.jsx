@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch, getUser, displayStatus } from '../../api'
+import { apiFetch, getUser, displayStatus, connectionErrorMessage } from '../../api'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg1.jpg'
@@ -130,7 +130,7 @@ function ApplicantDetails() {
       }
       loadApplicantDetails()
     } catch {
-      setWithdrawError('Cannot connect to server. Please try again.')
+      setWithdrawError(connectionErrorMessage())
     } finally {
       setWithdrawing(false)
     }

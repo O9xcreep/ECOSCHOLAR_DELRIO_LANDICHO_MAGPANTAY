@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { apiFetch, displayStatus, getUser } from '../../api'
+import { apiFetch, displayStatus, getUser, connectionErrorMessage } from '../../api'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg2.jpg'
@@ -65,7 +65,7 @@ function Ranking() {
       setApprovedCount(data.approved_count)
       await fetchRanking()
     } catch {
-      setLimitError('Cannot connect to server. Please try again.')
+      setLimitError(connectionErrorMessage())
     } finally {
       setSavingLimit(false)
     }

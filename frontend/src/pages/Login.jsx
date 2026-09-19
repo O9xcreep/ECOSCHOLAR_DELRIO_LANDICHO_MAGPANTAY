@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { API_BASE_URL, setSession } from '../api'
+import { API_BASE_URL, setSession, fetchWithTimeout, connectionErrorMessage } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
 import studentBg from '../assets/student-bg.jpg'
 
@@ -687,12 +687,20 @@ function Login() {
 
     setLoginLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/login`, {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
       })
-      const data = await res.json()
+
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        // The server answered, but not with JSON (e.g. a 502 page while Render restarts).
+        setLoginError('The server had a problem. Please try again in a minute.')
+        return
+      }
 
       if (!res.ok) {
         setLoginError(data.error || 'Invalid email or password')
@@ -702,7 +710,7 @@ function Login() {
       setSession(data.user, data.token)
       navigate(data.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard')
     } catch {
-      setLoginError('Cannot connect to server. Please try again.')
+      setLoginError(connectionErrorMessage())
     } finally {
       setLoginLoading(false)
     }
@@ -717,7 +725,7 @@ function Login() {
 
     setJoinCodeChecking(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/organizations/lookup?code=${encodeURIComponent(code)}`)
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/organizations/lookup?code=${encodeURIComponent(code)}`)
       const data = await res.json()
       if (!res.ok) {
         setJoinCodeError(data.error || "That join code isn't valid. Check it with your LGU and try again.")
@@ -725,7 +733,7 @@ function Login() {
       }
       setJoinCodeOrgName(data.organization.name)
     } catch {
-      setJoinCodeError('Cannot connect to server. Please try again.')
+      setJoinCodeError(connectionErrorMessage())
     } finally {
       setJoinCodeChecking(false)
     }
@@ -768,7 +776,7 @@ function Login() {
 
     setRegLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/register`, {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -806,7 +814,7 @@ function Login() {
 
       setRegStep(3)
     } catch {
-      setRegError('Cannot connect to server. Please try again.')
+      setRegError(connectionErrorMessage())
     } finally {
       setRegLoading(false)
     }
@@ -819,7 +827,7 @@ function Login() {
 
     setRegOtpLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/api/register/verify-otp`, {
+      const res = await fetchWithTimeout(`${API_BASE_URL}/api/register/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: regData.email.trim().toLowerCase(), code: regOtpCode.trim() })
@@ -834,7 +842,7 @@ function Login() {
       setSession(data.user, data.token)
       navigate('/student/dashboard')
     } catch {
-      setRegOtpError('Cannot connect to server. Please try again.')
+      setRegOtpError(connectionErrorMessage())
     } finally {
       setRegOtpLoading(false)
     }
@@ -844,14 +852,14 @@ function Login() {
     setRegResendMessage('')
     setRegResendLoading(true)
     try {
-      await fetch(`${API_BASE_URL}/api/register/resend-otp`, {
+      await fetchWithTimeout(`${API_BASE_URL}/api/register/resend-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: regData.email.trim().toLowerCase() })
       })
       setRegResendMessage('A new code has been sent to your email.')
     } catch {
-      setRegResendMessage('Cannot connect to server. Please try again.')
+      setRegResendMessage(connectionErrorMessage())
     } finally {
       setRegResendLoading(false)
     }
@@ -865,7 +873,7 @@ function Login() {
 
     setForgotLoading(true)
     try {
-      await fetch(`${API_BASE_URL}/api/forgot-password`, {
+      await fetchWithTimeout(`${API_BASE_URL}/api/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: forgotEmail.trim().toLowerCase() })
@@ -874,7 +882,7 @@ function Login() {
       // exists, so there's nothing to branch on here - just show the sent state.
       setForgotSent(true)
     } catch {
-      setForgotError('Cannot connect to server. Please try again.')
+      setForgotError(connectionErrorMessage())
     }
     setForgotLoading(false)
   }, [forgotEmail])

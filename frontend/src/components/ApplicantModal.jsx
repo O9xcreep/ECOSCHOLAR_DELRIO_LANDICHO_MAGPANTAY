@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { apiFetch, displayStatus } from '../api'
+import { apiFetch, displayStatus, connectionErrorMessage } from '../api'
 import './ApplicantModal.css'
 
 // Must match backend's SELFIE_DOC_LABEL / ID_DOC_LABEL (backend/app.py). The selfie is
@@ -268,7 +268,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
       const url = URL.createObjectURL(blob)
       window.open(url, '_blank')
     } catch {
-      alert('Cannot connect to server')
+      alert(connectionErrorMessage())
     }
     setViewingDoc('')
   }
@@ -304,7 +304,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
         alert('Failed to update status')
       }
     } catch {
-      alert('Cannot connect to server')
+      alert(connectionErrorMessage())
     }
     setUpdating(false)
   }
@@ -339,7 +339,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
         alert(data.error || 'Could not request changes for this applicant')
       }
     } catch {
-      alert('Cannot connect to server')
+      alert(connectionErrorMessage())
     }
     setUpdating(false)
   }
@@ -380,7 +380,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
         alert(data.error || 'Could not decide eligibility for this applicant')
       }
     } catch {
-      alert('Cannot connect to server. Documents already OCR-checked were saved - tap "Start Eligibility" again to continue.')
+      alert(`${connectionErrorMessage()} Documents already OCR-checked were saved - tap "Start Eligibility" again to continue.`)
     }
     setUpdating(false)
   }

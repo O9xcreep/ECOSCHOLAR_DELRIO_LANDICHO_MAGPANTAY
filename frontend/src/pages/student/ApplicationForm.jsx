@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { apiFetch, displayStatus } from '../../api'
+import { apiFetch, displayStatus, connectionErrorMessage } from '../../api'
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
 
@@ -1051,7 +1051,7 @@ function ApplicationForm() {
       localStorage.removeItem('applicationDraft')
 
     } catch {
-      alert('Cannot connect to server. Please try again.')
+      alert(connectionErrorMessage())
       setSubmitting(false)
     }
   }

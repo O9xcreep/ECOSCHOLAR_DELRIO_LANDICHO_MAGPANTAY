@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import { apiFetch, displayStatus, getUser } from '../../api'
+import { apiFetch, displayStatus, getUser, connectionErrorMessage } from '../../api'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg4.jpg'
@@ -77,7 +77,7 @@ function Dashboard() {
       const url = URL.createObjectURL(blob)
       window.open(url, '_blank')
     } catch {
-      alert('Cannot connect to server')
+      alert(connectionErrorMessage())
     }
     setOpeningDoc('')
   }

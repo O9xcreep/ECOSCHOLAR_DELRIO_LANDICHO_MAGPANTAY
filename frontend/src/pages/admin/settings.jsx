@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import writeExcelFile from 'write-excel-file/browser'
-import { apiFetch, getUser, setSession, clearSession, logout, isFullAccess } from '../../api'
+import { apiFetch, getUser, setSession, clearSession, logout, isFullAccess, connectionErrorMessage } from '../../api'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
 import AdminGuide from './AdminGuide'
@@ -65,7 +65,7 @@ function YourOrganizationsCard() {
       // in-place update would leave every list/dashboard showing stale data.
       window.location.href = '/admin/dashboard'
     } catch {
-      setSwitchError('Cannot connect to server. Please try again.')
+      setSwitchError(connectionErrorMessage())
     } finally {
       setSwitchingId('')
     }
@@ -83,7 +83,7 @@ function YourOrganizationsCard() {
       if (!res.ok) { setJoinCodeError(data.error || "That join code isn't valid. Check it with your LGU and try again."); return }
       setJoinCodeOrgName(data.organization.name)
     } catch {
-      setJoinCodeError('Cannot connect to server. Please try again.')
+      setJoinCodeError(connectionErrorMessage())
     } finally {
       setJoinCodeChecking(false)
     }
@@ -114,7 +114,7 @@ function YourOrganizationsCard() {
       setShowJoinForm(false)
       setJoinCode(''); setJoinCodeOrgName(''); setContactNumber(''); setMessage(''); setProofFile(null)
     } catch {
-      setSubmitError('Cannot connect to server. Please try again.')
+      setSubmitError(connectionErrorMessage())
     } finally {
       setSubmitting(false)
     }
@@ -223,7 +223,7 @@ function DangerZoneCard() {
       clearSession()
       navigate('/login')
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setDeleting(false)
     }
@@ -291,7 +291,7 @@ function ProfileTab() {
       setSession({ ...user, full_name: data.fullName }, localStorage.getItem('token'))
       setEditing(false)
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setSaving(false)
     }
@@ -424,7 +424,7 @@ function SecurityTab() {
       setSuccess(true)
       setPasswords({ current: '', next: '', confirm: '' })
     } catch {
-      setError('Cannot connect to server. Please try again.')
+      setError(connectionErrorMessage())
     } finally {
       setSaving(false)
     }
@@ -573,7 +573,7 @@ function SystemTab() {
       setNewResetPassword('')
       setResetPasswordSuccess(true)
     } catch {
-      setResetPasswordError('Cannot connect to server. Please try again.')
+      setResetPasswordError(connectionErrorMessage())
     } finally {
       setSavingResetPassword(false)
     }
@@ -613,7 +613,7 @@ function SystemTab() {
       setCurrentCycle(data.current_cycle)
       setApprovedCount(data.approved_count)
     } catch {
-      setResetError('Cannot connect to server. Please try again.')
+      setResetError(connectionErrorMessage())
     } finally {
       setResetting(false)
     }
@@ -634,7 +634,7 @@ function SystemTab() {
       setCurrentCycle(data)
       setUpdateDeadlineSuccess('Deadline updated.')
     } catch {
-      setUpdateDeadlineError('Cannot connect to server. Please try again.')
+      setUpdateDeadlineError(connectionErrorMessage())
     } finally {
       setUpdatingDeadline(false)
     }
@@ -662,7 +662,7 @@ function SystemTab() {
       setSavedOverride(override)
       setResultsVisibleNow(data.results_visible_now)
     } catch {
-      setVisibilityError('Cannot connect to server. Please try again.')
+      setVisibilityError(connectionErrorMessage())
     } finally {
       setSavingVisibility(false)
     }
@@ -682,7 +682,7 @@ function SystemTab() {
       setSavedLimit(data.max_accepted)
       setApprovedCount(data.approved_count)
     } catch {
-      setLimitError('Cannot connect to server. Please try again.')
+      setLimitError(connectionErrorMessage())
     } finally {
       setSavingLimit(false)
     }
@@ -1067,7 +1067,7 @@ function AdminRequestsSection({ onApproved }) {
       const url = URL.createObjectURL(blob)
       window.open(url, '_blank')
     } catch {
-      alert('Cannot connect to server')
+      alert(connectionErrorMessage())
     }
     setOpeningProofId('')
   }
@@ -1100,7 +1100,7 @@ function AdminRequestsSection({ onApproved }) {
       setRequests(prev => prev.filter(r => r.id !== req.id))
       onApproved?.()
     } catch {
-      setActionError('Cannot connect to server. Please try again.')
+      setActionError(connectionErrorMessage())
     } finally {
       setActioningId(null)
     }
@@ -1117,7 +1117,7 @@ function AdminRequestsSection({ onApproved }) {
       setRequests(prev => prev.filter(r => r.id !== req.id))
       onApproved?.()
     } catch {
-      setActionError('Cannot connect to server. Please try again.')
+      setActionError(connectionErrorMessage())
     } finally {
       setActioningId(null)
     }
@@ -1133,7 +1133,7 @@ function AdminRequestsSection({ onApproved }) {
       if (!res.ok) { setActionError(data.error || 'Failed to reject request'); return }
       setRequests(prev => prev.filter(r => r.id !== req.id))
     } catch {
-      setActionError('Cannot connect to server. Please try again.')
+      setActionError(connectionErrorMessage())
     } finally {
       setActioningId(null)
     }
@@ -1380,7 +1380,7 @@ function TeamTab() {
       setForm(EMPTY_TEAM_FORM)
       setShowForm(false)
     } catch {
-      setFormError('Cannot connect to server. Please try again.')
+      setFormError(connectionErrorMessage())
     } finally {
       setCreating(false)
     }
@@ -1400,7 +1400,7 @@ function TeamTab() {
       if (!res.ok) { setPermissionsError(data.error || 'Failed to update permissions'); return }
       setAdmins(prev => prev.map(a => a.id === admin.id ? data.admin : a))
     } catch {
-      setPermissionsError('Cannot connect to server. Please try again.')
+      setPermissionsError(connectionErrorMessage())
     } finally {
       setSavingPermissionsId(null)
     }
@@ -1415,7 +1415,7 @@ function TeamTab() {
       if (!res.ok) { alert(data.error || 'Failed to resend invite'); return }
       setResendMessage(`Invite resent to ${admin.email}`)
     } catch {
-      alert('Cannot connect to server. Please try again.')
+      alert(connectionErrorMessage())
     } finally {
       setResendingId(null)
     }
@@ -1430,7 +1430,7 @@ function TeamTab() {
       if (!res.ok) { alert(data.error || 'Failed to remove admin account'); return }
       setAdmins(prev => prev.filter(a => a.id !== admin.id))
     } catch {
-      alert('Cannot connect to server. Please try again.')
+      alert(connectionErrorMessage())
     } finally {
       setRemovingId(null)
     }
@@ -1451,7 +1451,7 @@ function TeamTab() {
       if (!res.ok) { alert(data.error || 'Failed to pass on the Admin role'); return }
       await loadAdmins()
     } catch {
-      alert('Cannot connect to server. Please try again.')
+      alert(connectionErrorMessage())
     } finally {
       setTransferringId(null)
     }

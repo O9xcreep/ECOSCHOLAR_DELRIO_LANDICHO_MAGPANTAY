@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { apiFetch } from '../../api'
+import { apiFetch, connectionErrorMessage } from '../../api'
 import './GuidelinesEditor.css'
 
 // A dependency-free rich text editor: a contentEditable region driven by
@@ -81,7 +81,7 @@ function GuidelinesEditor() {
       setDirty(false)
       setSaved(true)
     } catch {
-      setSaveError('Cannot connect to server. Please try again.')
+      setSaveError(connectionErrorMessage())
     } finally {
       setSaving(false)
     }
