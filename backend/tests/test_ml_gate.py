@@ -119,6 +119,36 @@ class TestScoreApplicantNeverBlocks:
         assert body['warnings'] == []
 
 
+class TestScorePreviewIsReadOnly:
+    """Viewing the score must not save it: recompute_approvals() treats any
+    stored ml_status of 'Eligible' as officially eligible and can approve that
+    applicant, so only the verify (Start Eligibility) action may write one."""
+
+    def test_score_applicant_does_not_save_the_score(self, client, db, auth_headers):
+        seed_required_docs(db)
+        applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs())
+        db.applicants.update_one({'_id': applicant_id}, {'$set': {'ml_score': 0, 'ml_status': 'Pending'}})
+
+        res = client.get(f'/api/score-applicant/{applicant_id}', headers=auth_headers())
+        assert res.status_code == 200
+
+        stored = db.applicants.find_one({'_id': applicant_id})
+        assert stored['ml_score'] == 0
+        assert stored['ml_status'] == 'Pending'
+
+    def test_verify_is_what_saves_the_score(self, client, db, auth_headers):
+        seed_required_docs(db)
+        applicant_id = make_ml_ready_applicant(db, documents=uploaded_docs())
+        db.applicants.update_one({'_id': applicant_id}, {'$set': {'ml_score': 0, 'ml_status': 'Pending'}})
+
+        res = client.put(f'/api/applications/{applicant_id}/verify', headers=auth_headers())
+        assert res.status_code == 200
+
+        stored = db.applicants.find_one({'_id': applicant_id})
+        assert stored['ml_status'] in ('Eligible', 'Not Eligible')
+        assert stored['ml_score'] == res.get_json()['ml_score']
+
+
 class TestVerifyAndDecideNeverBlocks:
     """PUT /api/applications/<id>/verify must always proceed to a decision;
     missing docs, un-OCR'd docs, and fraud flags become warnings, never a 409."""

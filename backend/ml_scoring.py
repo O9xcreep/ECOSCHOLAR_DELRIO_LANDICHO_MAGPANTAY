@@ -384,9 +384,10 @@ def score_applicant(applicant_id):
             return jsonify({"error": "Applicant not found"}), 404
 
         org_id = current_organization_oid()
-        # A preview fetched automatically on modal open; never runs OCR itself
-        # (that's "Run OCR Check" / "Start Eligibility") - just reports the
-        # score alongside whatever warnings already exist.
+        # Read-only: never runs OCR (that's "Run OCR Check" / "Start
+        # Eligibility") and never saves the score. recompute_approvals() treats
+        # any stored ml_status of "Eligible" as officially eligible, so only
+        # verify_and_decide may write one.
         warnings = collect_verification_warnings(db, applicant, org_id)
 
         row, ok = build_feature_row(applicant)
@@ -398,11 +399,6 @@ def score_applicant(applicant_id):
             }), 409
 
         ml_score, ml_status = score_with_model(row)
-
-        db.applicants.update_one(
-            {"_id": applicant_oid},
-            {"$set": {"ml_score": ml_score, "ml_status": ml_status}}
-        )
 
         return jsonify({
             "applicant_id": applicant_id,

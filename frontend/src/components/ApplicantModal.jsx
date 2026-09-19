@@ -14,13 +14,6 @@ function hasValue(v) {
   return Array.isArray(v) ? v.length > 0 : Boolean(v)
 }
 
-const MOCK_BREAKDOWN = [
-  { label: 'GPA Score', value: 95, color: '#10b981' },
-  { label: 'Income Score', value: 88, color: '#0891b2' },
-  { label: 'Family Size Score', value: 80, color: '#2563eb' },
-  { label: 'Location Score', value: 72, color: '#f59e0b' },
-]
-
 // LGU-configurable (see admin Form Builder) - fetched at runtime, not hardcoded.
 function mergeDocuments(documents, requiredDocTypes) {
   return requiredDocTypes.map(docType => {
@@ -107,6 +100,8 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   if (!applicant) return
 
   setRemarks('')
+  // This modal stays mounted between applicants, so clear the last one's score.
+  setMlData(null)
 
   // Fetch audit trail
   setLoadingAudit(true)
@@ -118,16 +113,21 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     })
     .catch(() => setLoadingAudit(false))
 
-  // Fetch real ML score - a preview only, the official decision happens when
-  // the admin taps "Start Eligibility" below
-  apiFetch(`/api/score-applicant/${applicant.id}`)
-    .then(res => res.json())
-    .then(data => {
-      if (data.ml_score !== undefined) {
-        setMlData(data)
-      }
-    })
-    .catch(() => {})
+  // A score is only shown once the applicant has been decided; before that it
+  // appears when "Start Eligibility" returns it. This fetch is just for the
+  // per-factor breakdown of an already-decided applicant.
+  const applicantId = applicant.id
+  const status = applicant.application_status || applicant.status
+  if (status === 'Approved' || status === 'Rejected') {
+    apiFetch(`/api/score-applicant/${applicantId}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.ml_score !== undefined && currentApplicantIdRef.current === applicantId) {
+          setMlData(data)
+        }
+      })
+      .catch(() => {})
+  }
 
   // Fetch the applicant's actual uploaded documents
   apiFetch(`/api/documents/${applicant.id}`)
@@ -397,9 +397,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     return 'doc-missing'
   }
 
+  // Official only: a decided applicant, or the result Start Eligibility just returned.
+  const hasOfficialScore = isApproved || isRejected || Boolean(mlData)
   const mlScore = mlData?.ml_score ?? profile.ml_score ?? 'N/A'
   const mlStatus = mlData?.ml_status ?? profile.ml_status ?? 'Pending'
-  const mlBreakdown = mlData?.breakdown ?? MOCK_BREAKDOWN
+  const mlBreakdown = mlData?.breakdown ?? []
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -442,34 +444,42 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
           {/* ML Score */}
           <div className="modal-section">
             <h3 className="section-title">ML Eligibility Score</h3>
-            <div className="ml-score-card">
-              <div className="ml-score-main">
-                <div className="ml-score-circle"
-                  style={{ borderColor: getScoreColor(mlScore) }}>
-                  <span className="ml-score-number"
-                    style={{ color: getScoreColor(mlScore) }}>
-                    {mlScore}
-                  </span>
-                  <span className="ml-score-label">/ 100</span>
+            {hasOfficialScore ? (
+              <div className="ml-score-card">
+                <div className="ml-score-main">
+                  <div className="ml-score-circle"
+                    style={{ borderColor: getScoreColor(mlScore) }}>
+                    <span className="ml-score-number"
+                      style={{ color: getScoreColor(mlScore) }}>
+                      {mlScore}
+                    </span>
+                    <span className="ml-score-label">/ 100</span>
+                  </div>
+                  <div>
+                    <p className="ml-status-label">Status</p>
+                    <span className={`badge ${mlStatus === 'Eligible' ? 'badge-green' : 'badge-red'}`}>
+                      {mlStatus}
+                    </span>
+                    {mlData?.regressor_cutoff !== undefined && (
+                      <p className="ml-note">Score cutoff for reference: {mlData.regressor_cutoff}</p>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <p className="ml-status-label">Status</p>
-                  <span className={`badge ${mlStatus === 'Eligible' ? 'badge-green' : 'badge-red'}`}>
-                    {mlStatus}
-                  </span>
-                  <p className="ml-note">
-                    {mlData?.regressor_cutoff !== undefined
-                      ? `Score cutoff for reference: ${mlData.regressor_cutoff}`
-                      : 'Preview only - tap "Start Eligibility" to make this the official decision'}
-                  </p>
+                <div className="ml-breakdown">
+                  {mlBreakdown.map((item, i) => (
+                    <ScoreBar key={i} {...item} />
+                  ))}
                 </div>
               </div>
-              <div className="ml-breakdown">
-                {mlBreakdown.map((item, i) => (
-                  <ScoreBar key={i} {...item} />
-                ))}
+            ) : (
+              <div className="ml-score-card">
+                <p className="ml-score-pending">
+                  {isWithdrawn
+                    ? 'No score - this application is withdrawn.'
+                    : 'Not scored yet. Tap "Start Eligibility" to check the documents and run the eligibility model.'}
+                </p>
               </div>
-            </div>
+            )}
             {(mlData?.warnings || []).length > 0 && (
               <div className="ocr-fraud-flags" style={{ marginTop: '10px' }}>
                 <p className="ml-status-label">Worth a look before deciding:</p>

@@ -207,6 +207,12 @@
   margin-top: 6px;
 }
 
+.ml-score-pending {
+  font-size: 13px;
+  color: #4d4d4d;
+  margin: 0;
+}
+
 .ml-breakdown {
   flex: 1;
   display: flex;
