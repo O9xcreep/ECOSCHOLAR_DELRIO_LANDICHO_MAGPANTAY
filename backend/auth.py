@@ -495,8 +495,10 @@ def change_password():
     stored = user['password']
     is_hashed = stored.startswith(('pbkdf2:', 'scrypt:'))
     valid = check_password_hash(stored, current_password) if is_hashed else stored == current_password
+    # 403, not 401: the frontend treats any 401 as an expired session and signs
+    # the user out, which a mistyped current password shouldn't do.
     if not valid:
-        return jsonify({"error": "Current password is incorrect"}), 401
+        return jsonify({"error": "Current password is incorrect"}), 403
 
     db.users.update_one({"_id": user_oid}, {"$set": {"password": generate_password_hash(new_password)}})
     return jsonify({"message": "Password changed successfully"})

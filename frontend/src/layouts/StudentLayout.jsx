@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { getUser, logout } from '../api'
+import { apiFetch, getUser, setSession, logout } from '../api'
 import NotificationBell from '../components/NotificationBell'
+import DisbandedOrganizationPrompt from '../components/DisbandedOrganizationPrompt'
 import { GraduationCapIcon, HomeIcon, ApplicationsIcon, GuidelinesIcon, SettingsIcon } from '../components/NavIcons'
 import './StudentLayout.css'
 
@@ -19,6 +21,54 @@ function StudentLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const user = getUser() || {}
+
+  // Set when the student belongs to no organization: null while fine or unchecked,
+  // { disbandedName } otherwise (name is null for a student who never had one).
+  const [noOrg, setNoOrg] = useState(null)
+
+  // An LGU's Admin can delete their organization while students are signed in. The
+  // server has already moved or cleared those accounts, but this session's token
+  // still names the deleted org, so ask the server where the student really stands.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch('/api/memberships')
+        if (!res.ok || cancelled) return
+        const { memberships, disbanded_organization_name } = await res.json()
+        if (memberships.some(m => m.is_active)) return
+
+        if (memberships.length === 0) {
+          // A session that still names an org but has no notice or memberships is an
+          // older account the server hasn't back-filled yet, not a disbanded one.
+          if (disbanded_organization_name || !getUser()?.organization_id) {
+            setNoOrg({ disbandedName: disbanded_organization_name })
+          }
+          return
+        }
+
+        // Moved into another org they belong to: switch this session over to it.
+        const target = memberships[0]
+        const switchRes = await apiFetch('/api/organizations/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ organization_id: target.organization_id })
+        })
+        if (!switchRes.ok) return
+        const data = await switchRes.json()
+        setSession(data.user, data.token)
+        window.alert(`Your previous organization was disbanded. You've been moved to ${target.organization_name}.`)
+        window.location.href = '/student/dashboard'
+      } catch {
+        // Best-effort: if the check fails the pages behave exactly as they did before it.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Settings stays reachable without an org so the student can still change their
+  // password, sign out or delete their account.
+  const showOrgPrompt = noOrg && location.pathname !== '/student/settings'
 
   const handleLogout = async () => {
     await logout()
@@ -84,17 +134,21 @@ function StudentLayout() {
 
         {/* PAGE CONTENT */}
         <main className="student-main-content">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              variants={pageVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          {showOrgPrompt ? (
+            <DisbandedOrganizationPrompt disbandedName={noOrg.disbandedName} />
+          ) : (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={location.pathname}
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+              >
+                <Outlet />
+              </motion.div>
+            </AnimatePresence>
+          )}
         </main>
 
         {/* BOTTOM NAV (mobile) */}

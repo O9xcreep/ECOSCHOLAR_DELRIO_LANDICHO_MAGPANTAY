@@ -221,6 +221,13 @@
   cursor: pointer;
 }
 
+/* Stacked rows inside the Danger Zone card (one per delete action). */
+.danger-row + .danger-row {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #f0f0f0;
+}
+
 .btn-danger-outline {
   padding: 8px 16px;
   background: white;

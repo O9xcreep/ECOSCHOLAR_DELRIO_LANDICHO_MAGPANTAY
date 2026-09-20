@@ -216,7 +216,8 @@ class TestChangePassword:
         res = client.put('/api/change-password',
                           headers={'Authorization': f'Bearer {token}'},
                           json={'current_password': 'WrongPass123', 'new_password': 'NewPass123'})
-        assert res.status_code == 401
+        # Not 401 - the frontend signs the user out on any 401.
+        assert res.status_code == 403
 
     def test_change_password_success(self, client, make_user):
         user = make_user(email='cp2@test.com', password='CurrentPass123')

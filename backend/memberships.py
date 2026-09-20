@@ -10,9 +10,9 @@ from datetime import datetime
 from flask import request, jsonify, g
 from werkzeug.security import check_password_hash
 
-from extensions import app, limiter, get_db
+from extensions import app, limiter, get_db, _fs
 from helpers import oid, iso, get_organization_name, find_active_organization_by_code, send_email_async
-from auth import require_auth, current_organization_oid, issue_token, revoke_token, ADMIN_PERMISSIONS
+from auth import require_auth, current_organization_oid, issue_token, revoke_token, ADMIN_PERMISSIONS, PROFILE_FIELDS
 
 
 def _activate_membership(db, user_oid, membership):
@@ -21,13 +21,15 @@ def _activate_membership(db, user_oid, membership):
     shape (auth.py) so the frontend can setSession() with it directly."""
     role = membership["role"]
     set_fields = {"organization_id": membership["organization_id"], "role": role}
-    update = {"$set": set_fields}
+    # Being in an org again ends the "your organization was disbanded" notice
+    # (see delete_organization below).
+    update = {"$set": set_fields, "$unset": {"disbanded_organization_name": ""}}
     if role == "lgu_member":
         set_fields["permissions"] = membership.get("permissions") or {p: False for p in ADMIN_PERMISSIONS}
         set_fields["municipality"] = membership.get("municipality") or ""
     elif role == "lgu_admin":
         set_fields["municipality"] = membership.get("municipality") or ""
-        update["$unset"] = {"permissions": ""}
+        update["$unset"]["permissions"] = ""
 
     db.users.update_one({"_id": user_oid}, update)
     user = db.users.find_one({"_id": user_oid})
@@ -93,7 +95,13 @@ def list_my_memberships():
     user_oid = oid(g.current_user['id'])
     active_org_id = current_organization_oid()
     rows = list(db.memberships.find({"user_id": user_oid}).sort("joined_at", 1))
-    return jsonify({"memberships": [serialize_membership(m, db, active_org_id) for m in rows]})
+    user = db.users.find_one({"_id": user_oid}, {"disbanded_organization_name": 1})
+    return jsonify({
+        "memberships": [serialize_membership(m, db, active_org_id) for m in rows],
+        # Set when the org this account belonged to was deleted and it hasn't
+        # joined another yet - the student and admin portals use it to show a prompt.
+        "disbanded_organization_name": (user or {}).get("disbanded_organization_name"),
+    })
 
 
 # ── STUDENT SELF-SERVICE JOIN ──
@@ -155,6 +163,12 @@ def switch_organization():
     return jsonify({"message": "Switched organization", "user": user_payload, "token": token})
 
 
+def _password_matches(user, password):
+    stored = user['password']
+    is_hashed = stored.startswith(('pbkdf2:', 'scrypt:'))
+    return check_password_hash(stored, password) if is_hashed else stored == password
+
+
 # ── DELETE MY ACCOUNT ──
 # Permanent hard delete, matching the existing admin-removes-teammate
 # precedent (DELETE /api/admins/<id>), but this one revokes the caller's own
@@ -176,14 +190,13 @@ def delete_own_account():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    stored = user['password']
-    is_hashed = stored.startswith(('pbkdf2:', 'scrypt:'))
-    valid = check_password_hash(stored, password) if is_hashed else stored == password
-    if not valid:
-        return jsonify({"error": "Incorrect password"}), 401
+    # 403, not 401: the frontend treats any 401 as an expired session and signs
+    # the user out, which a mistyped password shouldn't do.
+    if not _password_matches(user, password):
+        return jsonify({"error": "Incorrect password"}), 403
 
     if db.memberships.find_one({"user_id": user_oid, "role": "lgu_admin"}):
-        return jsonify({"error": "You currently hold the Admin seat in at least one organization. Transfer it to someone else before deleting your account."}), 400
+        return jsonify({"error": "You currently hold the Admin seat in at least one organization. Transfer it to someone else, or delete the organization, before deleting your account."}), 400
 
     # Memberships are pure relationship data (unlike applicants/notifications/
     # audit_trail, which stay untouched as historical records) - cascade them.
@@ -192,3 +205,135 @@ def delete_own_account():
     revoke_token(g.current_token)
 
     return jsonify({"message": "Your account has been permanently deleted"})
+
+
+# ── DELETE AN ORGANIZATION ──
+# Only whoever holds that organization's Admin seat can do this. Unlike a
+# program reset (which archives), this is a permanent hard delete of
+# everything the organization owns - its applicants and their uploaded
+# documents included - since it's an LGU choosing to leave the platform.
+# Students left with no organization keep their login but have their saved
+# personal info wiped, and are told to join another org with a join code.
+# Not transactional (nothing in this codebase is); the org document itself is
+# removed last, so a failure partway leaves an org that can be deleted again.
+_ORG_SCOPED_COLLECTIONS = (
+    "applicants", "duplicate_flags", "notifications", "document_requirements",
+    "form_fields", "program_cycles", "settings", "admin_requests",
+)
+
+
+def _delete_org_uploads(db, org_oid):
+    """Best-effort GridFS cleanup - a file that's already gone shouldn't abort the delete."""
+    file_ids = []
+    for applicant in db.applicants.find({"organization_id": org_oid}, {"documents.gridfs_id": 1}):
+        file_ids += [d["gridfs_id"] for d in applicant.get("documents", []) if d.get("gridfs_id")]
+    for req in db.admin_requests.find({"organization_id": org_oid}, {"proof_of_employment.gridfs_id": 1}):
+        proof_id = (req.get("proof_of_employment") or {}).get("gridfs_id")
+        if proof_id:
+            file_ids.append(proof_id)
+    for file_id in file_ids:
+        try:
+            _fs.delete(file_id)
+        except Exception:
+            pass
+
+
+def _leave_deleted_org(db, user_oid, org_oid, org_name):
+    """Repairs one user's cached org fields after org_oid (and their membership
+    in it) is gone. Without this, login()'s legacy backfill would see a user
+    pointing at an org with no membership row and quietly recreate one.
+    Returns (payload, token) if they were moved into another org they belong
+    to, else None."""
+    user = db.users.find_one({"_id": user_oid})
+    if not user or user.get("organization_id") != org_oid:
+        return None  # this wasn't their active org, so nothing cached to fix
+
+    remaining = db.memberships.find_one({"user_id": user_oid}, sort=[("joined_at", 1)])
+    if remaining:
+        return _activate_membership(db, user_oid, remaining)
+
+    if user.get("role") == "student":
+        # Keeps the login (name, email, password) so they can join another LGU,
+        # but wipes what they told this one: the registration profile that
+        # would otherwise prefill their next application. Their applications
+        # and documents went with the org. The name is kept so the student
+        # portal can tell them what happened (see list_my_memberships).
+        db.users.update_one(
+            {"_id": user_oid},
+            {"$set": {"organization_id": None, "disbanded_organization_name": org_name},
+             "$unset": {field: "" for field in PROFILE_FIELDS}}
+        )
+    else:
+        # Same "no org" state DELETE /api/admins/<id> leaves a removed teammate
+        # in, plus the same notice students get so the admin portal can tell
+        # them what happened (see list_my_memberships).
+        db.users.update_one(
+            {"_id": user_oid},
+            {"$set": {"organization_id": None, "role": "lgu_member", "permissions": {p: False for p in ADMIN_PERMISSIONS},
+                      "municipality": "", "disbanded_organization_name": org_name}}
+        )
+    return None
+
+
+@app.route('/api/organizations/<organization_id>', methods=['DELETE'])
+@require_auth
+@limiter.limit("5 per minute")
+def delete_organization(organization_id):
+    if g.current_user.get('role') == 'admin':
+        return jsonify({"error": "The Super Admin account isn't tied to an organization"}), 400
+
+    org_oid = oid(organization_id)
+    if not org_oid:
+        return jsonify({"error": "Invalid organization id"}), 400
+
+    data = request.get_json() or {}
+    db = get_db()
+    caller_oid = oid(g.current_user['id'])
+    caller = db.users.find_one({"_id": caller_oid})
+    if not caller:
+        return jsonify({"error": "User not found"}), 404
+
+    # Checked against the memberships row, not the token's role claim: a token
+    # can be days old, and this route is destructive.
+    if not db.memberships.find_one({"user_id": caller_oid, "organization_id": org_oid, "role": "lgu_admin"}):
+        return jsonify({"error": "Only the Admin of an organization can delete it"}), 403
+    organization = db.organizations.find_one({"_id": org_oid})
+    if not organization:
+        return jsonify({"error": "Organization not found"}), 404
+
+    # 403 rather than 401: the frontend treats any 401 as an expired session
+    # and signs the user out, which a mistyped password shouldn't do.
+    if not _password_matches(caller, data.get('password') or ''):
+        return jsonify({"error": "Incorrect password"}), 403
+    if (data.get('confirm_name') or '').strip() != (organization.get('name') or ''):
+        return jsonify({"error": "Type the organization's name exactly to confirm"}), 400
+
+    caller_was_active = caller.get("organization_id") == org_oid
+
+    # Everyone attached to the org: its memberships, plus any account whose
+    # cached org still points here without a membership row (pre-memberships
+    # legacy accounts). The caller goes last so a failure partway still leaves
+    # them able to retry.
+    affected = {m["user_id"] for m in db.memberships.find({"organization_id": org_oid}, {"user_id": 1})}
+    affected |= {u["_id"] for u in db.users.find({"organization_id": org_oid}, {"_id": 1})}
+    affected.discard(caller_oid)
+
+    _delete_org_uploads(db, org_oid)
+    for collection in _ORG_SCOPED_COLLECTIONS:
+        db[collection].delete_many({"organization_id": org_oid})
+    db.memberships.delete_many({"organization_id": org_oid})
+    db.organizations.delete_one({"_id": org_oid})
+
+    org_name = organization.get('name') or ''
+    for user_oid in affected:
+        _leave_deleted_org(db, user_oid, org_oid, org_name)
+    caller_session = _leave_deleted_org(db, caller_oid, org_oid, org_name)
+
+    response = {"message": f"{organization.get('name') or 'The organization'} has been permanently deleted"}
+    if caller_session:
+        response["user"], response["token"] = caller_session
+    elif caller_was_active:
+        # Nowhere left to put them, and their token still names the deleted org.
+        revoke_token(g.current_token)
+        response["signed_out"] = True
+    return jsonify(response)

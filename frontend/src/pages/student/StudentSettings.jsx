@@ -375,9 +375,6 @@ function ProfileTab() {
           )}
         </div>
       </div>
-
-      <DangerZoneCard />
-
     </div>
   )
 }
@@ -460,6 +457,8 @@ function SecurityTab() {
           {saving ? 'Updating...' : 'Update Password'}
         </button>
       </div>
+
+      <DangerZoneCard />
     </div>
   )
 }

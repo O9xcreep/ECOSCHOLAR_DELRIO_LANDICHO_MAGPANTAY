@@ -201,8 +201,100 @@ function YourOrganizationsCard() {
   )
 }
 
-// ── DANGER ZONE (DELETE ACCOUNT) ──
-function DangerZoneCard() {
+// ── DANGER ZONE ──
+// Deleting an organization is permanent and takes its applicants and uploaded
+// documents with it, so it asks for the org's name and the user's password.
+function DeleteOrganizationRow({ organization, onDeleted }) {
+  const navigate = useNavigate()
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [confirmName, setConfirmName] = useState('')
+  const [password, setPassword] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const nameMatches = confirmName.trim() === organization.organization_name
+
+  const closeConfirm = () => { setShowConfirm(false); setConfirmName(''); setPassword(''); setError('') }
+
+  const handleDelete = async () => {
+    setError('')
+    setDeleting(true)
+    try {
+      const res = await apiFetch(`/api/organizations/${organization.organization_id}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, confirm_name: confirmName.trim() })
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error || 'Failed to delete organization'); return }
+      window.alert(data.message)
+      if (data.token) {
+        // Deleted the organization they were working in; the server moved them
+        // into another one they belong to. Full reload, same as switching.
+        setSession(data.user, data.token)
+        window.location.href = data.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'
+      } else if (data.signed_out) {
+        clearSession()
+        navigate('/login')
+      } else {
+        closeConfirm()
+        onDeleted()
+      }
+    } catch {
+      setError(connectionErrorMessage())
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="danger-row">
+      <div className="settings-row">
+        <div className="info-item">
+          <span className="info-label">Delete organization</span>
+          <span className="info-sub">
+            Permanently deletes <strong>{organization.organization_name}</strong> and everything in it:
+            every application and uploaded document, program history, settings and the join code.
+            Students keep their logins but their saved information is cleared, and they'll be asked to
+            join another organization with a join code. Everyone else on the team loses access to it.
+            This cannot be undone.
+          </span>
+          {!showConfirm ? (
+            <button className="btn-danger-outline" onClick={() => setShowConfirm(true)}>Delete Organization</button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px', alignItems: 'flex-start' }}>
+              <span className="info-sub">Type <strong>{organization.organization_name}</strong> to confirm</span>
+              <input
+                className="settings-select"
+                style={{ background: '#fff' }}
+                placeholder="Organization name"
+                value={confirmName}
+                onChange={e => setConfirmName(e.target.value)}
+              />
+              <input
+                type="password"
+                className="settings-select"
+                style={{ background: '#fff' }}
+                placeholder="Enter your password to confirm"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+              />
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button className="btn-danger" onClick={handleDelete} disabled={deleting || !nameMatches || !password}>
+                  {deleting ? 'Deleting...' : 'Yes, Permanently Delete'}
+                </button>
+                <button className="btn-change" onClick={closeConfirm}>Cancel</button>
+              </div>
+              {error && <span className="info-sub" style={{ color: '#ef4444' }}>{error}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DeleteAccountRow() {
   const navigate = useNavigate()
   const [showConfirm, setShowConfirm] = useState(false)
   const [password, setPassword] = useState('')
@@ -230,8 +322,7 @@ function DangerZoneCard() {
   }
 
   return (
-    <div className="settings-card">
-      <h4 className="card-label">Danger Zone</h4>
+    <div className="danger-row">
       <div className="settings-row">
         <div className="info-item">
           <span className="info-label">Delete account</span>
@@ -262,6 +353,35 @@ function DangerZoneCard() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function DangerZoneCard() {
+  const [adminOrganizations, setAdminOrganizations] = useState([])
+
+  // Only whoever holds an organization's Admin seat can delete it, so this
+  // lists just the memberships where the user is that Admin.
+  const loadAdminOrganizations = () => {
+    apiFetch('/api/memberships')
+      .then(res => res.json())
+      .then(data => setAdminOrganizations((data.memberships || []).filter(m => m.role === 'lgu_admin')))
+      .catch(() => {})
+  }
+
+  useEffect(loadAdminOrganizations, [])
+
+  return (
+    <div className="settings-card">
+      <h4 className="card-label">Danger Zone</h4>
+      {adminOrganizations.map(organization => (
+        <DeleteOrganizationRow
+          key={organization.organization_id}
+          organization={organization}
+          onDeleted={loadAdminOrganizations}
+        />
+      ))}
+      <DeleteAccountRow />
     </div>
   )
 }
@@ -385,14 +505,13 @@ function ProfileTab() {
           </div>
         </div>
       </div>
-
-      {user.role !== 'admin' && <DangerZoneCard />}
     </div>
   )
 }
 
 // ── SECURITY TAB ──
 function SecurityTab() {
+  const user = getUser() || {}
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -457,6 +576,8 @@ function SecurityTab() {
           {saving ? 'Updating...' : 'Update Password'}
         </button>
       </div>
+
+      {user.role !== 'admin' && <DangerZoneCard />}
     </div>
   )
 }

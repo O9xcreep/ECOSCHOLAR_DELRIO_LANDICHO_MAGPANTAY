@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { getUser, logout, isFullAccess } from '../api'
+import { apiFetch, getUser, setSession, logout, isFullAccess } from '../api'
 import NotificationBell from '../components/NotificationBell'
+import DisbandedStaffPrompt from '../components/DisbandedStaffPrompt'
 import { GraduationCapIcon, HomeIcon, RankingIcon, ApplicationsIcon, SettingsIcon } from '../components/NavIcons'
 import './AdminLayout.css'
 
@@ -22,6 +24,57 @@ function AdminLayout() {
 
   const canReview = isFullAccess(user) || !!user.permissions?.can_review_applicants
   const roleLabel = user.role === 'admin' ? 'Super Admin' : user.role === 'lgu_admin' ? 'Admin' : 'LGU Member'
+
+  // Set when this account belongs to no organization: null while fine or unchecked,
+  // { disbandedName } otherwise (name is null for an account that never had one).
+  const [noOrg, setNoOrg] = useState(null)
+
+  // An LGU's Admin can delete their organization while staff are signed in. The
+  // server has already moved or cleared those accounts, but this session's token
+  // still names the deleted org, so ask the server where the account really stands.
+  // (The Super Admin belongs to no organization by design, so it's skipped.)
+  useEffect(() => {
+    if (getUser()?.role === 'admin') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await apiFetch('/api/memberships')
+        if (!res.ok || cancelled) return
+        const { memberships, disbanded_organization_name } = await res.json()
+        if (memberships.some(m => m.is_active)) return
+
+        if (memberships.length === 0) {
+          // A session that still names an org but has no notice or memberships is an
+          // older account the server hasn't back-filled yet, not a disbanded one.
+          if (disbanded_organization_name || !getUser()?.organization_id) {
+            setNoOrg({ disbandedName: disbanded_organization_name })
+          }
+          return
+        }
+
+        // Moved into another org they belong to (or just approved into one): switch
+        // this session over to it.
+        const target = memberships[0]
+        const switchRes = await apiFetch('/api/organizations/switch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ organization_id: target.organization_id })
+        })
+        if (!switchRes.ok) return
+        const data = await switchRes.json()
+        setSession(data.user, data.token)
+        window.alert(`Your previous organization is no longer available. You've been moved to ${target.organization_name}.`)
+        window.location.href = data.user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'
+      } catch {
+        // Best-effort: if the check fails the pages behave exactly as they did before it.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Settings stays reachable without an org - that's where the request to join
+  // another one is made - and shows the notice above it.
+  const onSettings = location.pathname === '/admin/settings'
 
   const handleLogout = async () => {
     await logout()
@@ -86,17 +139,20 @@ function AdminLayout() {
 
         {/* PAGE CONTENT */}
         <main className="main-content">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              variants={pageVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
+          {noOrg && <DisbandedStaffPrompt disbandedName={noOrg.disbandedName} onSettings={onSettings} />}
+          {(!noOrg || onSettings) && (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={location.pathname}
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+              >
+                <Outlet />
+              </motion.div>
+            </AnimatePresence>
+          )}
         </main>
 
         {/* BOTTOM NAV (mobile) */}
