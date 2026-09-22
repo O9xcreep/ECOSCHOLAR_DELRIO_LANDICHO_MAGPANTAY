@@ -9,7 +9,7 @@ const css = `
     align-items: center;
     justify-content: center;
     background: #eaf0f7;
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Poppins', sans-serif;
     padding: 20px;
   }
   .rp-card {

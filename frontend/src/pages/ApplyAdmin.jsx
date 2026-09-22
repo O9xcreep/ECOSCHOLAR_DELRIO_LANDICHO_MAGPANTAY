@@ -13,8 +13,6 @@ import adminBg from '../assets/admin-bg.jpg'
 //   chose your role/permissions - this is just the "set your password"
 //   step, no review needed.
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap');
-
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
@@ -32,7 +30,7 @@ const css = `
     --transition:  .2s cubic-bezier(.4,0,.2,1);
   }
 
-  body { font-family: 'DM Sans', sans-serif; }
+  body { font-family: 'Poppins', sans-serif; }
 
   .lp-page {
     display: flex;
@@ -91,7 +89,7 @@ const css = `
   }
 
   .lp-name {
-    font-family: 'Playfair Display', serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 36px;
     color: #fff;
     letter-spacing: -0.5px;
@@ -151,14 +149,14 @@ const css = `
     display: none;
     align-items: center;
     gap: 10px;
-    font-family: 'Playfair Display', serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 22px;
     color: var(--brand);
     margin-bottom: 24px;
   }
 
   .lp-title {
-    font-family: 'Playfair Display', serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 26px;
     color: var(--text-primary);
     margin-bottom: 4px;
@@ -209,7 +207,7 @@ const css = `
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-input);
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 14px;
     color: var(--text-primary);
     transition: border-color var(--transition), box-shadow var(--transition);
@@ -289,7 +287,7 @@ const css = `
 
   .lp-link {
     background: none; border: none;
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 13px;
     color: var(--brand);
     cursor: pointer;
@@ -305,7 +303,7 @@ const css = `
     border-radius: var(--radius);
     background: linear-gradient(135deg, var(--brand) 0%, var(--brand-light) 100%);
     color: #fff;
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
@@ -350,7 +348,7 @@ const css = `
   }
 
   .lp-success-box h2 {
-    font-family: 'Playfair Display', serif;
+    font-family: 'Poppins', sans-serif;
     font-size: 24px;
     color: var(--text-primary);
     margin-bottom: 8px;
