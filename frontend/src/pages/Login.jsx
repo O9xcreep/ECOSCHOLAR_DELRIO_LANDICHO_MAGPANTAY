@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { API_BASE_URL, setSession, fetchWithTimeout, connectionErrorMessage } from '../api'
 import { GraduationCapIcon } from '../components/NavIcons'
-import studentBg from '../assets/student-bg.jpg'
+import classroomBg from '../assets/bg4.jpg'
 
 const css = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -26,95 +26,116 @@ const css = `
     --transition:  .2s cubic-bezier(.4,0,.2,1);
   }
 
-  body { font-family: 'Poppins', sans-serif; }
+  body { font-family: 'Inter', 'Poppins', sans-serif; }
 
   /* ── PAGE ── */
   .lp-page {
     display: flex;
     min-height: 100vh;
-    background: #eaf0f7 url(${studentBg}) center/cover no-repeat;
+    background: #0B0D12;
+    font-family: 'Inter', 'Poppins', sans-serif;
   }
 
   /* ── LEFT PANEL ── */
   .lp-left {
     flex: 1 1 auto;
-    background: linear-gradient(145deg, rgba(22,35,61,.72) 0%, rgba(61,111,163,.72) 50%, rgba(95,143,196,.68) 100%);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 48px 40px;
     position: relative;
     overflow: hidden;
-  }
-
-  .lp-left::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='28'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") repeat;
-  }
-
-  .lp-blob {
-    position: absolute;
-    border-radius: 50%;
-    background: rgba(255,255,255,.07);
-    animation: float 8s ease-in-out infinite;
-  }
-  .lp-blob.b1 { width:260px; height:260px; bottom:-60px; left:-60px; animation-delay:0s; }
-  .lp-blob.b2 { width:180px; height:180px; top:40px;    right:-40px; animation-delay:3s; }
-  .lp-blob.b3 { width:100px; height:100px; top:50%;     left:20%;    animation-delay:5s; }
-
-  @keyframes float {
-    0%,100% { transform: translateY(0) scale(1); }
-    50%      { transform: translateY(-20px) scale(1.04); }
-  }
-
-  .lp-brand { position: relative; z-index: 1; text-align: center; }
-
-  .lp-logo-ring {
-    width: 80px; height: 80px;
-    border-radius: 24px;
-    background: rgba(255,255,255,.15);
-    backdrop-filter: blur(12px);
-    border: 1.5px solid rgba(255,255,255,.25);
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 20px;
-    font-size: 38px;
+    display: flex;
+    flex-direction: column;
+    padding: 52px 88px 120px;
     color: #fff;
-    box-shadow: 0 8px 32px rgba(0,0,0,.2);
+    background:
+      linear-gradient(100deg, rgba(8,10,16,.95) 0%, rgba(8,10,16,.84) 42%, rgba(8,10,16,.58) 100%),
+      url(${classroomBg}) center/cover no-repeat;
+  }
+
+  /* Thin orange rule running down the left edge. */
+  .lp-left-rule {
+    position: absolute;
+    left: 56px; top: 80px; bottom: 80px;
+    width: 1px;
+    background: rgba(217,119,6,.45);
+  }
+
+  /* Small dot grid, top right. */
+  .lp-dots {
+    position: absolute;
+    top: 28px; right: 84px;
+    width: 28px; height: 28px;
+    background-image: radial-gradient(rgba(217,119,6,.6) 1.5px, transparent 1.7px);
+    background-size: 12px 12px;
+  }
+
+  /* The two diagonal accent lines across the photo. */
+  .lp-stripe {
+    position: absolute;
+    left: -20px;
+    background: var(--brand);
+    transform-origin: left center;
+    transform: rotate(-8.2deg);
+    pointer-events: none;
+  }
+  .lp-stripe.s1 { top: 68.5%; width: 740px; height: 4px; }
+  .lp-stripe.s2 { top: 71%;   width: 460px; height: 1.5px; opacity: .7; }
+
+  .lp-brand {
+    position: relative; z-index: 1;
+    display: flex; align-items: center; gap: 14px;
+  }
+
+  .lp-logo {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: var(--brand);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 8px 20px rgba(217,119,6,.35);
   }
 
   .lp-name {
-    font-family: 'Poppins', sans-serif;
-    font-size: 36px;
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -.01em;
     color: #fff;
-    letter-spacing: -0.5px;
-    margin-bottom: 8px;
   }
+
+  .lp-hero { position: relative; z-index: 1; margin-top: 64px; }
+
+  .lp-headline {
+    font-size: clamp(48px, 5.6vw, 80px);
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -.025em;
+    color: #fff;
+  }
+  .lp-headline span { display: block; color: var(--brand); }
 
   .lp-tagline {
-    font-size: 13px;
-    color: rgba(255,255,255,.7);
+    margin-top: 28px;
+    max-width: 450px;
+    font-size: 16.5px;
     line-height: 1.6;
-    max-width: 260px;
-    margin: 0 auto 40px;
+    color: rgba(255,255,255,.72);
   }
 
+  .lp-mission { position: relative; z-index: 1; margin-top: auto; max-width: 430px; }
+
+  .lp-mission-label {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 14px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--brand);
+  }
+  .lp-mission-label::before { content: ''; width: 28px; height: 2px; background: var(--brand); }
+
   .lp-quote {
-    background: rgba(255,255,255,.1);
-    border: 1px solid rgba(255,255,255,.18);
-    border-radius: 14px;
-    padding: 20px 24px;
-    color: rgba(255,255,255,.9);
-    font-size: 14px;
-    line-height: 1.65;
-    font-style: italic;
-    max-width: 320px;
-    text-align: center;
-    position: relative; z-index: 1;
+    font-size: 14.5px;
+    line-height: 1.6;
+    color: rgba(255,255,255,.78);
   }
 
   /* ── RIGHT PANEL ── */
@@ -179,7 +200,7 @@ const css = `
     display: none;
     align-items: center;
     gap: 10px;
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 22px;
     color: var(--brand);
     margin-bottom: 24px;
@@ -199,7 +220,7 @@ const css = `
     border: none;
     border-bottom: 3px solid transparent;
     background: transparent;
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 15px;
     font-weight: 500;
     color: var(--text-muted);
@@ -216,10 +237,10 @@ const css = `
 
   /* ── HEADINGS ── */
   .lp-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 36px;
+    font-family: 'Inter', 'Poppins', sans-serif;
+    font-size: 40px;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
     line-height: 1.15;
     color: var(--text-primary);
     margin-bottom: 10px;
@@ -335,7 +356,7 @@ const css = `
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-input);
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 15px;
     color: var(--text-primary);
     transition: border-color var(--transition), box-shadow var(--transition);
@@ -348,6 +369,18 @@ const css = `
     border-color: var(--brand);
     box-shadow: 0 0 0 3px rgba(217,119,6,.15);
     background: #fff;
+  }
+
+  /* Keep inputs white when the browser autofills them (it would tint them light blue). */
+  .lp-input:-webkit-autofill,
+  .lp-input:-webkit-autofill:hover {
+    -webkit-box-shadow: 0 0 0 1000px #fff inset;
+    -webkit-text-fill-color: var(--text-primary);
+    caret-color: var(--text-primary);
+  }
+  .lp-input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #fff inset, 0 0 0 3px rgba(217,119,6,.15);
+    -webkit-text-fill-color: var(--text-primary);
   }
 
   .lp-input.has-icon { padding-right: 48px; }
@@ -388,7 +421,7 @@ const css = `
 
   .lp-link {
     background: none; border: none;
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 14px;
     color: var(--brand);
     cursor: pointer;
@@ -406,7 +439,7 @@ const css = `
     border-radius: var(--radius);
     background: var(--brand);
     color: #fff;
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 16px;
     font-weight: 700;
     cursor: pointer;
@@ -453,7 +486,7 @@ const css = `
   }
 
   .lp-success-box h2 {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 24px;
     color: var(--text-primary);
     margin-bottom: 8px;
@@ -488,7 +521,7 @@ const css = `
   }
 
   .lp-modal h3 {
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 22px;
     color: var(--text-primary);
     margin-bottom: 8px;
@@ -507,7 +540,7 @@ const css = `
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
     background: #fff;
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 14px; font-weight: 500;
     color: var(--text-secondary);
     cursor: pointer;
@@ -521,7 +554,7 @@ const css = `
     border-radius: var(--radius);
     background: var(--brand);
     color: #fff;
-    font-family: 'Poppins', sans-serif;
+    font-family: 'Inter', 'Poppins', sans-serif;
     font-size: 14px; font-weight: 600;
     cursor: pointer;
     transition: background var(--transition);
@@ -543,6 +576,8 @@ const css = `
   @media (max-width: 1100px) {
     .lp-right { --pad: 48px; flex-basis: 500px; }
     .lp-right.wide { flex-basis: 720px; }
+    .lp-left { padding: 44px 56px 96px; }
+    .lp-left-rule { left: 32px; }
   }
   @media (max-width: 768px) {
     .lp-left { display: none; }
@@ -956,20 +991,30 @@ function Login() {
 
         {/* ── LEFT ── */}
         <div className="lp-left">
-          <div className="lp-blob b1" />
-          <div className="lp-blob b2" />
-          <div className="lp-blob b3" />
+          <div className="lp-left-rule" />
+          <div className="lp-dots" />
+          <div className="lp-stripe s1" />
+          <div className="lp-stripe s2" />
+
           <div className="lp-brand">
-            <div className="lp-logo-ring">
-              <GraduationCapIcon width={40} height={40} />
+            <div className="lp-logo">
+              <GraduationCapIcon width={24} height={24} />
             </div>
-            <h1 className="lp-name">EcoScholar</h1>
+            <span className="lp-name">EcoScholar</span>
+          </div>
+
+          <div className="lp-hero">
+            <h1 className="lp-headline">Fund Your <span>Future.</span></h1>
             <p className="lp-tagline">
-              Centralized Scholarship Allocation System
+              Centralized Scholarship Allocation System - connecting students with opportunities that matter.
             </p>
           </div>
-          <div className="lp-quote">
-            "Empowering students through fair and transparent scholarship distribution."
+
+          <div className="lp-mission">
+            <p className="lp-mission-label">Core Mission</p>
+            <p className="lp-quote">
+              "Empowering students through fair and transparent scholarship distribution."
+            </p>
           </div>
         </div>
 
