@@ -8,20 +8,21 @@ const css = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --brand:       #3d6fa3;
-    --brand-light: #6fa0d4;
-    --brand-dark:  #2c5580;
+    --brand:       #D97706;
+    --brand-light: #F59E0B;
+    --brand-dark:  #B45309;
     --danger:      #E53E3E;
     --success:     #38A169;
-    --text-primary:   #1A1A2E;
-    --text-secondary: #4b5563;
-    --border:      #E5E7EB;
+    --text-primary:   #0F172A;
+    --text-secondary: #64748B;
+    --text-muted:     #94A3B8;
+    --border:      #E2E8F0;
     --bg-card:     #FFFFFF;
-    --bg-input:    #F9FAFB;
-    --radius:      12px;
+    --bg-input:    #FFFFFF;
+    --radius:      10px;
     --shadow-sm:   0 1px 3px rgba(0,0,0,.08);
     --shadow-md:   0 4px 20px rgba(0,0,0,.10);
-    --shadow-lg:   0 10px 40px rgba(61,111,163,.18);
+    --shadow-lg:   0 10px 40px rgba(217,119,6,.18);
     --transition:  .2s cubic-bezier(.4,0,.2,1);
   }
 
@@ -36,7 +37,7 @@ const css = `
 
   /* ── LEFT PANEL ── */
   .lp-left {
-    flex: 0 0 420px;
+    flex: 1 1 auto;
     background: linear-gradient(145deg, rgba(22,35,61,.72) 0%, rgba(61,111,163,.72) 50%, rgba(95,143,196,.68) 100%);
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
@@ -118,27 +119,55 @@ const css = `
 
   /* ── RIGHT PANEL ── */
   .lp-right {
-    flex: 1;
+    --pad: 72px;
+    flex: 0 0 564px;
+    position: relative;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 24px;
+    flex-direction: column;
+    min-height: 100vh;
+    padding: 0 var(--pad);
+    background: #FAFAFA;
     overflow-y: auto;
+    transition: flex-basis .2s ease;
+  }
+  /* Step 2 of registration has two-column fields and needs more room. */
+  .lp-right.wide { flex-basis: 880px; }
+
+  /* The thin brand-colored strip across the top of the panel. */
+  .lp-right::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 5px;
+    background: var(--brand);
+  }
+
+  .lp-eyebrow {
+    margin-top: 42px;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--brand);
   }
 
   .lp-card {
-    background: rgba(255,255,255,.86);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,.5);
-    border-radius: 20px;
-    padding: 40px 44px;
     width: 100%;
-    max-width: 460px;
-    box-shadow: var(--shadow-lg);
+    margin: auto 0;
+    padding: 40px 0;
     animation: slideUp .4s ease;
-    transition: max-width .2s ease;
   }
+
+  .lp-footer {
+    margin: 0 calc(-1 * var(--pad));
+    padding: 22px 16px;
+    background: #F1F5F9;
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .lp-footer-item { color: var(--text-secondary); }
+  .lp-footer-sep { margin: 0 8px; }
 
   @keyframes slideUp {
     from { opacity:0; transform: translateY(18px); }
@@ -159,46 +188,47 @@ const css = `
   /* ── TABS ── */
   .lp-tabs {
     display: flex;
-    background: #eaf0f7;
-    border-radius: 10px;
-    padding: 4px;
-    margin-bottom: 28px;
-    gap: 4px;
+    border-bottom: 2px solid var(--border);
+    margin-bottom: 32px;
   }
 
   .lp-tab {
     flex: 1;
-    padding: 10px;
+    padding: 0 0 14px;
+    margin-bottom: -2px;
     border: none;
-    border-radius: 8px;
+    border-bottom: 3px solid transparent;
     background: transparent;
     font-family: 'Poppins', sans-serif;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 500;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     cursor: pointer;
-    transition: all var(--transition);
+    transition: color var(--transition), border-color var(--transition);
   }
+  .lp-tab:hover { color: var(--text-secondary); }
 
   .lp-tab.active {
-    background: #fff;
-    color: var(--brand);
-    box-shadow: var(--shadow-sm);
+    color: var(--text-primary);
+    border-bottom-color: var(--brand);
     font-weight: 600;
   }
 
   /* ── HEADINGS ── */
   .lp-title {
     font-family: 'Poppins', sans-serif;
-    font-size: 26px;
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
     color: var(--text-primary);
-    margin-bottom: 4px;
+    margin-bottom: 10px;
   }
 
   .lp-sub {
-    font-size: 14px;
+    font-size: 15px;
     color: var(--text-secondary);
-    margin-bottom: 24px;
+    margin-bottom: 36px;
   }
 
   /* ── ALERT ── */
@@ -285,50 +315,51 @@ const css = `
   }
   .lp-btn-back:hover { background: var(--bg-input); }
 
-  .lp-field { margin-bottom: 16px; }
+  .lp-field { margin-bottom: 22px; }
 
   .lp-field label {
     display: block;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 6px;
-    letter-spacing: .02em;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #475569;
+    margin-bottom: 8px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
   }
 
   .lp-input-wrap { position: relative; }
 
   .lp-input {
     width: 100%;
-    padding: 11px 16px;
+    padding: 14px 16px;
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg-input);
     font-family: 'Poppins', sans-serif;
-    font-size: 14px;
+    font-size: 15px;
     color: var(--text-primary);
     transition: border-color var(--transition), box-shadow var(--transition);
     outline: none;
   }
 
-  .lp-input::placeholder { color: #4b5563; }
+  .lp-input::placeholder { color: var(--text-muted); }
 
   .lp-input:focus {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(61,111,163,.12);
+    box-shadow: 0 0 0 3px rgba(217,119,6,.15);
     background: #fff;
   }
 
-  .lp-input.has-icon { padding-right: 44px; }
+  .lp-input.has-icon { padding-right: 48px; }
   .lp-input.input-err { border-color: var(--danger); }
 
   .lp-eye {
     position: absolute;
-    right: 12px; top: 50%;
+    right: 14px; top: 50%;
     transform: translateY(-50%);
     background: none; border: none;
     cursor: pointer; padding: 4px;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     display: flex; align-items: center;
     transition: color var(--transition);
   }
@@ -351,43 +382,43 @@ const css = `
   .lp-forgot-row {
     display: flex;
     justify-content: flex-end;
-    margin-bottom: 20px;
-    margin-top: -8px;
+    margin-bottom: 36px;
+    margin-top: -6px;
   }
 
   .lp-link {
     background: none; border: none;
     font-family: 'Poppins', sans-serif;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--brand);
     cursor: pointer;
     font-weight: 500;
-    text-decoration: underline;
+    text-decoration: none;
     text-underline-offset: 2px;
   }
+  .lp-link:hover { text-decoration: underline; }
 
   /* ── PRIMARY BUTTON ── */
   .lp-btn {
     width: 100%;
-    padding: 13px;
+    padding: 16px;
     border: none;
     border-radius: var(--radius);
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-light) 100%);
+    background: var(--brand);
     color: #fff;
     font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 16px;
+    font-weight: 700;
     cursor: pointer;
-    transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
-    letter-spacing: .02em;
-    box-shadow: 0 4px 14px rgba(61,111,163,.35);
-    display: flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+    box-shadow: 0 10px 24px rgba(217,119,6,.25);
+    display: flex; align-items: center; justify-content: center; gap: 10px;
   }
 
   .lp-btn:hover:not(:disabled) {
-    opacity: .92;
+    background: var(--brand-dark);
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(61,111,163,.4);
+    box-shadow: 0 12px 28px rgba(217,119,6,.32);
   }
 
   .lp-btn:active:not(:disabled) { transform: translateY(0); }
@@ -488,14 +519,14 @@ const css = `
     flex: 1; padding: 11px;
     border: none;
     border-radius: var(--radius);
-    background: linear-gradient(135deg, var(--brand), var(--brand-light));
+    background: var(--brand);
     color: #fff;
     font-family: 'Poppins', sans-serif;
     font-size: 14px; font-weight: 600;
     cursor: pointer;
-    transition: opacity var(--transition);
+    transition: background var(--transition);
   }
-  .lp-btn-send:hover { opacity: .88; }
+  .lp-btn-send:hover { background: var(--brand-dark); }
 
   /* ── DIVIDER ── */
   .lp-or {
@@ -509,11 +540,17 @@ const css = `
   }
 
   /* ── RESPONSIVE ── */
+  @media (max-width: 1100px) {
+    .lp-right { --pad: 48px; flex-basis: 500px; }
+    .lp-right.wide { flex-basis: 720px; }
+  }
   @media (max-width: 768px) {
     .lp-left { display: none; }
     .lp-mobile-logo { display: flex; }
-    .lp-card { padding: 28px 24px; box-shadow: none; border-radius: 16px; }
-    .lp-right { padding: 24px 16px; background: rgba(234,240,247,.55); align-items: flex-start; padding-top: 40px; }
+    .lp-right, .lp-right.wide { --pad: 20px; flex: 1 1 100%; min-width: 0; }
+    .lp-eyebrow { margin-top: 28px; }
+    .lp-card { padding: 28px 0; }
+    .lp-title { font-size: 30px; }
   }
 `
 
@@ -529,6 +566,13 @@ const EyeOffIcon = () => (
     <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
     <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
     <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+)
+
+const ArrowRightIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="5" y1="12" x2="19" y2="12"/>
+    <polyline points="12 5 19 12 12 19"/>
   </svg>
 )
 
@@ -892,6 +936,19 @@ function Login() {
     else handleRegister()
   }
 
+  // Sits under each form's heading, as in the design.
+  const tabsEl = (
+    <div className="lp-tabs">
+      <button className={`lp-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => switchTab('login')}>
+        Sign In
+      </button>
+      <button className={`lp-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => switchTab('register')}>
+        Create Account
+      </button>
+    </div>
+  )
+  const wideForm = tab === 'register' && regStep === 2
+
   return (
     <>
       <style>{css}</style>
@@ -917,8 +974,10 @@ function Login() {
         </div>
 
         {/* ── RIGHT ── */}
-        <div className="lp-right">
-          <div className={`lp-card${tab === 'register' && regStep === 2 ? ' lp-card-wide' : ''}`}>
+        <div className={`lp-right${wideForm ? ' wide' : ''}`}>
+          <p className="lp-eyebrow">Secure Access</p>
+
+          <div className={`lp-card${wideForm ? ' lp-card-wide' : ''}`}>
 
             {/* Mobile logo */}
             <div className="lp-mobile-logo">
@@ -926,21 +985,12 @@ function Login() {
               <span>EcoScholar</span>
             </div>
 
-            {/* Tabs */}
-            <div className="lp-tabs">
-              <button className={`lp-tab ${tab === 'login' ? 'active' : ''}`} onClick={() => switchTab('login')}>
-                Sign In
-              </button>
-              <button className={`lp-tab ${tab === 'register' ? 'active' : ''}`} onClick={() => switchTab('register')}>
-                Create Account
-              </button>
-            </div>
-
             {/*  LOGIN FORM  */}
             {tab === 'login' && (
               <>
                 <h2 className="lp-title">Welcome back!</h2>
                 <p className="lp-sub">Sign in to your account to continue</p>
+                {tabsEl}
 
                 {loginError && (
                   <div className="lp-alert error">{loginError}</div>
@@ -984,7 +1034,7 @@ function Login() {
                 </div>
 
                 <button className="lp-btn" onClick={handleLogin} disabled={loginLoading}>
-                  {loginLoading ? <><span className="spinner" /> Signing in…</> : 'Sign In'}
+                  {loginLoading ? <><span className="spinner" /> Signing in…</> : <>Sign In <ArrowRightIcon /></>}
                 </button>
               </>
             )}
@@ -998,6 +1048,7 @@ function Login() {
                     <p className="lp-sub">
                       We sent a 6-digit code to <strong>{regData.email}</strong>. Enter it below to finish creating your account.
                     </p>
+                    {tabsEl}
 
                     {regOtpError && <div className="lp-alert error">{regOtpError}</div>}
 
@@ -1032,6 +1083,7 @@ function Login() {
                   <>
                     <h2 className="lp-title">Create Account</h2>
                     <p className="lp-sub">Register as a student to apply for scholarships</p>
+                    {tabsEl}
                     <p className="lp-step-indicator">Step 1 of 2 — Account</p>
 
                     {regError && <div className="lp-alert error">{regError}</div>}
@@ -1195,6 +1247,7 @@ function Login() {
                     <p className="lp-sub">
                       This information is reused to pre-fill your scholarship application later, so you won't need to type it twice.
                     </p>
+                    {tabsEl}
                     <p className="lp-step-indicator">Step 2 of 2 — Personal Information</p>
 
                     {regError && <div className="lp-alert error">{regError}</div>}
@@ -1461,6 +1514,14 @@ function Login() {
             )}
 
           </div>
+
+          <footer className="lp-footer">
+            © {new Date().getFullYear()} EcoScholar
+            <span className="lp-footer-sep">·</span>
+            <span className="lp-footer-item">Privacy Policy</span>
+            <span className="lp-footer-sep">·</span>
+            <span className="lp-footer-item">Terms of Use</span>
+          </footer>
         </div>
 
         {/* FORGOT PASSWORD MODAL */}
