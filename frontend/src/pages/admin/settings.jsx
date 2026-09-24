@@ -10,7 +10,7 @@ import Credits from '../../components/Credits'
 import pageBg from '../../assets/bg3.jpg'
 import './settings.css'
 
-const ALL_TABS = ['Profile', 'Security', 'System', 'Team', 'Guide', 'Credits']
+const ALL_TABS = ['Profile', 'System', 'Team', 'Credits']
 
 // ── YOUR ORGANIZATIONS ──
 // Lists every org this account belongs to (a login can now hold membership
@@ -1812,11 +1812,11 @@ function Settings() {
   const currentUser = getUser() || {}
   const canManageMembers = isFullAccess(currentUser) || !!currentUser.permissions?.can_manage_members
 
-  // System (eligibility/reset/export settings) is Super Admin + Admin only; Team needs
-  // can_manage_members. Profile/Security are always available to everyone.
+  // System (eligibility/reset/export settings) is Super Admin + Admin only. Profile (which
+  // includes Security) and Team are available to everyone: Team always shows the guide, and
+  // its team-management part only to those with can_manage_members.
   const tabs = ALL_TABS.filter(tab =>
-    (tab !== 'System' || isFullAccess(currentUser) || !!currentUser.permissions?.can_reset_program) &&
-    (tab !== 'Team' || canManageMembers)
+    tab !== 'System' || isFullAccess(currentUser) || !!currentUser.permissions?.can_reset_program
   )
 
   return (
@@ -1840,11 +1840,21 @@ function Settings() {
       </div>
 
       <Reveal key={activeTab}>
-        {activeTab === 'Profile' && <ProfileTab />}
-        {activeTab === 'Security' && <SecurityTab />}
+        {activeTab === 'Profile' && (
+          <div className="tab-content">
+            <ProfileTab />
+            <h3 className="settings-section-title">Security</h3>
+            <SecurityTab />
+          </div>
+        )}
         {activeTab === 'System' && <SystemTab />}
-        {activeTab === 'Team' && <TeamTab />}
-        {activeTab === 'Guide' && <AdminGuide />}
+        {activeTab === 'Team' && (
+          <div className="tab-content">
+            {canManageMembers && <TeamTab />}
+            <h3 className="settings-section-title">How EcoScholar Works</h3>
+            <AdminGuide />
+          </div>
+        )}
         {activeTab === 'Credits' && <Credits />}
       </Reveal>
     </div>

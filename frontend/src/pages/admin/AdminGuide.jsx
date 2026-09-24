@@ -3,129 +3,69 @@ import './AdminGuide.css'
 // Static walkthrough of the admin-side process - unlike student Guidelines
 // (Guidelines.jsx/GuidelinesEditor.jsx), this describes how the *system itself*
 // works, which is the same for every LGU, so it isn't admin-editable.
+// Shown under Settings -> Team for every staff member.
+
+const TERMS = [
+  ['Program', 'One scholarship round, from when applications open until you start the next one.'],
+  ['Eligibility bar', 'How needy an applicant must be to qualify at all, e.g. "top 30% of need". Chosen when a program starts; it stays the same for the whole program.'],
+  ['Applicant limit', 'How many scholarships you can give. You can change it any time.'],
+  ['Waitlisted', 'Qualified, but there was no slot left. They move up automatically if a slot opens.'],
+]
+
 const STEPS = [
   {
-    title: '1. Get your organization approved',
-    body: (
-      <>
-        <p>
-          A brand-new LGU is created through the public "Apply for Admin Access" page,
-          choosing "Create a new organization." That request - including proof of
-          employment/ID - goes to the platform Super Admin for review, the same way it
-          would for someone joining an org that already exists. Once approved, your
-          organization is active and you're its first admin.
-        </p>
-      </>
-    ),
+    title: '1. Get your LGU on EcoScholar',
+    items: [
+      <>Apply on the <strong>Apply for Admin Access</strong> page and choose <strong>Create a new organization</strong>. The platform admin checks your proof of employment and approves it.</>,
+      <>Give students your LGU&apos;s <strong>join code</strong> (Settings &rarr; Team). They need it to register.</>,
+    ],
   },
   {
-    title: '2. Set up your scholarship program',
-    body: (
-      <>
-        <p>
-          Nothing can happen until a program exists - students can't apply, and the
-          application form is still editable. Go to <strong>Settings &rarr; System</strong> and
-          fill in the "Scholarship Program Creation" card:
-        </p>
-        <ul>
-          <li><strong>Accepted Applicant Limit</strong> - how many slots this program has (adjustable later too, from here or the Ranking page).</li>
-          <li><strong>Result Visibility</strong> - whether students see an Approved/Rejected decision the moment it's made, or only after a date you set.</li>
-          <li><strong>Batch</strong> - name the program by academic year, e.g. 2025-2026.</li>
-          <li><strong>Application deadline</strong> - required: a hard cutoff that applications close automatically the moment it passes, with no extra step needed from you.</li>
-        </ul>
-        <p>
-          Click <strong>Set Up Scholarship Program</strong> and students can start applying immediately.
-          Once the program is live, that same deadline field grows an <strong>Update Deadline</strong> button
-          next to it - change the date and click it to extend or tighten the cutoff at any time, no reset needed.
-        </p>
-      </>
-    ),
+    title: '2. Prepare the application form (optional)',
+    items: [
+      <>In <strong>Settings &rarr; System</strong>, add extra questions, pick the required documents, and write the student guidelines.</>,
+      <>Do this <strong>before</strong> you start the program. The form locks while a program is open, so the rules can&apos;t change halfway.</>,
+    ],
   },
   {
-    title: '3. Configure the application form',
-    body: (
-      <>
-        <p>
-          In <strong>Settings &rarr; System</strong>, under Form Builder, you can add custom
-          fields and choose which documents applicants must upload - but only
-          <strong> before a program starts or after it ends</strong>. Once a program is
-          open, the form locks so a mid-program change can't invalidate applications
-          already in progress. The core fields the eligibility model reads (income,
-          GWA, household details, etc.) can never be edited or removed - only added-to.
-        </p>
-      </>
-    ),
+    title: '3. Start the program',
+    items: [
+      <>Go to <strong>Settings &rarr; System &rarr; Scholarship Program Creation</strong>.</>,
+      <>Set the <strong>applicant limit</strong>, when students can see their <strong>results</strong>, the <strong>batch</strong> year, the <strong>application deadline</strong>, and the <strong>eligibility bar</strong>.</>,
+      <>Click <strong>Set Up Scholarship Program</strong>. Students can apply right away, and applications close by themselves at the deadline.</>,
+    ],
   },
   {
-    title: '4. Review applications',
-    body: (
-      <>
-        <p>
-          On the <strong>Applications</strong> page, open a pending applicant and choose one of two actions:
-        </p>
-        <ul>
-          <li>
-            <strong>Verify Documents &amp; Decide Eligibility</strong> - once the uploaded documents
-            look correct and complete, this runs the eligibility model and immediately decides
-            Approved or Rejected. This is final - a decided application can't be edited,
-            withdrawn, or have its documents changed afterward, by the student or by you.
-          </li>
-          <li>
-            <strong>Request Changes</strong> - if a document is missing, blurry, or wrong, write a
-            comment instead of verifying. The applicant is notified with your comment and can
-            submit a corrected application - nothing is decided yet, so this never touches the
-            eligibility model.
-          </li>
-        </ul>
-        <p>
-          The OCR check available in the applicant modal is a manual aid for you during review -
-          it never runs on the student's side and never decides anything by itself.
-        </p>
-      </>
-    ),
+    title: '4. Review each application',
+    items: [
+      <>On the <strong>Applications</strong> page, open an applicant and check their documents.</>,
+      <>Something wrong or missing? Click <strong>Request Changes</strong> and say what to fix. The student is notified and can send it again.</>,
+      <>Everything looks right? Click <strong>Start Eligibility</strong>. The system reads the documents and decides: applicants who don&apos;t meet the eligibility bar are <strong>Rejected</strong>; the rest go to the ranking.</>,
+      <>A decision is final. It can&apos;t be edited or withdrawn afterward.</>,
+    ],
   },
   {
     title: '5. Check the ranking',
-    body: (
-      <>
-        <p>
-          The <strong>Ranking</strong> page lists every scored applicant by the model's score,
-          split into "Within Slots" (top N, where N is your Accepted Applicant Limit) and
-          "Waitlisted" (eligible, but bumped by the slot limit - promoted automatically if a
-          slot opens up). Adjust the limit here or in Settings at any time; raising or lowering
-          it recomputes who's Approved without re-reviewing anyone.
-        </p>
-      </>
-    ),
+    items: [
+      <>The <strong>Ranking</strong> page lists qualified applicants from most to least in need.</>,
+      <>The top ones, up to your applicant limit, are <strong>Approved</strong>. The rest are <strong>Waitlisted</strong>.</>,
+      <>Raise the limit and the next waitlisted applicants are approved automatically. No one needs to be reviewed again.</>,
+    ],
   },
   {
-    title: '6. End the program and start the next one',
-    body: (
-      <>
-        <p>
-          Once the deadline passes (or you're just done reviewing), a banner appears on the
-          Dashboard reminding you to export the ranking and reset. From the Ranking page,
-          click <strong>Export Ranking PDF</strong> for your records, then go to{' '}
-          <strong>Settings &rarr; System</strong> and use <strong>Reset &amp; Start New Program</strong>.
-          Nothing is ever deleted - every past program's applicants stay fully visible in
-          Reports/Dashboard, they just stop counting toward the new one.
-        </p>
-      </>
-    ),
+    title: '6. Finish and start the next program',
+    items: [
+      <>After the deadline, click <strong>Export Ranking PDF</strong> on the Ranking page to keep a copy.</>,
+      <>Then use <strong>Reset &amp; Start New Program</strong> in Settings &rarr; System. You can pick a new eligibility bar here.</>,
+      <>Nothing is deleted. Past programs stay in your records.</>,
+    ],
   },
   {
-    title: '7. Manage your team',
-    body: (
-      <>
-        <p>
-          From <strong>Settings &rarr; Team</strong>, invite other LGU staff and choose what they
-          can do: review applicants, manage the team, and/or manage the program (set the applicant limit and result visibility, reset
-          or start it, and edit the application form and student guidelines). Any single admin's approval
-          finalizes a new member, whichever permissions are granted - so only grant
-          "manage team" to someone you trust to invite and remove others.
-        </p>
-      </>
-    ),
+    title: '7. Add your team',
+    items: [
+      <>In <strong>Settings &rarr; Team</strong>, add staff and choose what each person can do: review applicants, manage the team, or manage the program.</>,
+      <>Only give &quot;manage the team&quot; to someone you trust, since they can add and remove others.</>,
+    ],
   },
 ]
 
@@ -133,18 +73,23 @@ function AdminGuide() {
   return (
     <div className="tab-content">
       <div className="settings-card">
-        <h4 className="card-label">How EcoScholar Works</h4>
-        <p className="info-sub">
-          A step-by-step walkthrough of the process, from getting your organization
-          approved to closing out a program. Each step links to where you'd actually do it.
-        </p>
+        <h4 className="card-label">Words to know</h4>
+        <div className="guide-body">
+          <ul>
+            {TERMS.map(([term, meaning]) => (
+              <li key={term}><strong>{term}</strong> - {meaning}</li>
+            ))}
+          </ul>
+        </div>
       </div>
 
       {STEPS.map(step => (
         <div key={step.title} className="settings-card">
           <h4 className="card-label">{step.title}</h4>
           <div className="guide-body">
-            {step.body}
+            <ul>
+              {step.items.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
           </div>
         </div>
       ))}

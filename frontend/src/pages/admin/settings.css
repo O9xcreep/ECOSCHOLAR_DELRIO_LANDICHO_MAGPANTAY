@@ -64,6 +64,15 @@
   gap: 16px;
 }
 
+/* Heading for a section that sits below another inside the same tab
+ * (Profile -> Security, Team -> How EcoScholar Works). */
+.settings-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #000000;
+  margin: 12px 0 -4px 4px;
+}
+
 /* ── SETTINGS CARD ── */
 .settings-card {
   background: white;
