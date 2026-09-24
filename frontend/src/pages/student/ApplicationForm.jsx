@@ -1164,6 +1164,10 @@ function ApplicationForm() {
 
   return (
     <div className="form-container page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
+      <div className="page-hero">
+        <h2 className="page-title">Scholarship Application</h2>
+        <p className="page-sub">Complete the three steps below to submit your application.</p>
+      </div>
       <StepIndicator currentStep={currentStep} />
 
       {currentStep === 1 &&

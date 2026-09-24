@@ -67,8 +67,8 @@ button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-/* Page wrapper. Pages still set --page-bg-image on it, but the design no longer puts a photo
- * behind the app - it is a plain, light page, so the image is ignored. */
+/* Page wrapper. Each page sets its own photo as --page-bg-image here; it is shown in the
+ * page's header banner (see PAGE HERO below), while the rest of the page stays light. */
 .page-bg {
   padding: 24px;
   background: transparent;
@@ -110,4 +110,73 @@ button:active:not(:disabled) {
   align-items: center;
   justify-content: center;
   box-shadow: 0 6px 16px rgba(217, 119, 6, 0.35);
+}
+
+/* ── PAGE HERO ──
+ * Every page's header is a dark photo banner in the style of the sign-in page's left panel:
+ * the page's own photo (--page-bg-image, set on the .page-bg root) under a dark gradient,
+ * white title, and the two diagonal orange accent lines. The rest of the page stays light. */
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero) {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  min-height: 150px;
+  padding: 32px 36px;
+  margin-bottom: 22px;
+  border-radius: 18px;
+  color: #fff;
+  background:
+    linear-gradient(100deg, rgba(8,10,16,.94) 0%, rgba(8,10,16,.82) 45%, rgba(8,10,16,.5) 100%),
+    var(--page-bg-image, none) center / cover no-repeat,
+    var(--header-bg);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)::before,
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)::after {
+  content: '';
+  position: absolute;
+  right: -30px;
+  z-index: -1;
+  background: var(--accent);
+  transform: rotate(-8deg);
+  transform-origin: right center;
+  pointer-events: none;
+}
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)::before {
+  bottom: 30px; width: 46%; height: 3px;
+}
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)::after {
+  bottom: 16px; width: 30%; height: 1.5px; opacity: .65;
+}
+
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)
+  :is(.page-title, .dash-title, .sd-title, .av-title) {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #fff;
+}
+
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)
+  :is(.page-sub, .dash-sub, .sd-sub, .sd-appid, .av-sub, .slots-control, label) {
+  color: rgba(255, 255, 255, 0.75);
+}
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero) strong {
+  color: #fff;
+}
+.page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)
+  :is(.av-id, .appid) {
+  color: #F59E0B;
+}
+
+@media (max-width: 768px) {
+  .page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero) {
+    min-height: 120px;
+    padding: 24px 22px;
+  }
+  .page-bg > :is(.dash-header, .ranking-header, .gl-header, .settings-header, .av-header, .sd-header, .page-hero)
+    :is(.page-title, .dash-title, .sd-title, .av-title) {
+    font-size: 24px;
+  }
 }

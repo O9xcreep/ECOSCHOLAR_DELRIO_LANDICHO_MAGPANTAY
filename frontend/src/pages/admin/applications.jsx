@@ -365,6 +365,11 @@ function Applications() {
   return (
     <div className="applications-page page-bg" style={{ '--page-bg-image': `url(${pageBg})` }}>
 
+      <div className="page-hero">
+        <h2 className="page-title">Applications</h2>
+        <p className="page-sub">Review documents, request changes, and run the eligibility check.</p>
+      </div>
+
       {/* Stat Cards - only the still-actionable pipeline statuses */}
       <div className="app-stats">
         {TAB_GROUPS[0].tabs.map((tab, i) => (
