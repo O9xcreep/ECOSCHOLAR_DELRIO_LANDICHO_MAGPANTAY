@@ -612,9 +612,6 @@ function SystemTab() {
   const [savedTopPercent, setSavedTopPercent] = useState(30)
   const [topPercentChoices, setTopPercentChoices] = useState([])
   const [eligibilityCutoff, setEligibilityCutoff] = useState(null)
-  const [savingBar, setSavingBar] = useState(false)
-  const [barError, setBarError] = useState('')
-  const [barResult, setBarResult] = useState('')
   const [exporting, setExporting] = useState(false)
 
   const [visibleAfter, setVisibleAfter] = useState('')
@@ -737,10 +734,14 @@ function SystemTab() {
           password: resetConfirmPassword,
           label: `Batch ${startYear}-${endYear}`,
           deadline: deadlineIso || undefined,
+          eligibility_top_percent: topPercent,
         })
       })
       const data = await res.json()
       if (!res.ok) { setResetError(data.error || 'Failed to reset the program'); return }
+
+      setSavedTopPercent(data.eligibility_top_percent)
+      setEligibilityCutoff(data.eligibility_cutoff ?? null)
 
       setResetSuccess(`Done - ${data.archived_applicant_count} applicant(s) archived. "${data.current_cycle.label}" has started.`)
       setResetConfirmPassword('')
@@ -819,33 +820,6 @@ function SystemTab() {
       setLimitError(connectionErrorMessage())
     } finally {
       setSavingLimit(false)
-    }
-  }
-
-  const handleSaveBar = async () => {
-    setBarError('')
-    setBarResult('')
-    setSavingBar(true)
-    try {
-      const res = await apiFetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eligibility_top_percent: topPercent })
-      })
-      const data = await res.json()
-      if (!res.ok) { setBarError(data.error || 'Failed to update the eligibility bar'); return }
-      setSavedTopPercent(data.eligibility_top_percent)
-      setEligibilityCutoff(data.eligibility_cutoff ?? null)
-      setApprovedCount(data.approved_count)
-      const changes = data.eligibility_changes
-      if (changes) {
-        setBarResult(`Re-checked this program's reviewed applicants: ${changes.now_eligible} now eligible, `
-          + `${changes.now_not_eligible} no longer eligible.`)
-      }
-    } catch {
-      setBarError(connectionErrorMessage())
-    } finally {
-      setSavingBar(false)
     }
   }
 
@@ -957,36 +931,19 @@ function SystemTab() {
 
         <div className="settings-subcard">
           <h5 className="settings-subcard-title">Eligibility Bar</h5>
-          <p className="info-sub" style={{ marginBottom: '14px' }}>
+          <p className="info-sub" style={{ marginBottom: '10px' }}>
             Who qualifies at all: an applicant must be within the top {savedTopPercent}% of need
             {eligibilityCutoff != null && <> (a Total Score of about {eligibilityCutoff} or higher)</>}.
             The Accepted Applicant Limit above then decides how many qualifying applicants are
-            funded. Changing this re-checks every applicant already reviewed in this program, so
-            everyone is judged by the same bar.
+            funded.
           </p>
-          <div className="settings-row">
-            <select
-              className="settings-select"
-              style={{ width: '170px', background: '#fff' }}
-              value={topPercent}
-              onChange={e => setTopPercent(Number(e.target.value))}
-            >
-              {topPercentChoices.map(p => (
-                <option key={p} value={p}>Top {p}% of need</option>
-              ))}
-            </select>
-            <button className="btn-primary" onClick={handleSaveBar} disabled={savingBar || topPercent === savedTopPercent}>
-              {savingBar ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-          {topPercent <= 10 && (
-            <p className="info-sub" style={{ marginTop: '10px' }}>
-              A very strict bar leaves the model few examples to learn from, so its decisions near
-              the cutoff are less reliable. Review borderline applicants manually.
-            </p>
-          )}
-          {barError && <div className="security-error" style={{ marginTop: '10px' }}>{barError}</div>}
-          {barResult && <p className="info-sub" style={{ marginTop: '10px' }}>{barResult}</p>}
+          <p className="info-sub">
+            {currentCycle
+              ? <>The bar is <strong>fixed for this program</strong>, so every applicant is judged by the
+                same standard. You can choose a different bar when you start the next program
+                (Reset &amp; Start New Program, below).</>
+              : 'Choose the bar when you set up the program below. Once the program starts, it stays fixed until the next one.'}
+          </p>
         </div>
 
         <div className="settings-subcard">
@@ -1127,6 +1084,26 @@ function SystemTab() {
                 {currentCycle && !currentCycle.closed_at
                   ? 'Click "Update Deadline" to change it for the program that\'s currently running, or "Reset & Start New Program" to archive everything and start fresh with this date.'
                   : 'Required to start the program.'}
+              </p>
+            </div>
+            <div>
+              <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
+                Eligibility bar for {isFirstSetup ? 'this' : 'the new'} program
+              </label>
+              <select
+                className="settings-select"
+                style={{ width: '170px', background: '#fff' }}
+                value={topPercent}
+                onChange={e => setTopPercent(Number(e.target.value))}
+              >
+                {topPercentChoices.map(p => (
+                  <option key={p} value={p}>Top {p}% of need</option>
+                ))}
+              </select>
+              <p className="info-sub" style={{ marginTop: '4px' }}>
+                Fixed once the program starts; it can only be changed when the next program is started.
+                {topPercent <= 10 && ' A very strict bar leaves the model few examples to learn from, so its '
+                  + 'decisions near the cutoff are less reliable. Review borderline applicants manually.'}
               </p>
             </div>
             <div>

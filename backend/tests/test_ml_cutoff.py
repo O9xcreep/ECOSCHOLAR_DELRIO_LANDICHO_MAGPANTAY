@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """The eligibility classifier takes the LGU's eligibility bar ("top X% of need") as an input, so
 one trained model serves any bar in ELIGIBILITY_TOP_PERCENT_CHOICES - see
-scripts/train_model.py. These tests pin down what that must guarantee, and how changing the bar
-re-decides a program's already-reviewed applicants."""
+scripts/train_model.py. These tests pin down what that must guarantee, that the bar is chosen when
+a program starts and stays fixed until the next one, and how a change before the first program
+re-decides applicants from before program tracking."""
 import itertools
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -94,7 +96,59 @@ class TestEligibilityBarSetting:
         assert res.status_code == 403
 
 
-class TestChangingTheBarReDecidesReviewedApplicants:
+def start_program(client, headers, **extra):
+    assert client.put('/api/settings', headers=headers, json={'reset_password': 'ResetPass123'}).status_code == 200
+    deadline = (datetime.utcnow() + timedelta(days=30)).isoformat() + 'Z'
+    return client.post('/api/program-reset', headers=headers,
+                       json={'password': 'ResetPass123', 'deadline': deadline, **extra})
+
+
+class TestTheBarIsFixedForAProgram:
+    def test_it_can_be_changed_before_any_program_starts(self, client, auth_headers):
+        data = client.get('/api/settings', headers=auth_headers()).get_json()
+        assert data['eligibility_bar_locked'] is False
+        assert client.put('/api/settings', headers=auth_headers(), json={'eligibility_top_percent': 40}).status_code == 200
+
+    def test_it_is_locked_while_a_program_is_running(self, client, auth_headers, open_cycle):
+        headers = auth_headers()
+        assert client.get('/api/settings', headers=headers).get_json()['eligibility_bar_locked'] is True
+        res = client.put('/api/settings', headers=headers, json={'eligibility_top_percent': 20})
+        assert res.status_code == 409
+        assert client.get('/api/settings', headers=headers).get_json()['eligibility_top_percent'] \
+            == DEFAULT_ELIGIBILITY_TOP_PERCENT
+
+    def test_it_stays_locked_after_the_application_deadline_passes(self, client, db, auth_headers, open_cycle):
+        # Applications close at the deadline, but reviewing (and scoring) continues until the next program.
+        db.program_cycles.update_one({'_id': open_cycle}, {'$set': {'deadline': datetime.utcnow() - timedelta(days=1)}})
+        res = client.put('/api/settings', headers=auth_headers(), json={'eligibility_top_percent': 20})
+        assert res.status_code == 409
+
+    def test_starting_a_program_fixes_the_chosen_bar_on_it(self, client, db, auth_headers):
+        res = start_program(client, auth_headers(), eligibility_top_percent=20)
+        assert res.status_code == 200, res.get_json()
+        body = res.get_json()
+        assert body['eligibility_top_percent'] == 20
+        assert body['current_cycle']['eligibility_top_percent'] == 20
+        assert body['eligibility_cutoff'] == round(ep.eligibility_cutoff(20), 2)
+        assert body['eligibility_bar_locked'] is True
+
+    def test_the_next_program_keeps_the_bar_unless_a_new_one_is_chosen(self, client, auth_headers):
+        headers = auth_headers()
+        assert start_program(client, headers, eligibility_top_percent=20).status_code == 200
+        body = start_program(client, headers).get_json()
+        assert body['current_cycle']['eligibility_top_percent'] == 20
+        body = start_program(client, headers, eligibility_top_percent=50).get_json()
+        assert body['current_cycle']['eligibility_top_percent'] == 50
+        assert body['eligibility_top_percent'] == 50
+
+    @pytest.mark.parametrize('bad', [7, 65, '30', True])
+    def test_starting_a_program_rejects_a_bar_outside_the_choices(self, client, auth_headers, bad):
+        assert start_program(client, auth_headers(), eligibility_top_percent=bad).status_code == 400
+
+
+class TestChangingTheBarBeforeTheFirstProgram:
+    """Only applicants from before program tracking (cycle_id None) can be affected: once a
+    program exists, the bar cannot change."""
     @staticmethod
     def borderline_applicant():
         """An applicant who qualifies under the loosest bar but not the strictest."""
@@ -111,9 +165,9 @@ class TestChangingTheBarReDecidesReviewedApplicants:
             'ml_score': ml_score, 'ml_status': ml_status, 'application': {'status': status},
         }).inserted_id
 
-    def test_tightening_the_bar_rejects_applicants_who_no_longer_meet_it(self, client, db, auth_headers, open_cycle):
+    def test_tightening_the_bar_rejects_applicants_who_no_longer_meet_it(self, client, db, auth_headers):
         applicant = self.borderline_applicant()
-        applicant_id = self.insert_reviewed(db, open_cycle, applicant, 60, 'border@test.com')
+        applicant_id = self.insert_reviewed(db, None, applicant, 60, 'border@test.com')
         assert db.applicants.find_one({'_id': applicant_id})['application']['status'] == 'Approved'
 
         res = client.put('/api/settings', headers=auth_headers(), json={'eligibility_top_percent': 10})
@@ -125,12 +179,12 @@ class TestChangingTheBarReDecidesReviewedApplicants:
         assert doc['application']['status'] == 'Rejected'
         assert 'eligibility bar changed' in doc['audit_trail'][-1]['action']
 
-    def test_loosening_the_bar_admits_applicants_who_now_meet_it(self, client, db, auth_headers, open_cycle):
+    def test_loosening_the_bar_admits_applicants_who_now_meet_it(self, client, db, auth_headers):
         applicant = self.borderline_applicant()
         headers = auth_headers()
         assert client.put('/api/settings', headers=headers,
                           json={'eligibility_top_percent': 10, 'max_accepted': 50}).status_code == 200
-        applicant_id = self.insert_reviewed(db, open_cycle, applicant, 10, 'border2@test.com')
+        applicant_id = self.insert_reviewed(db, None, applicant, 10, 'border2@test.com')
         assert db.applicants.find_one({'_id': applicant_id})['ml_status'] == 'Not Eligible'
 
         res = client.put('/api/settings', headers=headers, json={'eligibility_top_percent': 60})
@@ -139,12 +193,12 @@ class TestChangingTheBarReDecidesReviewedApplicants:
         assert doc['ml_status'] == 'Eligible'
         assert doc['application']['status'] == 'Approved'   # within the applicant limit
 
-    def test_withdrawn_and_unreviewed_applicants_are_left_alone(self, client, db, auth_headers, open_cycle):
+    def test_withdrawn_and_unreviewed_applicants_are_left_alone(self, client, db, auth_headers):
         applicant = self.borderline_applicant()
-        withdrawn = db.applicants.insert_one({**applicant, 'email': 'w@test.com', 'cycle_id': open_cycle,
+        withdrawn = db.applicants.insert_one({**applicant, 'email': 'w@test.com', 'cycle_id': None,
                                               'ml_status': 'Eligible', 'ml_score': 60,
                                               'application': {'status': 'Withdrawn'}}).inserted_id
-        pending = db.applicants.insert_one({**applicant, 'email': 'p@test.com', 'cycle_id': open_cycle,
+        pending = db.applicants.insert_one({**applicant, 'email': 'p@test.com', 'cycle_id': None,
                                             'ml_status': 'Pending', 'ml_score': 0,
                                             'application': {'status': 'Newly Submitted'}}).inserted_id
 

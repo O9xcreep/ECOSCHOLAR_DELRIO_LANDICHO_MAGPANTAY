@@ -10,7 +10,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from extensions import app, limiter, get_db, DEBUG
 from helpers import oid, iso, get_applicant_limit, are_results_visible, get_current_cycle, \
     get_current_cycle_id, is_cycle_open, form_is_locked, FORM_LOCKED_ERROR, do_program_reset, \
-    get_eligibility_top_percent, ELIGIBILITY_TOP_PERCENT_CHOICES
+    get_eligibility_top_percent, ELIGIBILITY_TOP_PERCENT_CHOICES, eligibility_bar_locked, \
+    ELIGIBILITY_BAR_LOCKED_ERROR
 from auth import require_auth, require_permission, require_any_permission, current_organization_oid, \
     is_full_access_role, has_permission, PROFILE_FIELDS
 from documents import get_doc_requirements_collection, serialize_doc_requirement, DEFAULT_DOC_LABELS
@@ -23,6 +24,7 @@ def serialize_cycle(c, applicant_count=None):
         "started_at": iso(c.get("started_at")),
         "closed_at": iso(c.get("closed_at")),
         "deadline": iso(c.get("deadline")),
+        "eligibility_top_percent": c.get("eligibility_top_percent"),
         "started_by": c.get("started_by"),
         "closed_by": c.get("closed_by"),
         "is_current": c.get("closed_at") is None,
@@ -43,6 +45,7 @@ def serialize_settings(db, org_id):
         "eligibility_top_percent": get_eligibility_top_percent(db, org_id),
         "eligibility_top_percent_choices": ELIGIBILITY_TOP_PERCENT_CHOICES,
         "eligibility_cutoff": eligibility_cutoff_for(db, org_id) if ml_classifier else None,
+        "eligibility_bar_locked": eligibility_bar_locked(db, org_id),
         "approved_count": db.applicants.count_documents({
             "application.status": "Approved", "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id
         }),
@@ -87,6 +90,8 @@ def update_settings():
             return jsonify({"error": f"eligibility_top_percent must be one of {ELIGIBILITY_TOP_PERCENT_CHOICES}"}), 400
         if not ml_classifier:
             return jsonify({"error": "The eligibility model isn't loaded, so the eligibility bar can't be changed right now."}), 503
+        if eligibility_bar_locked(db, org_id):
+            return jsonify({"error": ELIGIBILITY_BAR_LOCKED_ERROR}), 409
         set_fields['eligibility_top_percent'] = top_percent
 
     if 'hidden_builtin_fields' in data:
@@ -143,7 +148,8 @@ def update_settings():
         reviewed_by = g.current_user.get('email', 'Admin')
         changed = None
         if 'eligibility_top_percent' in set_fields:
-            # also re-ranks against the (possibly just-changed) applicant limit
+            # Only reachable before the first program, so this only re-decides applicants from
+            # before program tracking. Also re-ranks against the (possibly just-changed) limit.
             changed = reapply_eligibility_bar(db, org_id, reviewed_by=reviewed_by)
         elif 'max_accepted' in set_fields:
             recompute_approvals(db, org_id, set_fields['max_accepted'], reviewed_by=reviewed_by)
@@ -206,6 +212,13 @@ def program_reset():
     if deadline <= datetime.utcnow():
         return jsonify({"error": "deadline must be in the future"}), 400
 
+    # The new program's eligibility bar, fixed for the life of the program. Omitted means
+    # "keep the current one" (see do_program_reset()).
+    top_percent = data.get('eligibility_top_percent')
+    if top_percent is not None and (not isinstance(top_percent, int) or isinstance(top_percent, bool)
+                                    or top_percent not in ELIGIBILITY_TOP_PERCENT_CHOICES):
+        return jsonify({"error": f"eligibility_top_percent must be one of {ELIGIBILITY_TOP_PERCENT_CHOICES}"}), 400
+
     try:
         db = get_db()
         org_id = current_organization_oid()
@@ -223,7 +236,8 @@ def program_reset():
         )
 
         performed_by = g.current_user.get('email', 'Admin')
-        new_cycle_id = do_program_reset(db, org_id, performed_by, new_label=label, deadline=deadline)
+        new_cycle_id = do_program_reset(db, org_id, performed_by, new_label=label, deadline=deadline,
+                                        eligibility_top_percent=top_percent)
 
         return jsonify({
             "message": "Program reset complete. A new cycle has started.",

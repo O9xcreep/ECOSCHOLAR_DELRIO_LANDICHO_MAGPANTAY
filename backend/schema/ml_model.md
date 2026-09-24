@@ -149,8 +149,10 @@ from both.
   organization's own bar (`get_eligibility_top_percent`); omitting it means
   the trained default (top 30%).
 - **`reapply_eligibility_bar(db, org_id)`** — run when an LGU changes its bar
-  (`PUT /api/settings` with `eligibility_top_percent`): re-decides eligibility
-  for every applicant already reviewed in the current cycle, rejects and
+  (`PUT /api/settings` with `eligibility_top_percent`), which is only allowed
+  before its first program (see "Adjustable eligibility bar" below), so in
+  practice it only touches applicants from before program tracking: it
+  re-decides eligibility for every applicant already reviewed, rejects and
   notifies those who no longer meet the bar, then re-ranks against the
   applicant limit so newly eligible applicants are approved or waitlisted.
 - **`build_score_breakdown(applicant)`** — a separate heuristic used only
@@ -170,6 +172,16 @@ Two separate LGU settings decide who gets a scholarship:
   thing every cycle and is not a quota of each cycle's applicants);
 - the **applicant limit** (`max_accepted`) decides how many qualifying
   applicants are funded, by priority score; the rest are waitlisted.
+
+The bar is **fixed for the life of a program**, so every applicant in a program
+is judged by the same standard. It is chosen when the program starts
+(`POST /api/program-reset` with `eligibility_top_percent`; omitted means "keep
+the current bar") and stored on the `program_cycles` document;
+`get_eligibility_top_percent` reads it from the current cycle. `PUT
+/api/settings` can only change it before the LGU's first program - once a cycle
+exists it returns 409 (`eligibility_bar_locked()`), including after the
+application deadline, since reviewing and scoring continue until the next
+program starts. The applicant limit, by contrast, can change at any time.
 
 The classifier handles any bar in `ELIGIBILITY_TOP_PERCENT_CHOICES` (top 10-60%)
 without retraining. `train_model.py` repeats every survey applicant once per bar

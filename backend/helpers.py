@@ -134,8 +134,21 @@ DEFAULT_ELIGIBILITY_TOP_PERCENT = 30
 ELIGIBILITY_TOP_PERCENT_CHOICES = list(range(10, 61, 5))
 
 def get_eligibility_top_percent(db, org_id):
+    """The bar the current program was started with. Before any program (or for a program
+    started before bars were stored per program), the LGU's saved choice."""
+    cycle = get_current_cycle(db, org_id)
+    if cycle and cycle.get("eligibility_top_percent") is not None:
+        return cycle["eligibility_top_percent"]
     doc = db.settings.find_one({"organization_id": org_id})
     return (doc or {}).get("eligibility_top_percent", DEFAULT_ELIGIBILITY_TOP_PERCENT)
+
+def eligibility_bar_locked(db, org_id):
+    """The bar is chosen when a program starts and stays fixed until the next one, so every
+    applicant in a program is judged by the same standard. Only changeable before the first program."""
+    return get_current_cycle(db, org_id) is not None
+
+ELIGIBILITY_BAR_LOCKED_ERROR = ("The eligibility bar is fixed once a program has started. "
+                                "Choose a different bar when you start the next program.")
 
 # ── RESULT VISIBILITY (Approved/Rejected status + eligibility details) ──
 # An LGU can hold results until a chosen date/time (results_visible_after),
@@ -179,10 +192,13 @@ def form_is_locked(db, org_id):
 
 FORM_LOCKED_ERROR = "The form is locked while a program is open. It can be edited again once this program ends."
 
-def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None):
+def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None, eligibility_top_percent=None):
     """Archives the current cycle and opens a new one. Nothing is deleted;
-    existing data just stops matching get_current_cycle_id()."""
+    existing data just stops matching get_current_cycle_id(). The new program keeps the
+    outgoing program's eligibility bar unless a different one is given."""
     now = datetime.utcnow()
+    if eligibility_top_percent is None:
+        eligibility_top_percent = get_eligibility_top_percent(db, org_id)
     current = get_current_cycle(db, org_id)
     if current:
         db.program_cycles.update_one(
@@ -207,16 +223,19 @@ def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None):
         "started_at": now,
         "closed_at": None,
         "deadline": deadline,
+        "eligibility_top_percent": eligibility_top_percent,
         "started_by": performed_by,
         "closed_by": None,
         "organization_id": org_id,
     }
     new_cycle_id = db.program_cycles.insert_one(new_cycle).inserted_id
 
-    # A fresh cycle starts with results hidden by default.
+    # A fresh cycle starts with results hidden by default. The bar is also remembered as the
+    # LGU's choice, so it is the starting value when the next program is set up.
     db.settings.update_one(
         {"organization_id": org_id},
-        {"$set": {"results_visible_override": False}, "$unset": {"results_visible_after": ""}},
+        {"$set": {"results_visible_override": False, "eligibility_top_percent": eligibility_top_percent},
+         "$unset": {"results_visible_after": ""}},
         upsert=True
     )
 
