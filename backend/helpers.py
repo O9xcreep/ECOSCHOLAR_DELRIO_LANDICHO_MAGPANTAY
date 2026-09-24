@@ -126,6 +126,17 @@ def get_applicant_limit(db, org_id):
     doc = db.settings.find_one({"organization_id": org_id})
     return (doc or {}).get("max_accepted", DEFAULT_APPLICANT_LIMIT)
 
+# ── ELIGIBILITY BAR ──
+# Who qualifies at all ("top X% of need"), before the applicant limit decides who is funded.
+# The choices must stay inside the range the eligibility classifier was trained on
+# (eligibility_bar.selectable_top_percents in ecoscholar_encoding_maps.json).
+DEFAULT_ELIGIBILITY_TOP_PERCENT = 30
+ELIGIBILITY_TOP_PERCENT_CHOICES = list(range(10, 61, 5))
+
+def get_eligibility_top_percent(db, org_id):
+    doc = db.settings.find_one({"organization_id": org_id})
+    return (doc or {}).get("eligibility_top_percent", DEFAULT_ELIGIBILITY_TOP_PERCENT)
+
 # ── RESULT VISIBILITY (Approved/Rejected status + eligibility details) ──
 # An LGU can hold results until a chosen date/time (results_visible_after),
 # with a manual override that always wins when set. Default is visible.

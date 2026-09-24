@@ -2,64 +2,55 @@
   "feature_columns": [
     "Sex_Bin",
     "Household_Size_Num",
-    "Siblings_Num",
     "Siblings_Studying_Num",
     "Father_Edu_Ord",
     "Mother_Edu_Ord",
     "Income_Num",
     "GWA Numeric",
     "Holds_Other_Scholarship",
-    "FatherOcc_Deceased/None",
-    "FatherOcc_Driver/Transport",
-    "FatherOcc_Farmer/Fisherman",
-    "FatherOcc_Government/Office Employee",
-    "FatherOcc_Homemaker",
-    "FatherOcc_OFW",
-    "FatherOcc_Other",
-    "FatherOcc_Service Worker",
-    "FatherOcc_Skilled Trade/Construction",
-    "FatherOcc_Unknown",
-    "FatherOcc_Vendor/Retail",
-    "MotherOcc_Deceased/None",
-    "MotherOcc_Farmer/Fisherman",
-    "MotherOcc_Government/Office Employee",
-    "MotherOcc_Homemaker",
-    "MotherOcc_OFW",
-    "MotherOcc_Other",
-    "MotherOcc_Service Worker",
-    "MotherOcc_Unknown",
-    "MotherOcc_Vendor/Retail",
-    "Housing_Living with relatives",
-    "Housing_Owned",
-    "Housing_Rented"
+    "FatherOccNeed",
+    "MotherOccNeed",
+    "HousingPrecarity"
   ],
   "numeric_columns": [
     "Sex_Bin",
     "Household_Size_Num",
-    "Siblings_Num",
     "Siblings_Studying_Num",
     "Father_Edu_Ord",
     "Mother_Edu_Ord",
     "Income_Num",
     "GWA Numeric",
-    "Holds_Other_Scholarship"
+    "Holds_Other_Scholarship",
+    "FatherOccNeed",
+    "MotherOccNeed",
+    "HousingPrecarity"
   ],
-  "occupation_categories": [
-    "Deceased/None",
-    "Driver/Transport",
-    "Farmer/Fisherman",
-    "Government/Office Employee",
-    "Homemaker",
-    "OFW",
-    "Other",
-    "Service Worker",
-    "Skilled Trade/Construction",
-    "Unknown",
-    "Vendor/Retail"
+  "classifier_columns": [
+    "Sex_Bin",
+    "Household_Size_Num",
+    "Siblings_Studying_Num",
+    "Father_Edu_Ord",
+    "Mother_Edu_Ord",
+    "Income_Num",
+    "GWA Numeric",
+    "Holds_Other_Scholarship",
+    "FatherOccNeed",
+    "MotherOccNeed",
+    "HousingPrecarity",
+    "EligibilityCutoff"
   ],
   "housing_categories": [
-    "Living with relatives",
     "Owned",
-    "Rented"
-  ]
+    "Rented",
+    "Living with relatives",
+    "Informal settler"
+  ],
+  "monotone_constraints": {
+    "Father_Edu_Ord": -1,
+    "Mother_Edu_Ord": -1,
+    "FatherOccNeed": 1,
+    "MotherOccNeed": 1,
+    "HousingPrecarity": 1,
+    "EligibilityCutoff": -1
+  }
 }

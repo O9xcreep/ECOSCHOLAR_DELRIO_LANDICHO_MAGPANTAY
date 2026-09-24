@@ -24,6 +24,7 @@ from sklearn.metrics import cohen_kappa_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
 BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 CATEGORIES = ['Award', 'Waitlist', 'Not award']
 DECISION_LOOKUP = {c.lower(): c for c in CATEGORIES}
 
@@ -74,12 +75,20 @@ def verdict(kappa):
 
 
 def applicant_from_key_row(row):
+    sys.path.insert(0, SCRIPTS_DIR)
+    from train_model import map_occupation  # same free-text -> dropdown-category rules used at training time
+    father_occ, _ = map_occupation(row["Father's Occupation"])
+    mother_occ, _ = map_occupation(row["Mother's Occupation"])
     return {
         'sex': row['Sex'], 'household_size': row['Household/Family Members'],
         'siblings': row['Number of Siblings'], 'siblings_studying': row['Family Members Currently Studying'],
         'father_education': row["Father's Highest Educational Attainment"],
         'mother_education': row["Mother's Highest Educational Attainment"],
-        'father_occupation': row["Father's Occupation"], 'mother_occupation': row["Mother's Occupation"],
+        # Raw survey text ("Tricycle driver", "OFW", ...) has to be mapped onto one of the 7
+        # dropdown categories first - occupation_need() only recognizes the mapped categories,
+        # so passing raw text through unmapped silently scored every applicant's occupation
+        # term as the neutral default (50) instead of their actual need score.
+        'father_occupation': father_occ, 'mother_occupation': mother_occ,
         'monthly_income_bracket': row['Estimated Monthly Household Income'],
         'housing_situation': row['Housing Situation'], 'gwa': float(row['GWA Numeric']),
         'holds_other_scholarship': False,  # reviewers never saw scholar status, so compare like for like

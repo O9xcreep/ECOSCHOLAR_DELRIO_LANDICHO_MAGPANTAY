@@ -9,11 +9,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 from extensions import app, limiter, get_db, DEBUG
 from helpers import oid, iso, get_applicant_limit, are_results_visible, get_current_cycle, \
-    get_current_cycle_id, is_cycle_open, form_is_locked, FORM_LOCKED_ERROR, do_program_reset
+    get_current_cycle_id, is_cycle_open, form_is_locked, FORM_LOCKED_ERROR, do_program_reset, \
+    get_eligibility_top_percent, ELIGIBILITY_TOP_PERCENT_CHOICES
 from auth import require_auth, require_permission, require_any_permission, current_organization_oid, \
     is_full_access_role, has_permission, PROFILE_FIELDS
 from documents import get_doc_requirements_collection, serialize_doc_requirement, DEFAULT_DOC_LABELS
-from ml_scoring import recompute_approvals
+from ml_scoring import recompute_approvals, reapply_eligibility_bar, eligibility_cutoff_for, ml_classifier
 
 def serialize_cycle(c, applicant_count=None):
     return {
@@ -39,6 +40,9 @@ def serialize_settings(db, org_id):
     current_cycle = get_current_cycle(db, org_id)
     return {
         "max_accepted": get_applicant_limit(db, org_id),
+        "eligibility_top_percent": get_eligibility_top_percent(db, org_id),
+        "eligibility_top_percent_choices": ELIGIBILITY_TOP_PERCENT_CHOICES,
+        "eligibility_cutoff": eligibility_cutoff_for(db, org_id) if ml_classifier else None,
         "approved_count": db.applicants.count_documents({
             "application.status": "Approved", "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id
         }),
@@ -75,6 +79,15 @@ def update_settings():
         if not isinstance(max_accepted, int) or isinstance(max_accepted, bool) or max_accepted < 1:
             return jsonify({"error": "max_accepted must be a positive integer"}), 400
         set_fields['max_accepted'] = max_accepted
+
+    if 'eligibility_top_percent' in data:
+        top_percent = data.get('eligibility_top_percent')
+        if not isinstance(top_percent, int) or isinstance(top_percent, bool) \
+                or top_percent not in ELIGIBILITY_TOP_PERCENT_CHOICES:
+            return jsonify({"error": f"eligibility_top_percent must be one of {ELIGIBILITY_TOP_PERCENT_CHOICES}"}), 400
+        if not ml_classifier:
+            return jsonify({"error": "The eligibility model isn't loaded, so the eligibility bar can't be changed right now."}), 503
+        set_fields['eligibility_top_percent'] = top_percent
 
     if 'hidden_builtin_fields' in data:
         # Part of "the form" itself, locked the same as custom fields/document
@@ -127,9 +140,17 @@ def update_settings():
         if unset_fields:
             update['$unset'] = unset_fields
         db.settings.update_one({"organization_id": org_id}, update, upsert=True)
-        if 'max_accepted' in set_fields:
-            recompute_approvals(db, org_id, set_fields['max_accepted'], reviewed_by=g.current_user.get('email', 'Admin'))
-        return jsonify({"message": "Settings updated", **serialize_settings(db, org_id)})
+        reviewed_by = g.current_user.get('email', 'Admin')
+        changed = None
+        if 'eligibility_top_percent' in set_fields:
+            # also re-ranks against the (possibly just-changed) applicant limit
+            changed = reapply_eligibility_bar(db, org_id, reviewed_by=reviewed_by)
+        elif 'max_accepted' in set_fields:
+            recompute_approvals(db, org_id, set_fields['max_accepted'], reviewed_by=reviewed_by)
+        body = {"message": "Settings updated", **serialize_settings(db, org_id)}
+        if changed is not None:
+            body["eligibility_changes"] = changed
+        return jsonify(body)
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:

@@ -8,7 +8,8 @@ from flask import request, jsonify, g
 from extensions import app, get_db, DEBUG
 from helpers import oid, EDUCATION_LABEL_FIX, income_to_bracket, STATUS_MESSAGES, \
     STATUS_NOTIF_TYPE, GENERIC_REVIEWED_MESSAGE, get_applicant_limit, are_results_visible, \
-    get_current_cycle_id, resolve_notify_user_id, create_notification, ml_education_map, derive_city
+    get_current_cycle_id, resolve_notify_user_id, create_notification, ml_education_map, derive_city, \
+    get_eligibility_top_percent
 from auth import require_permission, current_organization_oid
 from documents import get_required_doc_labels, collect_verification_warnings, \
     run_ocr_checks_concurrently, documents_needing_ocr
@@ -18,16 +19,22 @@ from documents import get_required_doc_labels, collect_verification_warnings, \
 # or corrupt model file is caught here so scoring degrades gracefully instead
 # of blocking application submission.
 try:
-    from ecoscholar_predict import score_applicant as _ml_predict, ELIGIBILITY_CUTOFF as ml_regressor_cutoff
+    from ecoscholar_predict import score_applicant as _ml_predict, eligibility_cutoff as _eligibility_cutoff
     ml_classifier = True   # sentinel only - the real model objects live inside ecoscholar_predict
     ml_regressor = True
     print("ML model loaded successfully! (EcoScholar classifier + regressor)")
 except Exception as e:
     _ml_predict = None
+    _eligibility_cutoff = None
     ml_classifier = None
     ml_regressor = None
-    ml_regressor_cutoff = None
     print(f"ML model not loaded: {e}")
+
+
+def eligibility_cutoff_for(db, org_id):
+    """The Total Score an applicant must reach under this LGU's eligibility bar (shown to admins
+    for reference)."""
+    return round(_eligibility_cutoff(get_eligibility_top_percent(db, org_id)), 2)
 
 # Fields required for the model to score an applicant. Applicants who
 # registered before this model was added won't have these and are excluded
@@ -63,10 +70,11 @@ def build_feature_row(applicant):
     }
     return row, True
 
-def score_with_model(row):
-    """Run the trained EcoScholar classifier (eligibility) and regressor (ranking
-    score) on a feature row built by build_feature_row(). Returns (ml_score, ml_status)."""
-    result = _ml_predict(row)
+def score_with_model(row, top_percent=None):
+    """Run the trained EcoScholar classifier (eligibility, at the given eligibility bar -
+    default: the trained default) and regressor (ranking score) on a feature row built by
+    build_feature_row(). Returns (ml_score, ml_status)."""
+    result = _ml_predict(row, top_percent)
     ml_status = 'Eligible' if result['eligible'] else 'Not Eligible'
     return result['priority_score'], ml_status
 
@@ -179,6 +187,76 @@ def recompute_approvals(db, org_id, limit, reviewed_by='System'):
             notif_message, STATUS_NOTIF_TYPE[should_be]
         )
 
+def reapply_eligibility_bar(db, org_id, reviewed_by='Admin'):
+    """Re-decides eligibility for everyone already decided in the current cycle after the LGU
+    changes its eligibility bar, so every applicant in a cycle is judged by the same bar, then
+    re-ranks the eligible pool against the applicant limit. Returns how many applicants moved
+    each way."""
+    top_percent = get_eligibility_top_percent(db, org_id)
+    now = datetime.utcnow()
+    results_visible = are_results_visible(db, org_id)
+    decided = list(db.applicants.find({
+        "ml_status": {"$in": ["Eligible", "Not Eligible"]},
+        "application.status": {"$ne": "Withdrawn"},
+        "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id,
+    }))
+
+    newly_eligible, newly_ineligible = [], 0
+    for applicant in decided:
+        row, ok = build_feature_row(applicant)
+        if not ok:
+            continue
+        ml_score, ml_status = score_with_model(row, top_percent)
+        if ml_status == applicant.get('ml_status'):
+            continue
+        old_status = (applicant.get('application') or {}).get('status')
+
+        if ml_status == 'Not Eligible':
+            reason = generate_rejection_reason(build_score_breakdown(applicant))
+            remarks = f'The eligibility bar changed to the top {top_percent}% of need, which this application no longer meets. {reason}'
+            update = {"ml_score": ml_score, "ml_status": ml_status,
+                      "application.status": 'Rejected', "application.reviewed_at": now,
+                      "application.reviewed_by_name": reviewed_by, "application.rejection_reason": reason}
+            # role "admin": a system-role Rejected entry is shown as "Waitlisted" in the history
+            entry_role, new_status = 'admin', 'Rejected'
+            newly_ineligible += 1
+        else:
+            remarks = f'The eligibility bar changed to the top {top_percent}% of need, which this application now meets.'
+            update = {"ml_score": ml_score, "ml_status": ml_status}
+            # still Rejected until recompute_approvals() ranks it: shown as "Waitlisted" meanwhile
+            entry_role, new_status = 'system', old_status
+            newly_eligible.append(applicant['_id'])
+
+        db.applicants.update_one({"_id": applicant["_id"]}, {
+            "$set": update,
+            "$push": {"audit_trail": {
+                "action": f'Eligibility re-decided after the eligibility bar changed - now {ml_status}',
+                "performed_by": reviewed_by, "performed_by_role": entry_role,
+                "old_status": old_status, "new_status": new_status,
+                "remarks": remarks, "performed_at": now,
+            }},
+        })
+        if ml_status == 'Not Eligible':
+            message = (STATUS_MESSAGES['Rejected'] + ' ' + remarks) if results_visible else GENERIC_REVIEWED_MESSAGE
+            create_notification(db, resolve_notify_user_id(db, applicant), applicant, message,
+                                STATUS_NOTIF_TYPE['Rejected'])
+
+    limit = get_applicant_limit(db, org_id)
+    recompute_approvals(db, org_id, limit, reviewed_by=reviewed_by)
+
+    # Newly eligible applicants that recompute_approvals() promoted were notified there; the rest
+    # stay waitlisted, which is news to them too.
+    for applicant in db.applicants.find({"_id": {"$in": newly_eligible}, "application.status": 'Rejected'}):
+        message = (
+            f'The program changed its eligibility requirement and your application now meets it, but the '
+            f'accepted applicant limit ({limit}) has been reached by higher-ranked applicants. You have been '
+            f'waitlisted and may be promoted automatically if a slot opens up.'
+        ) if results_visible else GENERIC_REVIEWED_MESSAGE
+        create_notification(db, resolve_notify_user_id(db, applicant), applicant, message,
+                            STATUS_NOTIF_TYPE['Rejected'])
+
+    return {"now_eligible": len(newly_eligible), "now_not_eligible": newly_ineligible}
+
 def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     """Runs the ML eligibility decision for one applicant; shared by the
     single-applicant and bulk verify routes. Returns (result_dict,
@@ -210,7 +288,8 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
                      "the current application form."
         }, False
 
-    ml_score, ml_status = score_with_model(row)
+    ml_score, ml_status = score_with_model(row, get_eligibility_top_percent(db, org_id))
+    cutoff = eligibility_cutoff_for(db, org_id)
     old_status = (applicant.get('application') or {}).get('status', '')
     breakdown = build_score_breakdown(applicant)
 
@@ -252,7 +331,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
         return {
             "applicant_id": str(applicant_oid), "status": final_status,
             "ml_score": ml_score, "ml_status": ml_status,
-            "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
+            "regressor_cutoff": cutoff, "breakdown": breakdown,
             "rejection_reason": rejection_reason, "reviewed_by": reviewed_by,
             "warnings": warnings,
         }, False
@@ -270,7 +349,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     return {
         "applicant_id": str(applicant_oid), "status": None,
         "ml_score": ml_score, "ml_status": ml_status,
-        "regressor_cutoff": ml_regressor_cutoff, "breakdown": breakdown,
+        "regressor_cutoff": cutoff, "breakdown": breakdown,
         "rejection_reason": None, "reviewed_by": reviewed_by,
         "warnings": warnings,
     }, True
@@ -398,13 +477,13 @@ def score_applicant(applicant_id):
                          "the current application form."
             }), 409
 
-        ml_score, ml_status = score_with_model(row)
+        ml_score, ml_status = score_with_model(row, get_eligibility_top_percent(db, org_id))
 
         return jsonify({
             "applicant_id": applicant_id,
             "ml_score": ml_score,
             "ml_status": ml_status,
-            "regressor_cutoff": ml_regressor_cutoff,
+            "regressor_cutoff": eligibility_cutoff_for(db, org_id),
             "breakdown": build_score_breakdown(applicant),
             "warnings": warnings,
         })
@@ -429,6 +508,7 @@ def rank_applicants():
         if request.args.get('cycle') == 'current':
             query["cycle_id"] = get_current_cycle_id(db, org_id)
         applicants = list(db.applicants.find(query))
+        top_percent = get_eligibility_top_percent(db, org_id)
 
         ranked = []
         for applicant in applicants:
@@ -437,7 +517,7 @@ def rank_applicants():
                 if not ok:
                     continue  # predates this model
 
-                ml_score, ml_status = score_with_model(row)
+                ml_score, ml_status = score_with_model(row, top_percent)
                 academic = applicant.get('academic') or {}
 
                 ranked.append({
