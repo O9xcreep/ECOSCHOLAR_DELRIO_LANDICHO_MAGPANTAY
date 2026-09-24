@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus, connectionErrorMessage } from '../../api'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
+import ScoreBreakdown from '../../components/ScoreBreakdown'
 import pageBg from '../../assets/bg1.jpg'
 import './ApplicantDetails.css'
 
@@ -301,6 +302,14 @@ function ApplicantDetails() {
           </p>
         )}
       </div>
+
+      {/* Eligibility breakdown - only sent once a decision is released */}
+      {application.score_breakdown && (
+        <div className="av-card">
+          <h3 className="av-card-title">Eligibility Breakdown</h3>
+          <ScoreBreakdown breakdown={application.score_breakdown} />
+        </div>
+      )}
 
       {/* Identity Verification (selfie for face comparison against ID) */}
       {selfie && (

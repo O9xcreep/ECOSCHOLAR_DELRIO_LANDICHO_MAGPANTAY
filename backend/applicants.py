@@ -15,6 +15,7 @@ from auth import require_auth, require_permission, current_organization_oid, is_
 from documents import get_required_doc_labels, compute_display_status, \
     compute_admin_status, build_status_query_fragment, COMPUTED_STATUSES
 from admin_settings import get_hidden_builtin_fields
+from ml_scoring import build_score_breakdown
 
 def serialize_audit_entry(a):
     return {
@@ -687,6 +688,13 @@ def get_student_application():
                 application['rejection_reason'] = None
                 application['reviewed_at'] = None
                 application['reviewed_by_name'] = None
+
+        # Same per-factor bars admins see, but only once a decision is out
+        # (the masking above has already hidden undisclosed results).
+        application['score_breakdown'] = (
+            build_score_breakdown(applicant)
+            if application['application_status'] in ('Approved', 'Rejected') else None
+        )
 
         return jsonify({
             "application": application,
