@@ -1,49 +1,51 @@
 /* ── ECOSCHOLAR THEME ──
- * Vintage blue palette, as CSS custom properties so any page can read them and a
- * future per-LGU accent-color picker only ever has to override --accent / --accent-dark
- * / --accent-light, not rewrite every page's CSS. Existing pages that still hardcode
- * their own hex values are unaffected until they're migrated to reference these.
+ * Warm amber accent on clean, light surfaces with a near-black navigation panel - the same
+ * look as the sign-in pages (components/AuthShell.css). Kept as CSS custom properties so any
+ * page can read them and a future per-LGU accent-color picker only ever has to override
+ * --accent / --accent-dark / --accent-light, not rewrite every page's CSS.
  */
 :root {
-  --bg: #eaf0f7;
+  --bg: #F7F7F8;
   --surface: #ffffff;
-  --surface-alt: #f4f8fc;
-  --header-bg: #16233d;
-  --header-bg-alt: #1f3358;
+  --surface-alt: #FAFAFA;
+  --header-bg: #0B0D12;
+  --header-bg-alt: #161A22;
 
-  --accent: #3d6fa3;
-  --accent-dark: #2c5580;
-  --accent-light: #dbe7f3;
+  --accent: #D97706;
+  --accent-dark: #B45309;
+  --accent-light: #FEF3E2;
 
-  --text-primary: #1c2a3a;
-  --text-secondary: #48566a;
+  --text-primary: #0F172A;
+  --text-secondary: #64748B;
   --text-on-accent: #ffffff;
 
-  --border: #dde5ee;
+  --border: #E5E7EB;
 
-  --success: #0f9d64;
-  --success-bg: #d9f3e6;
-  --warning: #b5790a;
-  --warning-bg: #faedd2;
-  --danger: #c23b3b;
-  --danger-bg: #fbe3e3;
+  --success: #059669;
+  --success-bg: #D1FAE5;
+  /* Yellow rather than amber, so "pending" never reads as the orange accent. */
+  --warning: #A16207;
+  --warning-bg: #FEF9C3;
+  --danger: #DC2626;
+  --danger-bg: #FEE2E2;
 
   --radius: 14px;
-  --shadow: 0 2px 10px rgba(28, 42, 58, 0.06);
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.05);
 
-  --font: 'Poppins', sans-serif;
+  --font: 'Inter', 'Poppins', sans-serif;
 }
 
 body {
   font-family: var(--font);
+  color: var(--text-primary);
+  background: var(--bg);
 }
 
 /* ── GLOBAL MICRO-INTERACTIONS ──
- * Applies to the admin/student app shell (not the pre-login pages, which have
- * their own scoped <style> blocks and *-resets). A smooth focus glow on every
- * field and a light press-down on every button - page enter/leave transitions
- * live in AdminLayout.jsx/StudentLayout.jsx via framer-motion instead of CSS,
- * since a real exit animation needs the outgoing page to stay mounted for a
+ * Applies to the admin/student app shell (the sign-in pages have their own AuthShell
+ * styles). A smooth focus glow on every field and a light press-down on every button -
+ * page enter/leave transitions live in AdminLayout.jsx/StudentLayout.jsx via framer-motion
+ * instead of CSS, since a real exit animation needs the outgoing page to stay mounted for a
  * moment, which plain CSS can't do on an unmount.
  */
 input, select, textarea {
@@ -54,7 +56,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible,
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(61, 111, 163, 0.14);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.15);
 }
 
 button {
@@ -65,64 +67,47 @@ button:active:not(:disabled) {
   transform: scale(0.97);
 }
 
-/* Per-page background photo, set via the --page-bg-image custom property on
- * the page's own root element (each page imports its own image - see
- * Dashboard.jsx/applications.jsx/etc). Only page titles/subtitles sit
- * directly on the photo (everything else is on a card), so those get a soft
- * white text-shadow below as a legibility safety net regardless of how busy
- * the underlying photo is.
- *
- * background-attachment: fixed is load-bearing, not decorative: with the
- * default "scroll" attachment, `cover` sizes the image against the
- * element's own (scrollable) box - and that box grows as tall as its
- * content (e.g. a long applicants table), so a busy page forces the image
- * to upscale far past its native resolution and turns visibly soft/blocky.
- * "fixed" sizes `cover` against the viewport instead, which stays constant
- * no matter how much content is on the page. */
+/* Page wrapper. Pages still set --page-bg-image on it, but the design no longer puts a photo
+ * behind the app - it is a plain, light page, so the image is ignored. */
 .page-bg {
   padding: 24px;
-  border-radius: 18px;
-  background:
-    linear-gradient(rgba(234,240,247,.5), rgba(234,240,247,.5)),
-    var(--page-bg-image) center top / cover no-repeat;
-  background-attachment: local, fixed;
+  background: transparent;
 }
 
 @media (max-width: 768px) {
-  .page-bg {
-    padding: 14px;
-    /* "fixed" is unreliable on mobile browsers (notably iOS Safari) and the
-     * quality loss it fixes barely shows on a short, narrow viewport anyway. */
-    background-attachment: local, scroll;
-  }
+  .page-bg { padding: 14px; }
 }
 
-.page-title, .dash-title, .sd-title, .av-title,
-.page-sub, .dash-sub {
-  text-shadow: 0 1px 2px rgba(255,255,255,.85), 0 1px 12px rgba(255,255,255,.6);
+.page-title, .dash-title, .sd-title, .av-title {
+  letter-spacing: -0.02em;
 }
 
-/* Every card floating on a .page-bg page was fully opaque, which meant the
- * photo only ever showed in the thin gaps between cards - practically
- * invisible on a page that's mostly cards. Turns every card surface into a
- * light frosted-glass panel instead (semi-transparent + backdrop blur) so
- * the photo shows through everywhere, text stays readable, and the override
- * needs no changes in each page's own CSS - !important is deliberate here,
- * it's a theme-level override layer, not organic component styling. Buttons/
- * selects/inputs are excluded on purpose - shrinking their contrast reads as
- * "disabled", not "glassy". Also carries the same bold black-stroke + offset
- * shadow as components/StatTile.css's tile, so every section on every page
- * (student and admin) reads as one consistent "book cover" visual family
- * instead of the stat tiles being the only bordered surface in the app. */
+/* Every card-like surface in the app: white, a thin border and a soft shadow. !important is
+ * deliberate - this is the theme layer over each page's older card styles, so they all match
+ * without touching every page's CSS. Buttons/selects/inputs are not cards and are excluded. */
 .dash-card, .table-card, .ranking-card, .settings-card, .fb-card, .ge-card,
 .av-card, .av-empty, .gl-card, .sd-card, .step-content, .success-screen {
-  background: rgba(255,255,255,.72) !important;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 2px solid #000 !important;
-  box-shadow: 0 4px 2px 3px rgba(22,20,20,.3) !important;
+  background: var(--surface) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--border) !important;
+  box-shadow: var(--shadow) !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
   button:active:not(:disabled) { transform: none; }
+}
+
+/* ── APP SHELL: logo tile (sidebar + mobile header, both portals) ── */
+.logo-mark {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 16px rgba(217, 119, 6, 0.35);
 }

@@ -1,8 +1,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { API_BASE_URL, setSession } from '../api'
-import { GraduationCapIcon } from '../components/NavIcons'
-import adminBg from '../assets/admin-bg.jpg'
+import AuthShell from '../components/AuthShell'
 
 // Two ways to land here:
 // - No token in the URL: the public, self-service "apply for admin access"
@@ -13,215 +12,7 @@ import adminBg from '../assets/admin-bg.jpg'
 //   chose your role/permissions - this is just the "set your password"
 //   step, no review needed.
 const css = `
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --brand:       #3d6fa3;
-    --brand-light: #6fa0d4;
-    --brand-dark:  #2c5580;
-    --danger:      #E53E3E;
-    --text-primary:   #1A1A2E;
-    --text-secondary: #4b5563;
-    --border:      #E5E7EB;
-    --bg-card:     #FFFFFF;
-    --bg-input:    #F9FAFB;
-    --radius:      12px;
-    --shadow-lg:   0 10px 40px rgba(61,111,163,.18);
-    --transition:  .2s cubic-bezier(.4,0,.2,1);
-  }
-
-  body { font-family: 'Poppins', sans-serif; }
-
-  .lp-page {
-    display: flex;
-    min-height: 100vh;
-    background: #eaf0f7 url(${adminBg}) center/cover no-repeat;
-  }
-
-  .lp-left {
-    flex: 0 0 420px;
-    background: linear-gradient(145deg, rgba(22,35,61,.72) 0%, rgba(61,111,163,.72) 50%, rgba(95,143,196,.68) 100%);
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 48px 40px;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .lp-left::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.04'%3E%3Ccircle cx='30' cy='30' r='28'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E") repeat;
-  }
-
-  .lp-blob {
-    position: absolute;
-    border-radius: 50%;
-    background: rgba(255,255,255,.07);
-    animation: float 8s ease-in-out infinite;
-  }
-  .lp-blob.b1 { width:260px; height:260px; bottom:-60px; left:-60px; animation-delay:0s; }
-  .lp-blob.b2 { width:180px; height:180px; top:40px;    right:-40px; animation-delay:3s; }
-  .lp-blob.b3 { width:100px; height:100px; top:50%;     left:20%;    animation-delay:5s; }
-
-  @keyframes float {
-    0%,100% { transform: translateY(0) scale(1); }
-    50%      { transform: translateY(-20px) scale(1.04); }
-  }
-
-  .lp-brand { position: relative; z-index: 1; text-align: center; }
-
-  .lp-logo-ring {
-    width: 80px; height: 80px;
-    border-radius: 24px;
-    background: rgba(255,255,255,.15);
-    backdrop-filter: blur(12px);
-    border: 1.5px solid rgba(255,255,255,.25);
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 20px;
-    color: #fff;
-    box-shadow: 0 8px 32px rgba(0,0,0,.2);
-  }
-
-  .lp-name {
-    font-family: 'Poppins', sans-serif;
-    font-size: 36px;
-    color: #fff;
-    letter-spacing: -0.5px;
-    margin-bottom: 8px;
-  }
-
-  .lp-tagline {
-    font-size: 13px;
-    color: rgba(255,255,255,.7);
-    line-height: 1.6;
-    max-width: 260px;
-    margin: 0 auto 40px;
-  }
-
-  .lp-quote {
-    background: rgba(255,255,255,.1);
-    border: 1px solid rgba(255,255,255,.18);
-    border-radius: 14px;
-    padding: 20px 24px;
-    color: rgba(255,255,255,.9);
-    font-size: 14px;
-    line-height: 1.65;
-    font-style: italic;
-    max-width: 320px;
-    text-align: center;
-    position: relative; z-index: 1;
-  }
-
-  .lp-right {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 24px;
-    overflow-y: auto;
-  }
-
-  .lp-card {
-    background: rgba(255,255,255,.86);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255,255,255,.5);
-    border-radius: 20px;
-    padding: 40px 44px;
-    width: 100%;
-    max-width: 460px;
-    box-shadow: var(--shadow-lg);
-    animation: slideUp .4s ease;
-  }
-
-  @keyframes slideUp {
-    from { opacity:0; transform: translateY(18px); }
-    to   { opacity:1; transform: translateY(0); }
-  }
-
-  .lp-mobile-logo {
-    display: none;
-    align-items: center;
-    gap: 10px;
-    font-family: 'Poppins', sans-serif;
-    font-size: 22px;
-    color: var(--brand);
-    margin-bottom: 24px;
-  }
-
-  .lp-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 26px;
-    color: var(--text-primary);
-    margin-bottom: 4px;
-  }
-
-  .lp-sub {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin-bottom: 24px;
-  }
-
-  .lp-alert {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 14px;
-    border-radius: 8px;
-    font-size: 13.5px;
-    font-weight: 500;
-    margin-bottom: 16px;
-    animation: shake .35s ease;
-  }
-
-  .lp-alert.error { background: #FEF2F2; color: var(--danger); border: 1px solid #FECACA; }
-
-  @keyframes shake {
-    0%,100% { transform: translateX(0); }
-    20%,60% { transform: translateX(-4px); }
-    40%,80% { transform: translateX(4px); }
-  }
-
-  select.lp-input { cursor: pointer; }
-
-  .lp-field { margin-bottom: 16px; }
-
-  .lp-field label {
-    display: block;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 6px;
-    letter-spacing: .02em;
-  }
-
-  .lp-input {
-    width: 100%;
-    padding: 11px 16px;
-    border: 1.5px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-input);
-    font-family: 'Poppins', sans-serif;
-    font-size: 14px;
-    color: var(--text-primary);
-    transition: border-color var(--transition), box-shadow var(--transition);
-    outline: none;
-  }
-
-  .lp-input::placeholder { color: #4b5563; }
-
-  .lp-input:focus {
-    border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(61,111,163,.12);
-    background: #fff;
-  }
-
+  /* Page-specific additions on top of components/AuthShell.css. */
   .lp-file-upload {
     display: flex;
     align-items: center;
@@ -239,7 +30,7 @@ const css = `
 
   .lp-file-upload:has(.lp-file-upload-input:focus-visible) {
     border-color: var(--brand);
-    box-shadow: 0 0 0 3px rgba(61,111,163,.12);
+    box-shadow: 0 0 0 3px rgba(217,119,6,.15);
     background: #fff;
   }
 
@@ -257,7 +48,7 @@ const css = `
     flex-shrink: 0;
     width: 30px; height: 30px;
     border-radius: 8px;
-    background: rgba(61,111,163,.1);
+    background: rgba(217,119,6,.12);
     color: var(--brand);
     display: flex; align-items: center; justify-content: center;
   }
@@ -285,43 +76,6 @@ const css = `
     letter-spacing: .02em;
   }
 
-  .lp-link {
-    background: none; border: none;
-    font-family: 'Poppins', sans-serif;
-    font-size: 13px;
-    color: var(--brand);
-    cursor: pointer;
-    font-weight: 500;
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  .lp-btn {
-    width: 100%;
-    padding: 13px;
-    border: none;
-    border-radius: var(--radius);
-    background: linear-gradient(135deg, var(--brand) 0%, var(--brand-light) 100%);
-    color: #fff;
-    font-family: 'Poppins', sans-serif;
-    font-size: 15px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
-    letter-spacing: .02em;
-    box-shadow: 0 4px 14px rgba(61,111,163,.35);
-    display: flex; align-items: center; justify-content: center; gap: 8px;
-  }
-
-  .lp-btn:hover:not(:disabled) {
-    opacity: .92;
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(61,111,163,.4);
-  }
-
-  .lp-btn:active:not(:disabled) { transform: translateY(0); }
-  .lp-btn:disabled { opacity: .65; cursor: not-allowed; transform: none; }
-
   .lp-btn-secondary {
     background: none;
     color: var(--text-secondary);
@@ -331,6 +85,7 @@ const css = `
     font-weight: 500;
     margin-top: 10px;
   }
+
   .lp-btn-secondary:hover:not(:disabled) { opacity: .8; transform: none; box-shadow: none; }
 
   .spinner {
@@ -340,32 +95,7 @@ const css = `
     border-radius: 50%;
     animation: spin .7s linear infinite;
   }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
-  .lp-success-box {
-    text-align: center;
-    padding: 20px 0;
-  }
-
-  .lp-success-box h2 {
-    font-family: 'Poppins', sans-serif;
-    font-size: 24px;
-    color: var(--text-primary);
-    margin-bottom: 8px;
-  }
-
-  .lp-success-box p {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin-bottom: 28px;
-  }
-
-  @media (max-width: 768px) {
-    .lp-left { display: none; }
-    .lp-mobile-logo { display: flex; }
-    .lp-card { padding: 28px 24px; box-shadow: none; border-radius: 16px; }
-    .lp-right { padding: 24px 16px; background: rgba(234,240,247,.55); align-items: flex-start; padding-top: 40px; }
-  }
 `
 
 // Municipalities currently served - keep in sync with the list in Login.jsx.
@@ -740,27 +470,17 @@ function ApplyForm() {
 
       <div className="lp-field">
         <label>Your LGU</label>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+        <div className="lp-seg">
           <button
             type="button"
-            className="lp-btn"
-            style={{
-              flex: 1, background: data.orgMode === 'join' ? undefined : '#F3F4F6',
-              color: data.orgMode === 'join' ? undefined : 'var(--text-secondary)',
-              boxShadow: data.orgMode === 'join' ? undefined : 'none',
-            }}
+            className={`lp-seg-btn${data.orgMode === 'join' ? ' active' : ''}`}
             onClick={() => { setData(p => ({ ...p, orgMode: 'join' })); setFormError('') }}
           >
             Join an Existing Organization
           </button>
           <button
             type="button"
-            className="lp-btn"
-            style={{
-              flex: 1, background: data.orgMode === 'create' ? undefined : '#F3F4F6',
-              color: data.orgMode === 'create' ? undefined : 'var(--text-secondary)',
-              boxShadow: data.orgMode === 'create' ? undefined : 'none',
-            }}
+            className={`lp-seg-btn${data.orgMode === 'create' ? ' active' : ''}`}
             onClick={() => { setData(p => ({ ...p, orgMode: 'create' })); setFormError('') }}
           >
             Create a New Organization
@@ -942,37 +662,7 @@ function ApplyAdminShell({ children }) {
   return (
     <>
       <style>{css}</style>
-      <div className="lp-page">
-
-        <div className="lp-left">
-          <div className="lp-blob b1" />
-          <div className="lp-blob b2" />
-          <div className="lp-blob b3" />
-          <div className="lp-brand">
-            <div className="lp-logo-ring">
-              <GraduationCapIcon width={40} height={40} />
-            </div>
-            <h1 className="lp-name">EcoScholar</h1>
-            <p className="lp-tagline">
-              Centralized Scholarship Allocation System
-            </p>
-          </div>
-          <div className="lp-quote">
-            "Empowering students through fair and transparent scholarship distribution."
-          </div>
-        </div>
-
-        <div className="lp-right">
-          <div className="lp-card">
-            <div className="lp-mobile-logo">
-              <GraduationCapIcon width={24} height={24} />
-              <span>EcoScholar</span>
-            </div>
-            {children}
-          </div>
-        </div>
-
-      </div>
+      <AuthShell>{children}</AuthShell>
     </>
   )
 }

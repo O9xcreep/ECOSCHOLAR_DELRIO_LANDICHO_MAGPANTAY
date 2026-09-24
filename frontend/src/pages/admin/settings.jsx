@@ -1015,7 +1015,7 @@ function SystemTab() {
               {currentCycle.deadline && `, deadline ${new Date(currentCycle.deadline).toLocaleString('en-PH', {
                 month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
               })}`}
-              {' '}— {currentCycle.is_open ? <span style={{ color: '#059669' }}>open</span> : <span style={{ color: '#c23b3b' }}>closed</span>}
+              {' '}— {currentCycle.is_open ? <span style={{ color: '#059669' }}>open</span> : <span style={{ color: '#DC2626' }}>closed</span>}
             </p>
           )}
 
@@ -1070,7 +1070,7 @@ function SystemTab() {
             </div>
             <div>
               <label className="info-label" style={{ display: 'block', marginBottom: '6px' }}>
-                Application deadline <span style={{ color: '#c23b3b' }}>*</span>
+                Application deadline <span style={{ color: '#DC2626' }}>*</span>
               </label>
               <input
                 type="datetime-local"
@@ -1335,13 +1335,13 @@ function AdminRequestsSection({ onApproved }) {
           return (
           <div key={req.id} style={{ border: '1px solid #F0F0F0', borderRadius: '12px', padding: '16px 18px' }}>
             {req.is_founding && (
-              <div className="security-error" style={{ background: '#EFF6FF', color: '#1E40AF', marginBottom: '12px' }}>
+              <div className="security-error" style={{ background: 'var(--accent-light)', color: 'var(--accent-dark)', marginBottom: '12px' }}>
                 New Organization Request — <strong>{req.organization_name}</strong> has no team yet, so this is
                 reviewed here as the platform Super Admin rather than by a peer admin.
               </div>
             )}
             {req.request_kind === 'add_membership' && (
-              <div className="security-error" style={{ background: '#EFF6FF', color: '#1E40AF', marginBottom: '12px' }}>
+              <div className="security-error" style={{ background: 'var(--accent-light)', color: 'var(--accent-dark)', marginBottom: '12px' }}>
                 Existing Account — {req.full_name} already has an EcoScholar login elsewhere and is asking to
                 join your team too, not create a new account.
               </div>
@@ -1721,7 +1721,7 @@ function TeamTab() {
                   <div className="team-row-info">
                     <span className="info-value" style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '0 4px' }}>
                       {admin.full_name} {admin.id === currentUser.id && <span className="badge badge-purple" style={{ marginLeft: '8px' }}>You</span>}
-                      <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? '#dbe7f3' : '#E0F2FE', color: isAdminSeat ? '#2c5580' : '#075985' }}>
+                      <span className="badge" style={{ marginLeft: '8px', background: isAdminSeat ? 'var(--accent-light)' : '#E0F2FE', color: isAdminSeat ? 'var(--accent-dark)' : '#075985' }}>
                         {isAdminSeat ? 'Admin' : 'LGU Member'}
                       </span>
                       {!admin.password_set && <span className="badge" style={{ marginLeft: '8px', background: '#FEF3C7', color: '#92400E' }}>Setup pending</span>}

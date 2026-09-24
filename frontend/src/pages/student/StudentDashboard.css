@@ -111,7 +111,7 @@
 }
 
 .sd-step-circle.done    { background: var(--accent); color: white; }
-.sd-step-circle.current { background: #2563eb; color: white; }
+.sd-step-circle.current { background: var(--accent); color: white; }
 
 .sd-step-label {
   font-size: 12px;
@@ -120,7 +120,7 @@
 }
 
 .sd-step-label.done    { color: var(--accent); font-weight: 600; }
-.sd-step-label.current { color: #2563eb; font-weight: 600; }
+.sd-step-label.current { color: var(--accent); font-weight: 600; }
 
 .sd-step-line {
   flex: 1;
@@ -154,7 +154,7 @@
 
 .sd-progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), #2563eb);
+  background: linear-gradient(90deg, var(--accent), #F59E0B);
   border-radius: 20px;
   display: flex;
   align-items: center;
@@ -168,7 +168,7 @@
 /* ── BUTTONS ── */
 .btn-continue {
   padding: 12px;
-  background: #2563eb;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 10px;
@@ -178,7 +178,7 @@
   transition: background 0.2s;
 }
 
-.btn-continue:hover { background: #1d4ed8; }
+.btn-continue:hover { background: var(--accent-dark); }
 
 .btn-upload-missing {
   padding: 10px;

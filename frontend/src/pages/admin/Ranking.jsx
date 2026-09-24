@@ -183,9 +183,9 @@ function Ranking() {
       {/* Stats */}
       <div className="ranking-stats">
         <StatTile value={ranked.length} label="Total Applicants" color="#7c3aed" index={0} />
-        <StatTile value={withinSlots.length} label="Within Slots" color="#0f9d64" index={1} />
-        <StatTile value={waitlisted.length} label="Waitlisted" color="#b5790a" index={2} />
-        <StatTile value={slots} label="Available Slots" color="#3d6fa3" index={3} />
+        <StatTile value={withinSlots.length} label="Within Slots" color="#059669" index={1} />
+        <StatTile value={waitlisted.length} label="Waitlisted" color="#CA8A04" index={2} />
+        <StatTile value={slots} label="Available Slots" color="var(--accent)" index={3} />
       </div>
 
       {loading ? (

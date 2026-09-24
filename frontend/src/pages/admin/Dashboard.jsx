@@ -128,10 +128,10 @@ useEffect(() => {
 }, [])
 
   const statCircles = [
-    { label: 'Total', value: stats.total, color: '#3d6fa3' },
-    { label: 'Review', value: stats.under_review, color: '#b5790a' },
-    { label: 'Approved', value: stats.approved, color: '#0f9d64' },
-    { label: 'Rejected', value: stats.rejected, color: '#c23b3b' },
+    { label: 'Total', value: stats.total, color: 'var(--accent)' },
+    { label: 'Review', value: stats.under_review, color: '#CA8A04' },
+    { label: 'Approved', value: stats.approved, color: '#059669' },
+    { label: 'Rejected', value: stats.rejected, color: '#DC2626' },
   ]
 
   // The live cycle (closed_at unset) with a deadline that's already passed but

@@ -7,10 +7,10 @@ import pageBg from '../../assets/student-bg.jpg'
 import './StudentDashboard.css'
 
 const STATS_META = [
-  { label: 'Completion', color: '#0065A3' },
-  { label: 'Steps Done', color: '#b5790a' },
-  { label: 'Docs Uploaded', color: '#0f9d64' },
-  { label: 'Missing Docs', color: '#c23b3b' },
+  { label: 'Completion', color: 'var(--accent)' },
+  { label: 'Steps Done', color: '#CA8A04' },
+  { label: 'Docs Uploaded', color: '#059669' },
+  { label: 'Missing Docs', color: '#DC2626' },
 ]
 
 const STATUS_COLORS = {

@@ -465,12 +465,12 @@ function ApplicantDetails() {
         <h3 className="av-card-title">Documents</h3>
 
         <div className="doc-stats">
-          <StatTile value={uploaded} label="Uploaded" color="#0f9d64" index={0} />
-          <StatTile value={missing} label="Missing" color="#c23b3b" index={1} />
-          <StatTile value={totalRequired} label="Total Required" color="#3d6fa3" index={2} />
+          <StatTile value={uploaded} label="Uploaded" color="#059669" index={0} />
+          <StatTile value={missing} label="Missing" color="#DC2626" index={1} />
+          <StatTile value={totalRequired} label="Total Required" color="var(--accent)" index={2} />
           <StatTile
             value={`${totalRequired > 0 ? Math.round((uploaded / totalRequired) * 100) : 0}%`}
-            label="Completion" color="#2563eb" index={3}
+            label="Completion" color="#0F172A" index={3}
           />
         </div>
 

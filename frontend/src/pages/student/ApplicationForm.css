@@ -35,7 +35,7 @@
 }
 
 .step-circle.active {
-  background: #2563eb;
+  background: var(--accent);
   color: white;
 }
 
@@ -51,7 +51,7 @@
 }
 
 .step-label.active {
-  color: #2563eb;
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -89,8 +89,8 @@
 .section-title {
   font-size: 14px;
   font-weight: 700;
-  color: #2563eb;
-  border-left: 3px solid #2563eb;
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
   padding-left: 10px;
   margin-bottom: 16px;
 }
@@ -140,7 +140,7 @@
 
 .form-group input:focus,
 .form-group select:focus {
-  border-color: #2563eb;
+  border-color: var(--accent);
   background: white;
 }
 
@@ -168,8 +168,8 @@
 }
 
 .upload-box:hover {
-  border-color: #2563eb;
-  background: #eff6ff;
+  border-color: var(--accent);
+  background: var(--accent-light);
 }
 
 .upload-placeholder {
@@ -242,7 +242,7 @@
 
 .btn-next {
   padding: 10px 24px;
-  background: #2563eb;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -253,7 +253,7 @@
 
 .btn-submit {
   padding: 10px 24px;
-  background: #2563eb;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 8px;
@@ -264,7 +264,7 @@
 
 .btn-next:hover,
 .btn-submit:hover {
-  background: #1d4ed8;
+  background: var(--accent-dark);
 }
 
 /* ── RESPONSIVE ── */

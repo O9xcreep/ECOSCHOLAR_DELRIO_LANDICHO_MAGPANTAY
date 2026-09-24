@@ -88,7 +88,7 @@ function StudentLayout() {
       {/* SIDEBAR (desktop) */}
       <aside className="student-sidebar">
         <div className="sidebar-logo">
-          <GraduationCapIcon />
+          <span className="logo-mark"><GraduationCapIcon width={20} height={20} /></span>
           <span className="logo-text">EcoScholar</span>
         </div>
 
@@ -109,7 +109,7 @@ function StudentLayout() {
         {/* MOBILE HEADER */}
         <header className="mobile-header">
           <div className="mobile-header-brand">
-            <GraduationCapIcon />
+            <span className="logo-mark"><GraduationCapIcon width={20} height={20} /></span>
             <span>EcoScholar</span>
           </div>
           <NotificationBell />

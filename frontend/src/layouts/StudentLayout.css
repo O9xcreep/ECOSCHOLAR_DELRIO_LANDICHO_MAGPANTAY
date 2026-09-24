@@ -2,7 +2,7 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: 'Poppins', sans-serif;
+  font-family: var(--font);
 }
 
 .student-container {
@@ -55,7 +55,7 @@
   gap: 12px;
   padding: 12px 16px;
   border-radius: 10px;
-  color: rgba(255,255,255,0.65);
+  color: rgba(255,255,255,0.6);
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
@@ -68,8 +68,9 @@
 }
 
 .nav-item.active {
-  background: var(--accent);
-  color: white;
+  background: rgba(217,119,6,0.16);
+  color: #F59E0B;
+  font-weight: 600;
 }
 
 .nav-icon { flex-shrink: 0; }
@@ -102,8 +103,8 @@
 /* ── TOPBAR ── */
 .student-topbar {
   height: 64px;
-  background: #16233d;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -114,9 +115,9 @@
 }
 
 .topbar-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 700;
-  color: white;
+  color: var(--text-primary);
 }
 
 .topbar-right {
@@ -134,12 +135,12 @@
 
 .btn-logout {
   background: none;
-  border: 1px solid #E5E7EB;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px 14px;
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--text-primary);
   cursor: pointer;
   transition: background 0.15s;
 }
@@ -158,12 +159,12 @@
 .student-name {
   font-size: 13px;
   font-weight: 600;
-  color: #f9fafc;
+  color: var(--text-primary);
 }
 
 .student-role {
   font-size: 11px;
-  color: #ffffff;
+  color: var(--text-secondary);
 }
 
 /* ── MAIN CONTENT ── */

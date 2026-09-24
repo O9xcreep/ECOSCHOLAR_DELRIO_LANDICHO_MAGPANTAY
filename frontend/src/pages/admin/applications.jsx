@@ -8,8 +8,8 @@ import ApplicantModal from '../../components/ApplicantModal'
 
 const STAT_TAB_COLORS = {
   'Newly Submitted': '#3d6fa3',
-  'Pending Verification': '#b5790a',
-  'Incomplete': '#c23b3b',
+  'Pending Verification': '#CA8A04',
+  'Incomplete': '#DC2626',
 }
 
 // Still being worked through the review pipeline - these are the ones bulk
@@ -73,8 +73,8 @@ const statusClass = {
 }
 
 const avatarColors = [
-  '#3d6fa3','#2563eb','#059669','#dc2626',
-  '#d97706','#0891b2','#be185d','#3d6fa3',
+  '#475569','#2563eb','#059669','#dc2626',
+  '#d97706','#0891b2','#be185d','#475569',
   '#2563eb','#059669'
 ]
 
