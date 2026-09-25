@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """Cross-cutting utilities: id/date helpers, shared serializers, organization/
 program-cycle helpers, notification/email helpers, and ML config constants.
-Imports only from extensions.py, never from a domain module."""
+Imports only from extensions.py (and field_crypto.py, which itself only
+imports extensions), never from a domain module."""
 import secrets
 import threading
 from datetime import datetime
@@ -11,6 +12,7 @@ import requests
 
 from extensions import app, EMAIL_PROVIDER, RESEND_API_KEY, \
     MAILJET_API_KEY, MAILJET_API_SECRET, SMTP_FROM_NAME, SMTP_FROM_EMAIL
+from field_crypto import decrypt_fields, ENCRYPTED_APPLICANT_FIELDS
 
 def oid(id_str):
     """Parse a string into an ObjectId, or None if it isn't a valid one."""
@@ -313,6 +315,7 @@ def serialize_organization(org):
 # ── SERIALIZATION HELPERS (shared between admin and student-facing routes) ──
 def serialize_applicant(doc):
     """Flattens an applicant document (embedded academic/application) for the API."""
+    doc = decrypt_fields(doc, ENCRYPTED_APPLICANT_FIELDS)
     academic = doc.get('academic') or {}
     application = doc.get('application') or {}
     return {

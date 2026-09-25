@@ -13,6 +13,7 @@ from extensions import app, limiter, get_db, DEBUG, SECRET_KEY, FRONTEND_URL, _m
 from helpers import oid, send_email_async, get_organization_name, find_active_organization_by_code, \
     ml_education_map, ml_occupation_categories, ml_housing_situations
 from activity import log_activity
+from field_crypto import encrypt_fields, decrypt_fields, ENCRYPTED_PROFILE_FIELDS
 
 TOKEN_MAX_AGE = 60 * 60 * 12  # 12 hours
 _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
@@ -366,7 +367,7 @@ def register():
             "email_verified": False,
             "created_at": datetime.utcnow(),
             "privacy_consent": True,
-            **profile_data,
+            **encrypt_fields(profile_data, ENCRYPTED_PROFILE_FIELDS),
             "organization_id": organization["_id"],
         })
         db.memberships.insert_one({
@@ -448,6 +449,7 @@ def get_profile():
     user = db.users.find_one({"_id": oid(g.current_user['id'])})
     if not user:
         return jsonify({"error": "User not found"}), 404
+    user = decrypt_fields(user, ENCRYPTED_PROFILE_FIELDS)
 
     profile = {"fullName": user.get('full_name', ''), "email": user.get('email', '')}
     for field in PROFILE_FIELDS:
@@ -480,9 +482,9 @@ def update_profile():
 
     db = get_db()
     user_oid = oid(g.current_user['id'])
-    db.users.update_one({"_id": user_oid}, {"$set": set_fields})
+    db.users.update_one({"_id": user_oid}, {"$set": encrypt_fields(set_fields, ENCRYPTED_PROFILE_FIELDS)})
     log_activity('account', 'Updated profile', details='Changed: ' + ', '.join(sorted(set_fields)))
-    user = db.users.find_one({"_id": user_oid})
+    user = decrypt_fields(db.users.find_one({"_id": user_oid}), ENCRYPTED_PROFILE_FIELDS)
     return jsonify({
         "message": "Profile updated",
         "fullName": user.get('full_name', ''),

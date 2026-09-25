@@ -17,6 +17,7 @@ from documents import get_required_doc_labels, compute_display_status, \
 from admin_settings import get_hidden_builtin_fields
 from ml_scoring import build_score_breakdown
 from activity import log_activity
+from field_crypto import encrypt_fields, decrypt_field, blind_index, ENCRYPTED_APPLICANT_FIELDS
 
 def serialize_audit_entry(a):
     return {
@@ -308,9 +309,11 @@ def submit_application():
             full_name = data.get('fullName', '').strip()
             dob = data.get('dob', '').strip()
             if full_name and dob:
+                # date_of_birth is encrypted, so match on its blind index;
+                # the plaintext branch covers records from before encryption.
                 existing = db.applicants.find_one({
                     "full_name": {"$regex": f"^{re.escape(full_name)}$", "$options": "i"},
-                    "date_of_birth": dob,
+                    "$or": [{"date_of_birth_index": blind_index(dob)}, {"date_of_birth": dob}],
                     "cycle_id": current_cycle_id,
                     "application.status": {"$ne": "Withdrawn"},
                     "organization_id": org_id,
@@ -447,6 +450,8 @@ def submit_application():
             "organization_id": org_id,
         }
 
+        applicant_doc = encrypt_fields(applicant_doc, ENCRYPTED_APPLICANT_FIELDS)
+        applicant_doc["date_of_birth_index"] = blind_index(data['dob'])
         result = db.applicants.insert_one(applicant_doc)
 
         # Link any old Withdrawn record(s) for this same person/cycle to the new
@@ -857,7 +862,7 @@ def get_history_log():
             history.append({
                 "applicant_id": r["applicant_id"],
                 "full_name": r.get("full_name"),
-                "city": derive_city(r.get("address")),
+                "city": derive_city(decrypt_field(r.get("address"))),
                 "course": r.get("course"),
                 "old_status": r.get("old_status"),
                 "new_status": new_status,

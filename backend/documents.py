@@ -21,6 +21,7 @@ from helpers import oid, iso, serialize_document
 from auth import require_auth, require_permission, current_organization_oid, has_permission
 from ocr import extract_text, verify_document
 from activity import log_activity
+from field_crypto import decrypt_field
 
 # ── UPLOAD CONFIG ──
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
@@ -246,7 +247,7 @@ def compute_ocr_result(applicant, applicant_oid, document_name):
             "full_name": applicant.get('full_name', ''),
             "school": academic.get('school', ''),
             "course": academic.get('course', ''),
-            "address": applicant.get('address') or '',
+            "address": decrypt_field(applicant.get('address')) or '',
             "monthly_income": applicant.get('monthly_income'),
             "gpa": academic.get('gpa'),
         }
@@ -691,7 +692,7 @@ def get_duplicate_flags():
                 "resolved": bool(f.get('resolved', False)),
                 "applicant_name": a1.get('full_name'),
                 "applicant_email": a1.get('email'),
-                "applicant_dob": a1.get('date_of_birth'),
+                "applicant_dob": decrypt_field(a1.get('date_of_birth')),
                 "document_name": f.get('document_name'),
                 "duplicate_of_document_name": f.get('duplicate_of_document_name'),
                 "similarity_distance": f.get('similarity_distance'),

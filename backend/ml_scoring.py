@@ -11,6 +11,7 @@ from helpers import oid, EDUCATION_LABEL_FIX, income_to_bracket, income_bracket_
     get_current_cycle_id, resolve_notify_user_id, create_notification, ml_education_map, derive_city, \
     get_eligibility_top_percent
 from auth import require_permission, current_organization_oid
+from field_crypto import decrypt_field
 from documents import get_required_doc_labels, collect_verification_warnings, \
     run_ocr_checks_concurrently, documents_needing_ocr
 
@@ -544,7 +545,7 @@ def rank_applicants():
                 ranked.append({
                     'id': str(applicant['_id']),
                     'full_name': applicant['full_name'],
-                    'city': derive_city(applicant.get('address')),
+                    'city': derive_city(decrypt_field(applicant.get('address'))),
                     'course': academic.get('course'),
                     'gpa': academic.get('gpa'),
                     'monthly_income': applicant.get('monthly_income'),
