@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, displayStatus, connectionErrorMessage } from '../../api'
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
+import { INCOME_RANGES } from '../../incomeRanges'
 
 // ── DATA ──
 // These three lists must match the eligibility model's encoding exactly
@@ -14,22 +15,6 @@ const OCCUPATION_CATEGORIES = [
   'Office/Clerical', 'Professional', 'Deceased/Not Applicable'
 ]
 const HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
-
-// The eligibility model was trained on bracketed income (see income_to_bracket()
-// in app.py), not an exact peso figure - it collapses whatever number this form
-// submits into one of these same five brackets before the model ever sees it, so
-// asking for a range directly loses the model nothing. `value` is a representative
-// figure comfortably inside each bracket's boundaries (never on an edge), stored
-// as monthly_income exactly like a typed number always was - every other feature
-// that reads it (income_to_bracket, the admin score-breakdown heuristic, exports)
-// keeps working unchanged.
-const INCOME_RANGES = [
-  { label: 'Below ₱5,000', value: 2500 },
-  { label: '₱5,001 - ₱10,000', value: 7500 },
-  { label: '₱10,000 - ₱15,000', value: 12500 },
-  { label: '₱15,000 - ₱20,000', value: 17500 },
-  { label: '₱20,000 and above', value: 25000 },
-]
 
 const COURSES = [
   'BS Computer Science',

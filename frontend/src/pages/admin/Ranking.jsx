@@ -93,10 +93,9 @@ function Ranking() {
       app.income_bracket ? app.income_bracket.replace(/₱/g, 'P') : 'N/A',
       app.family_size ?? '',
       app.has_other_scholarship ? 'Yes' : 'No',
-      `${app.ml_score}%`,
       displayStatus(app.application_status, app.ml_status),
     ]
-    const columns = ['Rank', 'Applicant', 'Course', 'GPA', 'Income', 'Family', 'Other Sch.', 'ML Score', 'Status']
+    const columns = ['Rank', 'Applicant', 'Course', 'GPA', 'Income', 'Family', 'Other Sch.', 'Status']
 
     autoTable(doc, {
       startY: 32,
@@ -211,7 +210,6 @@ function Ranking() {
                   <th>Income</th>
                   <th>Family</th>
                   <th>Other Sch.</th>
-                  <th>ML Score</th>
                   <th>Status</th>
                 </tr>
               </thead>
@@ -237,22 +235,6 @@ function Ranking() {
                       {app.has_other_scholarship
                         ? <span className="badge badge-red">Yes</span>
                         : <span className="badge badge-green">No</span>}
-                    </td>
-                    <td>
-                      <div className="ml-score-cell">
-                        <div className="ml-score-bar-track">
-                          <div
-                            className="ml-score-bar-fill"
-                            style={{
-                              width: `${app.ml_score}%`,
-                              background: app.ml_score >= 80
-                                ? '#10b981' : app.ml_score >= 60
-                                ? '#f59e0b' : '#ef4444'
-                            }}
-                          />
-                        </div>
-                        <span className="ml-score-num">{app.ml_score}%</span>
-                      </div>
                     </td>
                     <td>
                       <span className={`badge ${
@@ -287,7 +269,6 @@ function Ranking() {
                     <th>Applicant</th>
                     <th>Course</th>
                     <th>GPA</th>
-                    <th>ML Score</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -301,20 +282,6 @@ function Ranking() {
                       </td>
                       <td className="rank-course">{app.course}</td>
                       <td className="rank-gwa">{app.gpa}</td>
-                      <td>
-                        <div className="ml-score-cell">
-                          <div className="ml-score-bar-track">
-                            <div
-                              className="ml-score-bar-fill"
-                              style={{
-                                width: `${app.ml_score}%`,
-                                background: '#aaa'
-                              }}
-                            />
-                          </div>
-                          <span className="ml-score-num">{app.ml_score}%</span>
-                        </div>
-                      </td>
                       <td>
                         <span className={`badge ${
                           displayStatus(app.application_status, app.ml_status) === 'Approved' ? 'badge-green' :

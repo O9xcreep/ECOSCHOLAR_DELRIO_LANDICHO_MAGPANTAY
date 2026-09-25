@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { API_BASE_URL, setSession, fetchWithTimeout, connectionErrorMessage } from '../api'
 import AuthShell from '../components/AuthShell'
+import { INCOME_RANGES } from '../incomeRanges'
 
 
 /* ── SVG Icons ── */
@@ -85,7 +86,6 @@ function validateRegPersonalInfo(d) {
   if (!d.motherOccupation) errors.motherOccupation = "Mother's occupation is required"
   if (!d.motherEducation) errors.motherEducation = "Mother's education level is required"
   if (!d.monthlyIncome) errors.monthlyIncome = 'Monthly household income is required'
-  else if (d.monthlyIncome < 0) errors.monthlyIncome = 'Enter a valid amount'
   if (!d.familySize) errors.familySize = 'Family size is required'
   else if (d.familySize < 1 || d.familySize > 20) errors.familySize = 'Enter a valid family size (1-20)'
   if (d.numSiblings === '') errors.numSiblings = 'Number of siblings is required'
@@ -882,12 +882,14 @@ function Login() {
               <p className="lp-subsection-title">Household</p>
               <div className="lp-form-grid-2">
                 <div className="lp-field">
-                  <label>Monthly Household Income (₱)</label>
-                  <input
+                  <label>Monthly Household Income</label>
+                  <select
                     className={`lp-input${regFieldErrors.monthlyIncome ? ' input-err' : ''}`}
-                    type="number" placeholder="e.g. 15000" min="0" step="1"
                     value={regData.monthlyIncome}
-                    onChange={e => { setRegData(p => ({ ...p, monthlyIncome: e.target.value })); setRegError('') }} />
+                    onChange={e => { setRegData(p => ({ ...p, monthlyIncome: e.target.value })); setRegError('') }}>
+                    <option value="">Select income range</option>
+                    {INCOME_RANGES.map(r => <option key={r.label} value={r.value}>{r.label}</option>)}
+                  </select>
                   {regFieldErrors.monthlyIncome && <p className="lp-field-err">{regFieldErrors.monthlyIncome}</p>}
                 </div>
 

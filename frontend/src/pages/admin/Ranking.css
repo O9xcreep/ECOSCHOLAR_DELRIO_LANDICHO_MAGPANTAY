@@ -220,35 +220,6 @@
   font-size: 12px !important;
 }
 
-/* ── ML SCORE BAR ── */
-.ml-score-cell {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ml-score-bar-track {
-  flex: 1;
-  height: 8px;
-  background: #f0f0f0;
-  border-radius: 10px;
-  overflow: hidden;
-  min-width: 60px;
-}
-
-.ml-score-bar-fill {
-  height: 100%;
-  border-radius: 10px;
-  transition: width 0.4s ease;
-}
-
-.ml-score-num {
-  font-size: 12px;
-  font-weight: 700;
-  color: #1e293b;
-  white-space: nowrap;
-}
-
 /* ── BADGES ── */
 .badge {
   padding: 3px 10px;
