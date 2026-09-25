@@ -13,6 +13,7 @@ from werkzeug.security import check_password_hash
 from extensions import app, limiter, get_db, _fs
 from helpers import oid, iso, get_organization_name, find_active_organization_by_code, send_email_async
 from auth import require_auth, current_organization_oid, issue_token, revoke_token, ADMIN_PERMISSIONS, PROFILE_FIELDS
+from activity import log_activity
 
 
 def _activate_membership(db, user_oid, membership):
@@ -136,6 +137,8 @@ def join_organization():
         db.memberships.insert_one(membership)
 
     user_payload, token = _activate_membership(db, user_oid, membership)
+    log_activity('account', 'Joined an organization with a join code', organization_id=organization["_id"],
+                 target={"type": "organization", "id": organization["_id"], "label": organization.get('name')})
     return jsonify({"message": f"Joined {organization.get('name', 'the organization')}", "user": user_payload, "token": token})
 
 
@@ -160,6 +163,8 @@ def switch_organization():
         return jsonify({"error": "You're not a member of that organization"}), 404
 
     user_payload, token = _activate_membership(db, user_oid, membership)
+    log_activity('auth', 'Switched active organization', organization_id=target_oid,
+                 target={"type": "organization", "id": target_oid, "label": user_payload.get('organization_name')})
     return jsonify({"message": "Switched organization", "user": user_payload, "token": token})
 
 
@@ -193,6 +198,7 @@ def delete_own_account():
     # 403, not 401: the frontend treats any 401 as an expired session and signs
     # the user out, which a mistyped password shouldn't do.
     if not _password_matches(user, password):
+        log_activity('account', 'Failed account deletion - wrong password', outcome='failure')
         return jsonify({"error": "Incorrect password"}), 403
 
     if db.memberships.find_one({"user_id": user_oid, "role": "lgu_admin"}):
@@ -200,6 +206,9 @@ def delete_own_account():
 
     # Memberships are pure relationship data (unlike applicants/notifications/
     # audit_trail, which stay untouched as historical records) - cascade them.
+    log_activity('account', 'Deleted their own account',
+                 actor={"id": user_oid, "email": user.get('email'), "role": user.get('role'),
+                        "full_name": user.get('full_name'), "organization_id": user.get('organization_id')})
     db.memberships.delete_many({"user_id": user_oid})
     db.users.delete_one({"_id": user_oid})
     revoke_token(g.current_token)
@@ -218,7 +227,7 @@ def delete_own_account():
 # removed last, so a failure partway leaves an org that can be deleted again.
 _ORG_SCOPED_COLLECTIONS = (
     "applicants", "duplicate_flags", "notifications", "document_requirements",
-    "form_fields", "program_cycles", "settings", "admin_requests",
+    "form_fields", "program_cycles", "settings", "admin_requests", "activity_logs",
 )
 
 
@@ -304,6 +313,8 @@ def delete_organization(organization_id):
     # 403 rather than 401: the frontend treats any 401 as an expired session
     # and signs the user out, which a mistyped password shouldn't do.
     if not _password_matches(caller, data.get('password') or ''):
+        log_activity('settings', 'Failed organization deletion - wrong password', organization_id=org_oid,
+                     outcome='failure')
         return jsonify({"error": "Incorrect password"}), 403
     if (data.get('confirm_name') or '').strip() != (organization.get('name') or ''):
         return jsonify({"error": "Type the organization's name exactly to confirm"}), 400
@@ -323,6 +334,10 @@ def delete_organization(organization_id):
         db[collection].delete_many({"organization_id": org_oid})
     db.memberships.delete_many({"organization_id": org_oid})
     db.organizations.delete_one({"_id": org_oid})
+    # Written after the cascade above, so this record of who deleted the
+    # organization survives it (visible to the Super Admin).
+    log_activity('settings', 'Deleted the organization and all of its data', organization_id=org_oid,
+                 target={"type": "organization", "id": org_oid, "label": organization.get('name')})
 
     org_name = organization.get('name') or ''
     for user_oid in affected:

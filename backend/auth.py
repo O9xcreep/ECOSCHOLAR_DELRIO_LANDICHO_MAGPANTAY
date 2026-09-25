@@ -12,6 +12,7 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from extensions import app, limiter, get_db, DEBUG, SECRET_KEY, FRONTEND_URL, _mongo_db
 from helpers import oid, send_email_async, get_organization_name, find_active_organization_by_code, \
     ml_education_map, ml_occupation_categories, ml_housing_situations
+from activity import log_activity
 
 TOKEN_MAX_AGE = 60 * 60 * 12  # 12 hours
 _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
@@ -211,20 +212,26 @@ def login():
         user = db.users.find_one({"email": email})
 
         if not user:
+            log_activity('auth', 'Failed login - no account with this email',
+                         actor={"email": email}, outcome='failure')
             return jsonify({"error": "Invalid email or password"}), 401
 
+        user_actor = {"id": user['_id'], "email": user['email'], "role": user['role'],
+                      "full_name": user.get('full_name'), "organization_id": user.get('organization_id')}
         stored = user['password']
         is_hashed = stored.startswith(('pbkdf2:', 'scrypt:'))
         # Legacy plaintext password - compare directly, upgrade below.
         valid = check_password_hash(stored, password) if is_hashed else stored == password
 
         if not valid:
+            log_activity('auth', 'Failed login - wrong password', actor=user_actor, outcome='failure')
             return jsonify({"error": "Invalid email or password"}), 401
 
         if not is_hashed:
             db.users.update_one({"_id": user['_id']}, {"$set": {"password": generate_password_hash(password)}})
 
         if not user.get('email_verified', True):
+            log_activity('auth', 'Login blocked - email not verified', actor=user_actor, outcome='failure')
             return jsonify({
                 "error": "Please verify your email before signing in.",
                 "needs_verification": True,
@@ -258,6 +265,7 @@ def login():
         if user['role'] == 'lgu_member':
             user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
 
+        log_activity('auth', 'Logged in', actor=user_actor)
         return jsonify({
             "message": "Login successful",
             "user": user_payload,
@@ -274,6 +282,7 @@ def login():
 @require_auth
 def logout():
     revoke_token(g.current_token)
+    log_activity('auth', 'Logged out')
     return jsonify({"message": "Logged out"})
 
 
@@ -369,6 +378,9 @@ def register():
             "joined_at": datetime.utcnow(),
         })
         create_and_send_otp(email, 'register', full_name)
+        log_activity('account', 'Registered a student account',
+                     actor={"id": result.inserted_id, "email": email, "role": "student",
+                            "full_name": full_name, "organization_id": organization["_id"]})
 
         return jsonify({
             "message": "Enter the verification code sent to your email to finish creating your account.",
@@ -391,6 +403,7 @@ def verify_register_otp():
 
     ok, error = verify_otp(email, 'register', code)
     if not ok:
+        log_activity('account', 'Failed email verification code', actor={"email": email}, outcome='failure')
         return jsonify({"error": error}), 400
 
     db = get_db()
@@ -398,6 +411,9 @@ def verify_register_otp():
     user = db.users.find_one({"email": email})
     if not user:
         return jsonify({"error": "Account not found"}), 404
+    log_activity('account', 'Verified email address',
+                 actor={"id": user['_id'], "email": user['email'], "role": user['role'],
+                        "full_name": user.get('full_name'), "organization_id": user.get('organization_id')})
 
     user_payload = {
         "id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role'],
@@ -465,6 +481,7 @@ def update_profile():
     db = get_db()
     user_oid = oid(g.current_user['id'])
     db.users.update_one({"_id": user_oid}, {"$set": set_fields})
+    log_activity('account', 'Updated profile', details='Changed: ' + ', '.join(sorted(set_fields)))
     user = db.users.find_one({"_id": user_oid})
     return jsonify({
         "message": "Profile updated",
@@ -498,9 +515,11 @@ def change_password():
     # 403, not 401: the frontend treats any 401 as an expired session and signs
     # the user out, which a mistyped current password shouldn't do.
     if not valid:
+        log_activity('account', 'Failed password change - wrong current password', outcome='failure')
         return jsonify({"error": "Current password is incorrect"}), 403
 
     db.users.update_one({"_id": user_oid}, {"$set": {"password": generate_password_hash(new_password)}})
+    log_activity('account', 'Changed password')
     return jsonify({"message": "Password changed successfully"})
 
 # ── AUTH: FORGOT PASSWORD ──
@@ -529,6 +548,9 @@ def forgot_password():
                 <p>If you didn't request this, you can safely ignore this email.</p>
             """
             send_email_async(user['email'], 'Reset your EcoScholar password', html)
+            log_activity('account', 'Requested a password reset email',
+                         actor={"id": user['_id'], "email": user['email'], "role": user['role'],
+                                "full_name": user.get('full_name'), "organization_id": user.get('organization_id')})
         return jsonify(generic)
     except Exception:
         if DEBUG:
@@ -567,4 +589,8 @@ def reset_password():
     if result.matched_count == 0:
         return jsonify({"error": "This reset link is invalid."}), 400
 
+    user = db.users.find_one({"_id": user_oid}, {"email": 1, "role": 1, "full_name": 1, "organization_id": 1}) or {}
+    log_activity('account', 'Reset password using the emailed link',
+                 actor={"id": user_oid, "email": user.get('email'), "role": user.get('role'),
+                        "full_name": user.get('full_name'), "organization_id": user.get('organization_id')})
     return jsonify({"message": "Password reset successfully. You can now log in with your new password."})

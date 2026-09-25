@@ -19,6 +19,17 @@ from auth import require_permission, require_auth, current_organization_oid, ADM
     create_and_send_otp, verify_otp, issue_token, _admin_apply_serializer, ADMIN_APPLY_TOKEN_MAX_AGE
 from documents import allowed_file, ALLOWED_EXTENSIONS, safe_mime_for
 from memberships import create_membership_from_approved_request, serialize_membership, _activate_membership
+from activity import log_activity
+
+PERMISSION_LABELS = {
+    'can_review_applicants': 'review applicants',
+    'can_manage_members': 'manage members',
+    'can_reset_program': 'reset program',
+}
+
+def describe_permissions(permissions):
+    granted = [PERMISSION_LABELS.get(p, p) for p, on in (permissions or {}).items() if on]
+    return 'Permissions: ' + (', '.join(granted) if granted else 'none')
 
 # Lets a logged-in admin/member see their own organization's join code, to
 # share it with whoever they want to invite next.
@@ -138,6 +149,9 @@ def create_admin_account():
         municipality=get_organization_municipality(db, org_id),
         organization_id=org_id,
     )
+    log_activity('staff', 'Added a team member', organization_id=org_id,
+                 target={"type": "user", "id": admin_doc.get('_id'), "label": f"{full_name} ({email})"},
+                 details=describe_permissions(permissions))
     return jsonify({"admin": serialize_admin(admin_doc)}), 201
 
 @app.route('/api/admins/<admin_id>/permissions', methods=['PUT'])
@@ -168,6 +182,10 @@ def update_admin_permissions(admin_id):
     db.users.update_one({"_id": admin_oid, "organization_id": org_id}, {"$set": {"permissions": permissions}})
 
     target = db.users.find_one({"_id": admin_oid})
+    log_activity('staff', "Changed a team member's permissions", organization_id=org_id,
+                 target={"type": "user", "id": admin_oid,
+                         "label": f"{(target or {}).get('full_name')} ({(target or {}).get('email')})"},
+                 details=describe_permissions(permissions))
     membership["permissions"] = permissions
     return jsonify({"admin": serialize_admin_membership(target, membership)})
 
@@ -213,7 +231,11 @@ def transfer_admin_role(admin_id):
     )
 
     target_membership["role"] = "lgu_admin"
-    return jsonify({"admin": serialize_admin_membership(db.users.find_one({"_id": target_oid}), target_membership)})
+    new_admin = db.users.find_one({"_id": target_oid})
+    log_activity('staff', 'Passed the Admin role', organization_id=org_id,
+                 target={"type": "user", "id": target_oid,
+                         "label": f"{(new_admin or {}).get('full_name')} ({(new_admin or {}).get('email')})"})
+    return jsonify({"admin": serialize_admin_membership(new_admin, target_membership)})
 
 @app.route('/api/admins/<admin_id>/resend-invite', methods=['POST'])
 @require_permission('can_manage_members')
@@ -273,6 +295,10 @@ def delete_admin_account(admin_id):
         return jsonify({"error": "Can't remove the account currently holding the Admin seat - pass the Admin role to someone else first"}), 400
 
     db.memberships.delete_one({"_id": membership["_id"]})
+    removed = db.users.find_one({"_id": admin_oid}, {"full_name": 1, "email": 1}) or {}
+    log_activity('staff', 'Removed a team member', organization_id=org_id,
+                 target={"type": "user", "id": admin_oid,
+                         "label": f"{removed.get('full_name')} ({removed.get('email')})"})
 
     # If this org happened to be that user's currently-active one, the flat
     # cache would otherwise dangle, pointing at an org they're no longer
@@ -535,6 +561,9 @@ def complete_admin_invite_setup():
         "password": generate_password_hash(new_password),
         "password_set": True,
     }})
+    log_activity('account', 'Set password and activated invited staff account',
+                 actor={"id": user['_id'], "email": user['email'], "role": user['role'],
+                        "full_name": user.get('full_name'), "organization_id": user.get('organization_id')})
     user_payload = {
         "id": str(user['_id']), "full_name": user['full_name'], "email": user['email'], "role": user['role'],
         "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
@@ -841,6 +870,8 @@ def approve_admin_request(request_id):
         db.admin_requests.update_one({"_id": request_oid}, {"$set": {
             "status": "approved", "reviewed_at": now, "reviewed_by": current_admin_id,
         }})
+        log_activity('staff', 'Approved a new organization and its first Admin',
+                     organization_id=req.get("organization_id"), target={"type": "admin_request", "id": request_oid, "label": f"{req.get('full_name')} ({req.get('email')})"})
         return jsonify({"message": "Organization approved", "admin": serialize_admin(admin_doc)}), 201
 
     # Always approved as a plain LGU Member on a single approval, whatever
@@ -855,6 +886,8 @@ def approve_admin_request(request_id):
         "reviewed_at": now,
         "reviewed_by": current_admin_id,
     }})
+    log_activity('staff', 'Approved a request to join the team', organization_id=req.get("organization_id"),
+                 target={"type": "admin_request", "id": request_oid, "label": f"{req.get('full_name')} ({req.get('email')})"}, details=describe_permissions(permissions))
     if is_add_membership:
         membership_doc = create_membership_from_approved_request(req, permissions)
         return jsonify({"message": "Admin request approved", "membership": serialize_membership(membership_doc, db)}), 201
@@ -887,4 +920,6 @@ def reject_admin_request(request_id):
     )
     if result.matched_count == 0:
         return jsonify({"error": "Request not found or already reviewed"}), 404
+    log_activity('staff', 'Rejected a request to join the team', organization_id=req.get("organization_id"),
+                 target={"type": "admin_request", "id": request_oid, "label": f"{req.get('full_name')} ({req.get('email')})"})
     return jsonify({"message": "Admin request rejected"})

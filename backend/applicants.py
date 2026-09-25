@@ -16,6 +16,7 @@ from documents import get_required_doc_labels, compute_display_status, \
     compute_admin_status, build_status_query_fragment, COMPUTED_STATUSES
 from admin_settings import get_hidden_builtin_fields
 from ml_scoring import build_score_breakdown
+from activity import log_activity
 
 def serialize_audit_entry(a):
     return {
@@ -186,6 +187,8 @@ def export_applicants():
             flat = serialize_applicant(doc)
             flat['application_status'] = compute_admin_status(doc, required_labels)
             applicants.append(flat)
+        log_activity('application', 'Exported applicant data', organization_id=org_id,
+                     details=f"{len(applicants)} applicant record(s)")
         return jsonify({"applicants": applicants})
     except Exception as e:
         app.logger.error(str(e))
@@ -431,7 +434,15 @@ def submit_application():
                 "remarks": None,
             },
             "documents": [],
-            "audit_trail": [],
+            "audit_trail": [{
+                "action": "Application submitted",
+                "performed_by": email,
+                "performed_by_role": "student",
+                "old_status": None,
+                "new_status": "Newly Submitted",
+                "remarks": "Submitted by the applicant.",
+                "performed_at": now,
+            }],
             "extra_fields": extra_fields_to_store,
             "organization_id": org_id,
         }
@@ -454,6 +465,8 @@ def submit_application():
             {"$set": {"application.superseded_by": result.inserted_id}}
         )
 
+        log_activity('application', 'Submitted a scholarship application', organization_id=org_id,
+                     target={"type": "applicant", "id": result.inserted_id, "label": data['fullName']})
         return jsonify({
             "message": "Application submitted successfully!",
             "applicant_id": str(result.inserted_id)
@@ -527,6 +540,9 @@ def update_status(applicant_id):
         notify_user_id = resolve_notify_user_id(db, applicant)
         create_notification(db, notify_user_id, applicant, notif_message, notif_type)
 
+        log_activity('application', f'Changed an application status to {status}',
+                     target={"type": "applicant", "id": applicant_oid, "label": applicant.get('full_name')},
+                     details=f"{old_status} -> {status}" + (f"; {remarks}" if remarks else ''))
         return jsonify({
             "message": f"Application {status} successfully",
             "applicant_id": applicant_id,
@@ -595,6 +611,9 @@ def request_changes(applicant_id):
             }
         )
 
+        log_activity('application', 'Requested changes to an application',
+                     target={"type": "applicant", "id": applicant['_id'], "label": applicant.get('full_name')},
+                     details=comment)
         notify_user_id = resolve_notify_user_id(db, applicant)
         create_notification(
             db, notify_user_id, applicant,
@@ -757,6 +776,8 @@ def withdraw_application():
                 }
             }
         )
+        log_activity('application', 'Withdrew their application',
+                     target={"type": "applicant", "id": applicant['_id'], "label": applicant.get('full_name')})
         return jsonify({"message": "Application withdrawn"})
 
     except Exception as e:

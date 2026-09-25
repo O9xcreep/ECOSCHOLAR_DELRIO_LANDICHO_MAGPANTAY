@@ -20,6 +20,7 @@ from extensions import app, limiter, get_db, DEBUG, UPLOAD_FOLDER, _fs
 from helpers import oid, iso, serialize_document
 from auth import require_auth, require_permission, current_organization_oid, has_permission
 from ocr import extract_text, verify_document
+from activity import log_activity
 
 # ── UPLOAD CONFIG ──
 ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
@@ -350,10 +351,23 @@ def upload_document():
             # set), which puts it back in the student's hands. Mirrors the frontend's
             # adminRequestedChanges unlock logic in ApplicantDetails.jsx.
             status_doc = db.applicants.find_one(
-                {"_id": applicant_oid, "organization_id": org_id}, {"application.status": 1, "application.admin_comment": 1}
+                {"_id": applicant_oid, "organization_id": org_id},
+                {"application.status": 1, "application.admin_comment": 1, "user_id": 1, "email": 1, "full_name": 1}
             )
             if not status_doc:
                 return jsonify({"error": "Applicant not found"}), 404
+            # Only the applicant themselves (or reviewing staff) may change an
+            # application's documents - same rule as viewing them. Records from
+            # before user_id was stored fall back to the email on the record.
+            if status_doc.get('user_id'):
+                is_owner = str(status_doc['user_id']) == g.current_user['id']
+            else:
+                is_owner = (status_doc.get('email') or '').lower() == (g.current_user.get('email') or '').lower()
+            if not is_owner and not has_permission('can_review_applicants'):
+                log_activity('document', "Blocked upload to another applicant's application", outcome='failure',
+                             target={"type": "applicant", "id": applicant_oid, "label": status_doc.get('full_name')},
+                             details=document_name)
+                return jsonify({"error": "Forbidden"}), 403
             application_info = status_doc.get('application') or {}
             current_status = application_info.get('status')
             admin_requested_changes = current_status == 'Withdrawn' and bool(application_info.get('admin_comment'))
@@ -403,6 +417,20 @@ def upload_document():
                         "metadata_flags": metadata_flags,
                     }}}
                 )
+
+            replaced = bool(old_gridfs_id)
+            db.applicants.update_one({"_id": applicant_oid, "organization_id": org_id}, {"$push": {"audit_trail": {
+                "action": f"Document {'replaced' if replaced else 'uploaded'}: {document_name}",
+                "performed_by": g.current_user.get('email'),
+                "performed_by_role": g.current_user.get('role'),
+                "old_status": current_status,
+                "new_status": current_status,
+                "remarks": f"File: {filename}",
+                "performed_at": now,
+            }}})
+            log_activity('document', 'Replaced a document' if replaced else 'Uploaded a document',
+                         target={"type": "applicant", "id": applicant_oid, "label": status_doc.get('full_name')},
+                         details=f"{document_name} ({filename})")
 
             # Clean up the previous file now that the new one is safely stored
             if old_gridfs_id:
@@ -620,6 +648,9 @@ def view_document_file(applicant_id):
         except gridfs.errors.NoFile:
             return jsonify({"error": "File not found on server"}), 404
 
+        log_activity('document', 'Viewed a document',
+                     target={"type": "applicant", "id": applicant_oid, "label": applicant.get('full_name')},
+                     details=document_name)
         return send_file(
             grid_out,
             mimetype=safe_mime_for(grid_out.filename),
@@ -691,6 +722,10 @@ def resolve_flag(flag_id):
         )
         if result.matched_count == 0:
             return jsonify({"error": "Flag not found"}), 404
+        flag = db.duplicate_flags.find_one({"_id": flag_oid}, {"reason": 1, "document_name": 1, "applicant_id": 1}) or {}
+        log_activity('document', 'Resolved a duplicate/fraud flag',
+                     target={"type": "applicant", "id": flag.get('applicant_id')},
+                     details=' - '.join(x for x in (flag.get('reason'), flag.get('document_name')) if x))
         return jsonify({"message": "Flag resolved"})
     except Exception as e:
         app.logger.error(str(e))

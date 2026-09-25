@@ -11,7 +11,8 @@ gunicorn's `app:app` target (see backend/Dockerfile) is satisfied by the
 Import order matters here: each module below imports only from modules
 already defined earlier in this chain (extensions -> helpers -> auth ->
 documents -> ml_scoring -> admin_settings -> applicants -> notifications ->
-memberships -> admin_management), so there is no circular import - see each
+memberships -> admin_management -> activity_routes; activity.py itself only
+imports extensions, so any of them can log), so there is no circular import - see each
 module's own docstring for what it owns."""
 import requests
 from flask import jsonify
@@ -41,6 +42,7 @@ import notifications  # noqa: F401 - registers /api/notifications, etc.
 import memberships  # noqa: F401 - registers /api/memberships, /api/organizations/join, /api/organizations/switch, /api/account
 from memberships import create_membership_from_approved_request, serialize_membership  # noqa: F401 (re-exported)
 import admin_management  # noqa: F401 - registers /api/admins, /api/admin-requests, etc.
+import activity_routes  # noqa: F401 - registers /api/activity-logs
 
 # Public, unauthenticated, no DB access - used by uptime pingers to keep the
 # free-tier instance awake, and for basic "is it up" checks.

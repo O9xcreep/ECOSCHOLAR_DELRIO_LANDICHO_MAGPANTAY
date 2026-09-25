@@ -16,6 +16,31 @@ from auth import require_auth, require_permission, require_any_permission, curre
     is_full_access_role, has_permission, PROFILE_FIELDS
 from documents import get_doc_requirements_collection, serialize_doc_requirement, DEFAULT_DOC_LABELS
 from ml_scoring import recompute_approvals, reapply_eligibility_bar, eligibility_cutoff_for, ml_classifier
+from activity import log_activity
+
+def describe_settings_change(set_fields, unset_fields):
+    """Readable summary for the activity log. Never includes the reset password."""
+    parts = []
+    if 'max_accepted' in set_fields:
+        parts.append(f"accepted applicant limit set to {set_fields['max_accepted']}")
+    if 'eligibility_top_percent' in set_fields:
+        parts.append(f"eligibility bar set to top {set_fields['eligibility_top_percent']}% of need")
+    if 'hidden_builtin_fields' in set_fields:
+        parts.append('hidden form fields: ' + (', '.join(set_fields['hidden_builtin_fields']) or 'none'))
+    if 'results_visible_after' in set_fields:
+        parts.append(f"results release date set to {set_fields['results_visible_after']:%Y-%m-%d %H:%M} UTC")
+    if 'results_visible_after' in unset_fields:
+        parts.append('results release date cleared')
+    if 'results_visible_override' in set_fields:
+        parts.append('results released to applicants' if set_fields['results_visible_override']
+                     else 'results hidden from applicants')
+    if 'results_visible_override' in unset_fields:
+        parts.append('results visibility back to the release date')
+    if 'reset_password_hash' in set_fields:
+        parts.append('reset confirmation password changed')
+    if 'reset_password_hash' in unset_fields:
+        parts.append('reset confirmation password removed')
+    return '; '.join(parts).capitalize()
 
 def serialize_cycle(c, applicant_count=None):
     return {
@@ -153,6 +178,8 @@ def update_settings():
             changed = reapply_eligibility_bar(db, org_id, reviewed_by=reviewed_by)
         elif 'max_accepted' in set_fields:
             recompute_approvals(db, org_id, set_fields['max_accepted'], reviewed_by=reviewed_by)
+        log_activity('settings', 'Changed program settings', organization_id=org_id,
+                     details=describe_settings_change(set_fields, unset_fields))
         body = {"message": "Settings updated", **serialize_settings(db, org_id)}
         if changed is not None:
             body["eligibility_changes"] = changed
@@ -227,6 +254,8 @@ def program_reset():
         if not reset_hash:
             return jsonify({"error": "Set a reset confirmation password in Settings before resetting."}), 400
         if not check_password_hash(reset_hash, password):
+            log_activity('settings', 'Failed program reset - wrong confirmation password',
+                         organization_id=org_id, outcome='failure')
             return jsonify({"error": "Incorrect reset confirmation password."}), 403
 
         outgoing_cycle = get_current_cycle(db, org_id)
@@ -239,6 +268,9 @@ def program_reset():
         new_cycle_id = do_program_reset(db, org_id, performed_by, new_label=label, deadline=deadline,
                                         eligibility_top_percent=top_percent)
 
+        log_activity('settings', 'Started a new scholarship program', organization_id=org_id,
+                     target={"type": "program_cycle", "id": new_cycle_id, "label": label},
+                     details=f"Archived {outgoing_count} applicant(s); deadline {deadline:%Y-%m-%d %H:%M} UTC")
         return jsonify({
             "message": "Program reset complete. A new cycle has started.",
             "archived_applicant_count": outgoing_count,
@@ -277,6 +309,9 @@ def update_current_cycle_deadline():
         if not cycle:
             return jsonify({"error": "No program is currently running."}), 400
         db.program_cycles.update_one({"_id": cycle["_id"]}, {"$set": {"deadline": deadline}})
+        log_activity('settings', 'Changed the application deadline', organization_id=org_id,
+                     target={"type": "program_cycle", "id": cycle["_id"], "label": cycle.get("label")},
+                     details=f"New deadline {deadline:%Y-%m-%d %H:%M} UTC")
         updated_cycle = db.program_cycles.find_one({"_id": cycle["_id"]})
         return jsonify(serialize_cycle(updated_cycle))
     except Exception as e:
@@ -373,6 +408,8 @@ def create_form_field():
     }
     result = db.form_fields.insert_one(doc)
     doc["_id"] = result.inserted_id
+    log_activity('settings', 'Added a custom form field', organization_id=org_id,
+                 target={"type": "form_field", "id": doc.get('_id'), "label": label})
     return jsonify({"field": serialize_form_field(doc)}), 201
 
 @app.route('/api/form-fields/<field_id>', methods=['PUT'])
@@ -408,6 +445,9 @@ def update_form_field(field_id):
         return jsonify({"error": "Field not found"}), 404
 
     updated = db.form_fields.find_one({"_id": field_oid, "organization_id": org_id})
+    log_activity('settings', 'Edited a custom form field', organization_id=org_id,
+                 target={"type": "form_field", "id": field_oid, "label": (updated or {}).get('label')},
+                 details='Changed: ' + ', '.join(sorted(set_fields)))
     return jsonify({"field": serialize_form_field(updated)})
 
 @app.route('/api/form-fields/<field_id>', methods=['DELETE'])
@@ -424,6 +464,8 @@ def delete_form_field(field_id):
     result = db.form_fields.delete_one({"_id": field_oid, "organization_id": org_id})
     if result.deleted_count == 0:
         return jsonify({"error": "Field not found"}), 404
+    log_activity('settings', 'Deleted a custom form field', organization_id=org_id,
+                 target={"type": "form_field", "id": field_oid})
     return jsonify({"message": "Field deleted"})
 
 @app.route('/api/document-requirements', methods=['GET'])
@@ -462,6 +504,8 @@ def create_doc_requirement():
     }
     result = coll.insert_one(doc)
     doc["_id"] = result.inserted_id
+    log_activity('settings', 'Added a document requirement', organization_id=org_id,
+                 target={"type": "document_requirement", "id": doc.get('_id'), "label": label})
     return jsonify({"requirement": serialize_doc_requirement(doc)}), 201
 
 @app.route('/api/document-requirements/<req_id>', methods=['PUT'])
@@ -496,6 +540,9 @@ def update_doc_requirement(req_id):
         return jsonify({"error": "Requirement not found"}), 404
 
     updated = coll.find_one({"_id": req_oid, "organization_id": org_id})
+    log_activity('settings', 'Edited a document requirement', organization_id=org_id,
+                 target={"type": "document_requirement", "id": req_oid, "label": (updated or {}).get('label')},
+                 details='Changed: ' + ', '.join(sorted(set_fields)))
     return jsonify({"requirement": serialize_doc_requirement(updated)})
 
 @app.route('/api/document-requirements/<req_id>', methods=['DELETE'])
@@ -519,6 +566,8 @@ def delete_doc_requirement(req_id):
     result = db.document_requirements.delete_one({"_id": req_oid, "organization_id": org_id})
     if result.deleted_count == 0:
         return jsonify({"error": "Requirement not found"}), 404
+    log_activity('settings', 'Deleted a document requirement', organization_id=org_id,
+                 target={"type": "document_requirement", "id": req_oid})
     return jsonify({"message": "Requirement deleted"})
 
 # ── APPLICATION GUIDELINES (student-facing, admin-editable) ──
@@ -598,4 +647,5 @@ def update_guidelines():
     db = get_db()
     org_id = current_organization_oid()
     db.settings.update_one({"organization_id": org_id}, {"$set": {"guidelines_html": sanitize_basic_html(html)}}, upsert=True)
+    log_activity('settings', 'Updated the scholarship guidelines', organization_id=org_id)
     return jsonify({"message": "Guidelines updated", "html": db.settings.find_one({"organization_id": org_id})["guidelines_html"]})
