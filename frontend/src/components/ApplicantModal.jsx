@@ -371,12 +371,6 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
     setUpdating(false)
   }
 
-  const getScoreColor = (score) => {
-    if (score >= 80) return '#10b981'
-    if (score >= 60) return '#f59e0b'
-    return '#ef4444'
-  }
-
   const getDocBadge = (status) => {
     if (status === 'Submitted' || status === 'Uploaded') return 'doc-submitted'
     if (status === 'Not Required') return 'doc-not-required'
@@ -388,6 +382,9 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const mlScore = mlData?.ml_score ?? profile.ml_score ?? 'N/A'
   const mlStatus = mlData?.ml_status ?? profile.ml_status ?? 'Pending'
   const mlBreakdown = mlData?.breakdown ?? null
+  // The XGBoost classifier's probability of eligibility; it calls Eligible at 50%+.
+  const eligibilityProbability = mlData?.eligibility_probability
+  const statusColor = mlStatus === 'Eligible' ? '#10b981' : '#ef4444'
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -434,21 +431,23 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               <div className="ml-score-card">
                 <div className="ml-score-main">
                   <div className="ml-score-circle"
-                    style={{ borderColor: getScoreColor(mlScore) }}>
+                    style={{ borderColor: statusColor }}>
                     <span className="ml-score-number"
-                      style={{ color: getScoreColor(mlScore) }}>
-                      {mlScore}
+                      style={{ color: statusColor }}>
+                      {eligibilityProbability !== undefined ? `${Math.round(eligibilityProbability)}%` : '…'}
                     </span>
-                    <span className="ml-score-label">/ 100</span>
+                    <span className="ml-score-label">eligibility</span>
                   </div>
                   <div>
                     <p className="ml-status-label">Status</p>
                     <span className={`badge ${mlStatus === 'Eligible' ? 'badge-green' : 'badge-red'}`}>
                       {mlStatus}
                     </span>
-                    {mlData?.regressor_cutoff !== undefined && (
-                      <p className="ml-note">Score cutoff for reference: {mlData.regressor_cutoff}</p>
-                    )}
+                    <p className="ml-note">XGBoost probability; Eligible at 50% or higher.</p>
+                    <p className="ml-note">
+                      Ranking score: <strong>{mlScore}</strong> / 100
+                      {mlData?.regressor_cutoff !== undefined && ` (cutoff ${mlData.regressor_cutoff})`}
+                    </p>
                   </div>
                 </div>
                 <div className="ml-breakdown">

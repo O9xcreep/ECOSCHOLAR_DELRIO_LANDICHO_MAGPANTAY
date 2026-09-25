@@ -76,9 +76,16 @@ def score_with_model(row, top_percent=None):
     """Run the trained EcoScholar classifier (eligibility, at the given eligibility bar -
     default: the trained default) and regressor (ranking score) on a feature row built by
     build_feature_row(). Returns (ml_score, ml_status)."""
+    ml_score, ml_status, _ = score_with_model_detailed(row, top_percent)
+    return ml_score, ml_status
+
+def score_with_model_detailed(row, top_percent=None):
+    """score_with_model() plus the classifier's eligibility probability, as a
+    0-100 percentage, for the admin score card. Returns (ml_score, ml_status,
+    eligibility_probability)."""
     result = _ml_predict(row, top_percent)
     ml_status = 'Eligible' if result['eligible'] else 'Not Eligible'
-    return result['priority_score'], ml_status
+    return result['priority_score'], ml_status, round(result['eligibility_probability'] * 100, 1)
 
 # Groups the model's input columns into the factors shown to admins and
 # students; paired columns (both parents, household size + siblings in school)
@@ -299,7 +306,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
                      "the current application form."
         }, False
 
-    ml_score, ml_status = score_with_model(row, get_eligibility_top_percent(db, org_id))
+    ml_score, ml_status, eligibility_probability = score_with_model_detailed(row, get_eligibility_top_percent(db, org_id))
     cutoff = eligibility_cutoff_for(db, org_id)
     old_status = (applicant.get('application') or {}).get('status', '')
     breakdown = build_score_breakdown(applicant)
@@ -342,6 +349,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
         return {
             "applicant_id": str(applicant_oid), "status": final_status,
             "ml_score": ml_score, "ml_status": ml_status,
+            "eligibility_probability": eligibility_probability,
             "regressor_cutoff": cutoff, "breakdown": breakdown,
             "rejection_reason": rejection_reason, "reviewed_by": reviewed_by,
             "warnings": warnings,
@@ -360,6 +368,7 @@ def _verify_and_decide_one(db, org_id, applicant_oid, reviewed_by, now):
     return {
         "applicant_id": str(applicant_oid), "status": None,
         "ml_score": ml_score, "ml_status": ml_status,
+        "eligibility_probability": eligibility_probability,
         "regressor_cutoff": cutoff, "breakdown": breakdown,
         "rejection_reason": None, "reviewed_by": reviewed_by,
         "warnings": warnings,
@@ -488,12 +497,13 @@ def score_applicant(applicant_id):
                          "the current application form."
             }), 409
 
-        ml_score, ml_status = score_with_model(row, get_eligibility_top_percent(db, org_id))
+        ml_score, ml_status, eligibility_probability = score_with_model_detailed(row, get_eligibility_top_percent(db, org_id))
 
         return jsonify({
             "applicant_id": applicant_id,
             "ml_score": ml_score,
             "ml_status": ml_status,
+            "eligibility_probability": eligibility_probability,
             "regressor_cutoff": eligibility_cutoff_for(db, org_id),
             "breakdown": build_score_breakdown(applicant),
             "warnings": warnings,
