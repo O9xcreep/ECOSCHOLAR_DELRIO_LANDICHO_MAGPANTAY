@@ -113,6 +113,20 @@ def income_to_bracket(income):
         return "₱ 15,000 - ₱ 20,000"
     return "₱ 20,000 Above"
 
+# The bracket labels the application form offers (ApplicationForm.jsx's
+# INCOME_RANGES). The form stores a stand-in figure inside the chosen bracket
+# as monthly_income, so screens show this label rather than that number.
+def income_bracket_label(income):
+    if income is None:
+        return None
+    return {
+        "Below ₱ 5,000": "Below ₱5,000",
+        "₱ 5,001 - ₱ 10,000": "₱5,001 - ₱10,000",
+        "₱ 10,000 - ₱ 15,000": "₱10,000 - ₱15,000",
+        "₱ 15,000 - ₱ 20,000": "₱15,000 - ₱20,000",
+        "₱ 20,000 Above": "₱20,000 and above",
+    }[income_to_bracket(income)]
+
 STATUS_MESSAGES = {
     'Approved': 'Your scholarship application has been approved.',
     'Rejected': 'Your scholarship application was not approved this time.',
@@ -319,6 +333,7 @@ def serialize_applicant(doc):
         "mother_occupation": doc.get('mother_occupation'),
         "mother_education": doc.get('mother_education'),
         "household_income": doc.get('monthly_income'),
+        "household_income_bracket": income_bracket_label(doc.get('monthly_income')),
         "family_size": doc.get('family_size'),
         "num_siblings": doc.get('num_siblings'),
         "num_siblings_studying": doc.get('num_siblings_studying'),

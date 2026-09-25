@@ -425,7 +425,7 @@ function ApplicantDetails() {
           </div>
           <div className="av-field">
             <label>Household Income</label>
-            <p>{application.household_income}</p>
+            <p>{application.household_income_bracket || 'N/A'}</p>
           </div>
           <div className="av-field">
             <label>Family Size</label>

@@ -90,7 +90,7 @@ function Ranking() {
       app.full_name,
       app.course || '',
       app.gpa ?? '',
-      app.monthly_income != null ? `P${Number(app.monthly_income).toLocaleString()}` : 'N/A',
+      app.income_bracket ? app.income_bracket.replace(/₱/g, 'P') : 'N/A',
       app.family_size ?? '',
       app.has_other_scholarship ? 'Yes' : 'No',
       `${app.ml_score}%`,
@@ -230,7 +230,7 @@ function Ranking() {
                     <td className="rank-course">{app.course}</td>
                     <td className="rank-gwa">{app.gpa}</td>
                     <td className="rank-income">
-                      {app.monthly_income != null ? `₱${Number(app.monthly_income).toLocaleString()}` : 'N/A'}
+                      {app.income_bracket || 'N/A'}
                     </td>
                     <td>{app.family_size}</td>
                     <td>

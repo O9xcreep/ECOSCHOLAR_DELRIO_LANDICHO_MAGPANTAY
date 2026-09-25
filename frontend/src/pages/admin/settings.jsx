@@ -867,7 +867,7 @@ function SystemTab() {
           a.ml_status || '',
           a.application_status || '',
           a.submitted_at || '',
-          a.household_income != null ? Number(a.household_income) : '',
+          a.household_income_bracket || '',
           a.family_size != null ? Number(a.family_size) : '',
           a.num_siblings != null ? Number(a.num_siblings) : '',
           a.num_siblings_studying != null ? Number(a.num_siblings_studying) : '',

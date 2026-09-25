@@ -6,7 +6,7 @@ from datetime import datetime
 from flask import request, jsonify, g
 
 from extensions import app, get_db, DEBUG
-from helpers import oid, EDUCATION_LABEL_FIX, income_to_bracket, STATUS_MESSAGES, \
+from helpers import oid, EDUCATION_LABEL_FIX, income_to_bracket, income_bracket_label, STATUS_MESSAGES, \
     STATUS_NOTIF_TYPE, GENERIC_REVIEWED_MESSAGE, get_applicant_limit, are_results_visible, \
     get_current_cycle_id, resolve_notify_user_id, create_notification, ml_education_map, derive_city, \
     get_eligibility_top_percent
@@ -548,6 +548,7 @@ def rank_applicants():
                     'course': academic.get('course'),
                     'gpa': academic.get('gpa'),
                     'monthly_income': applicant.get('monthly_income'),
+                    'income_bracket': income_bracket_label(applicant.get('monthly_income')),
                     'family_size': applicant.get('family_size'),
                     'housing_situation': applicant.get('housing_situation'),
                     'has_other_scholarship': bool(applicant.get('has_other_scholarship')),

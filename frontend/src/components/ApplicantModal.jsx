@@ -534,7 +534,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </div>
               <div className="info-field">
                 <label>Household Income</label>
-                <p>{profile.household_income}</p>
+                <p>{profile.household_income_bracket || 'N/A'}</p>
               </div>
               <div className="info-field">
                 <label>Family Size</label>
