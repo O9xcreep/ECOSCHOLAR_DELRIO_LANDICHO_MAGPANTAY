@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1;
+  min-width: 0;
 }
 
 .score-breakdown-intro {
@@ -30,18 +32,58 @@
 .sb-value {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
+.sb-up { color: #047857; }
+.sb-down { color: #b91c1c; }
+
 .sb-track {
+  position: relative;
   height: 8px;
   background: #e5e7eb;
   border-radius: 10px;
   overflow: hidden;
 }
 
+.sb-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #94a3b8;
+  z-index: 1;
+}
+
 .sb-fill {
-  height: 100%;
-  border-radius: 10px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
   transition: width 0.4s ease;
+}
+
+.sb-fill-up { background: #10b981; }
+.sb-fill-down { background: #ef4444; }
+
+.sb-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.sb-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.sb-dot + .sb-dot,
+.sb-legend .sb-dot:nth-of-type(2) {
+  margin-left: 10px;
 }

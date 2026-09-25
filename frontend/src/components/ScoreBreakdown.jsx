@@ -1,34 +1,46 @@
 import './ScoreBreakdown.css'
 
-// Student-facing names for the factor labels build_score_breakdown() returns.
-const STUDENT_LABELS = {
-  'GWA Score': 'Academic standing (GWA)',
-  'Income Need Score': 'Household income need',
-  'Family Size Score': 'Family size',
-  'Parental Education Need': "Parents' education",
-  'Housing Need Score': 'Housing situation',
-}
+// Renders build_score_breakdown()'s output: how many points each factor moved
+// the ML score above (+) or below (-) the average applicant, as bars that grow
+// right or left from a center line. `audience="admin"` also shows the baseline.
+function ScoreBreakdown({ breakdown, audience = 'student' }) {
+  const factors = breakdown?.factors || []
+  if (factors.length === 0) return null
 
-function ScoreBreakdown({ breakdown }) {
-  if (!breakdown || breakdown.length === 0) return null
+  // Scale bars to the largest factor, with a floor so tiny effects stay tiny.
+  const maxAbs = Math.max(5, ...factors.map(f => Math.abs(f.points)))
 
   return (
     <div className="score-breakdown">
       <p className="score-breakdown-intro">
-        How each part of your application was weighed. Higher means it counted
-        more in your favor.
+        {audience === 'admin'
+          ? `Points each factor added to or took from the average applicant's score of ${breakdown.baseline}.`
+          : 'How each part of your application raised or lowered your score compared with a typical applicant.'}
       </p>
-      {breakdown.map(item => (
-        <div key={item.label} className="sb-row">
-          <div className="sb-header">
-            <span className="sb-label">{STUDENT_LABELS[item.label] || item.label}</span>
-            <span className="sb-value">{item.value}%</span>
+      {factors.map(f => {
+        const width = `${(Math.abs(f.points) / maxAbs) * 50}%`
+        const positive = f.points >= 0
+        return (
+          <div key={f.label} className="sb-row">
+            <div className="sb-header">
+              <span className="sb-label">{f.label}</span>
+              <span className={`sb-value ${positive ? 'sb-up' : 'sb-down'}`}>
+                {positive ? '+' : '−'}{Math.abs(f.points).toFixed(1)} pts
+              </span>
+            </div>
+            <div className="sb-track">
+              <div className="sb-center" />
+              <div
+                className={`sb-fill ${positive ? 'sb-fill-up' : 'sb-fill-down'}`}
+                style={positive ? { left: '50%', width } : { right: '50%', width }} />
+            </div>
           </div>
-          <div className="sb-track">
-            <div className="sb-fill" style={{ width: `${item.value}%`, background: item.color }} />
-          </div>
-        </div>
-      ))}
+        )
+      })}
+      <p className="sb-legend">
+        <span className="sb-dot sb-fill-up" /> Helped
+        <span className="sb-dot sb-fill-down" /> Held back
+      </p>
     </div>
   )
 }

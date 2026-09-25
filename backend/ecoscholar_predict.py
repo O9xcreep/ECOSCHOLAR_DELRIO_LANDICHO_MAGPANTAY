@@ -32,6 +32,8 @@ import json
 import joblib
 import os
 
+import numpy as np
+
 from ecoscholar_features import (
     build_feature_vector as _build_feature_vector,
     estimate_total_score as _estimate_total_score,
@@ -97,6 +99,31 @@ def score_applicant(applicant: dict, top_percent=None) -> dict:
         'total_score_estimate': round(total_score_estimate, 2),
         'eligibility_cutoff': round(cutoff, 2),
         'eligibility_top_percent': DEFAULT_TOP_PERCENT if top_percent is None else top_percent,
+    }
+
+
+def explain_priority_score(applicant: dict) -> dict:
+    """
+    Exact per-feature decomposition of the regressor's priority score: for every tree, each
+    split along the applicant's decision path credits the change in node mean to the split's
+    feature (the tree-interpreter method). Averaged over the forest,
+        baseline + sum(contributions) == _regressor.predict(X)
+    where baseline is the training-set mean score. Returns {'baseline', 'contributions'}.
+    """
+    x = build_feature_vector(applicant).to_numpy()
+    contributions = np.zeros(x.shape[1])
+    baseline = 0.0
+    for est in _regressor.estimators_:
+        tree = est.tree_
+        path = est.decision_path(x).indices  # root-to-leaf; child ids are always > parent ids
+        values = tree.value[:, 0, 0]
+        baseline += values[path[0]]
+        for parent, child in zip(path[:-1], path[1:]):
+            contributions[tree.feature[parent]] += values[child] - values[parent]
+    n = len(_regressor.estimators_)
+    return {
+        'baseline': float(baseline / n),
+        'contributions': {col: float(c / n) for col, c in zip(FEATURE_COLUMNS, contributions)},
     }
 
 

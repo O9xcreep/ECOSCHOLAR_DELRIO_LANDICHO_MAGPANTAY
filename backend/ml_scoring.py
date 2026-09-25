@@ -19,13 +19,15 @@ from documents import get_required_doc_labels, collect_verification_warnings, \
 # or corrupt model file is caught here so scoring degrades gracefully instead
 # of blocking application submission.
 try:
-    from ecoscholar_predict import score_applicant as _ml_predict, eligibility_cutoff as _eligibility_cutoff
+    from ecoscholar_predict import score_applicant as _ml_predict, eligibility_cutoff as _eligibility_cutoff, \
+        explain_priority_score as _ml_explain
     ml_classifier = True   # sentinel only - the real model objects live inside ecoscholar_predict
     ml_regressor = True
     print("ML model loaded successfully! (EcoScholar classifier + regressor)")
 except Exception as e:
     _ml_predict = None
     _eligibility_cutoff = None
+    _ml_explain = None
     ml_classifier = None
     ml_regressor = None
     print(f"ML model not loaded: {e}")
@@ -78,47 +80,56 @@ def score_with_model(row, top_percent=None):
     ml_status = 'Eligible' if result['eligible'] else 'Not Eligible'
     return result['priority_score'], ml_status
 
+# Groups the model's input columns into the factors shown to admins and
+# students; paired columns (both parents, household size + siblings in school)
+# are summed since students answer about them together.
+BREAKDOWN_FACTORS = [
+    ("Household income", ["Income_Num"]),
+    ("Other scholarships held", ["Holds_Other_Scholarship"]),
+    ("Academic standing (GWA)", ["GWA Numeric"]),
+    ("Family size & siblings in school", ["Household_Size_Num", "Siblings_Studying_Num"]),
+    ("Housing situation", ["HousingPrecarity"]),
+    ("Parents' occupation", ["FatherOccNeed", "MotherOccNeed"]),
+    ("Parents' education", ["Father_Edu_Ord", "Mother_Edu_Ord"]),
+    ("Sex", ["Sex_Bin"]),
+]
+
 def build_score_breakdown(applicant):
-    """Heuristic breakdown for the admin UI progress bars, computed from the
-    applicant's raw fields. A visual aid only, not the model's actual feature
-    attribution."""
-    academic = applicant.get('academic') or {}
-    gpa = float(academic.get('gpa') or 0)
-    income = float(applicant.get('monthly_income') or 0)
-    family_size = int(applicant.get('family_size') or 0)
-    father_edu_level = ml_education_map.get(applicant.get('father_education'), 0)
-    mother_edu_level = ml_education_map.get(applicant.get('mother_education'), 0)
-
-    gpa_s = round(max(0, min(100, gpa)), 1)
-    inc_s = round(max(0, min(100, (1 - min(income, 100000) / 100000) * 100)), 1)
-    fam_s = round(min(100, max(0, (family_size - 2) / 8 * 100)), 1)
-    edu_avg = (father_edu_level + mother_edu_level) / 2
-    edu_s = round(max(0, min(100, (5 - edu_avg) / 5 * 100)), 1)
-    housing_need = {'Owned': 20, 'Rented': 60, 'Living with relatives': 80, 'Informal settler': 100}
-    house_s = housing_need.get(applicant.get('housing_situation'), 50)
-
-    return [
-        {"label": "GWA Score", "value": gpa_s, "color": "#10b981"},
-        {"label": "Income Need Score", "value": inc_s, "color": "#0891b2"},
-        {"label": "Family Size Score", "value": fam_s, "color": "#2563eb"},
-        {"label": "Parental Education Need", "value": edu_s, "color": "#f59e0b"},
-        {"label": "Housing Need Score", "value": house_s, "color": "#ec4899"},
+    """How far each factor moved this applicant's ML score above or below the
+    average (training-set) applicant, taken straight from the regressor's
+    trees, so baseline + sum(points) equals ml_score. None if the applicant
+    can't be scored (pre-model record, or the model failed to load)."""
+    row, ok = build_feature_row(applicant)
+    if not ok or _ml_explain is None:
+        return None
+    explained = _ml_explain(row)
+    contributions = explained['contributions']
+    factors = [
+        {"label": label, "points": round(sum(contributions.get(c, 0.0) for c in cols), 2)}
+        for label, cols in BREAKDOWN_FACTORS
     ]
+    factors.sort(key=lambda f: abs(f['points']), reverse=True)
+    return {"baseline": round(explained['baseline'], 2), "factors": factors}
 
-# build_score_breakdown() values are oriented so higher = more favorable for
-# approval, so the lowest-scoring component(s) serve as a plain-language
-# rejection explanation (not the model's actual feature attribution).
+# Plain-language reason for each factor when it pulled the score down.
 REJECTION_REASON_TEXT = {
-    "GWA Score": "academic performance (GWA) was below the typical threshold for approved applicants",
-    "Income Need Score": "estimated household income was higher than typical for approved applicants",
-    "Family Size Score": "household/family size was smaller than typical for approved applicants",
-    "Parental Education Need": "parents' education level was higher than typical for approved applicants, indicating comparatively lower financial need",
-    "Housing Need Score": "housing situation showed less financial need than typical for approved applicants",
+    "Household income": "household income was higher than typical for approved applicants",
+    "Other scholarships held": "the applicant already holds another scholarship",
+    "Academic standing (GWA)": "academic performance (GWA) was below the typical level for approved applicants",
+    "Family size & siblings in school": "household size and number of siblings in school showed less financial burden than typical for approved applicants",
+    "Housing situation": "housing situation showed less financial need than typical for approved applicants",
+    "Parents' occupation": "parents' occupations showed less financial need than typical for approved applicants",
+    "Parents' education": "parents' education level indicated comparatively lower financial need",
+    "Sex": "applicant profile",
 }
 
 def generate_rejection_reason(breakdown):
-    weakest = sorted(breakdown, key=lambda b: b['value'])[:2]
-    reasons = [REJECTION_REASON_TEXT.get(b['label'], b['label']) for b in weakest]
+    """Names the (up to two) factors that pulled the ML score down the most."""
+    factors = (breakdown or {}).get('factors') or []
+    weakest = [f for f in sorted(factors, key=lambda f: f['points']) if f['points'] < 0 and f['label'] != 'Sex'][:2]
+    if not weakest:
+        return "Primary factors: the overall combination of financial-need indicators was below this cycle's eligibility bar."
+    reasons = [REJECTION_REASON_TEXT.get(f['label'], f['label']) for f in weakest]
     return "Primary factors: " + "; and ".join(reasons) + "."
 
 def recompute_approvals(db, org_id, limit, reviewed_by='System'):

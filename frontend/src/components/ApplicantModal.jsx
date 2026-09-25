@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiFetch, displayStatus, connectionErrorMessage } from '../api'
 import './ApplicantModal.css'
+import ScoreBreakdown from './ScoreBreakdown'
 
 // Must match backend's SELFIE_DOC_LABEL / ID_DOC_LABEL (backend/app.py). The selfie is
 // pulled out of the generic documents grid below and shown side-by-side with the ID
@@ -21,21 +22,6 @@ function mergeDocuments(documents, requiredDocTypes) {
     if (uploaded) return { label: docType.label, status: uploaded.status || 'Uploaded', ocr_status: uploaded.ocr_status }
     return { label: docType.label, status: docType.required ? 'Missing' : 'Not Required', ocr_status: null }
   })
-}
-
-function ScoreBar({ label, value, color }) {
-  return (
-    <div className="score-bar-row">
-      <div className="score-bar-header">
-        <span className="score-bar-label">{label}</span>
-        <span className="score-bar-value">{value}%</span>
-      </div>
-      <div className="score-bar-track">
-        <div className="score-bar-fill"
-          style={{ width: `${value}%`, background: color }} />
-      </div>
-    </div>
-  )
 }
 
 function ApplicantModal({ applicant, onClose, onStatusChange }) {
@@ -401,7 +387,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
   const hasOfficialScore = isApproved || isRejected || Boolean(mlData)
   const mlScore = mlData?.ml_score ?? profile.ml_score ?? 'N/A'
   const mlStatus = mlData?.ml_status ?? profile.ml_status ?? 'Pending'
-  const mlBreakdown = mlData?.breakdown ?? []
+  const mlBreakdown = mlData?.breakdown ?? null
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -466,9 +452,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                   </div>
                 </div>
                 <div className="ml-breakdown">
-                  {mlBreakdown.map((item, i) => (
-                    <ScoreBar key={i} {...item} />
-                  ))}
+                  <ScoreBreakdown breakdown={mlBreakdown} audience="admin" />
                 </div>
               </div>
             ) : (
