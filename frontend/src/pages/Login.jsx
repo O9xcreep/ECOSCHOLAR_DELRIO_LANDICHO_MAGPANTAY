@@ -195,6 +195,22 @@ function Login() {
       }
 
       if (!res.ok) {
+        if (data.needs_verification) {
+          // Registered but never finished the emailed-code step - pick it back
+          // up here with a fresh code instead of leaving them stuck.
+          setRegData(p => ({ ...p, email: data.email || email }))
+          setRegOtpCode('')
+          setRegOtpError('')
+          setRegResendMessage("Your email isn't verified yet, so we sent a new code.")
+          setTab('register')
+          setRegStep(3)
+          fetchWithTimeout(`${API_BASE_URL}/api/register/resend-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: (data.email || email).toLowerCase() })
+          }).catch(() => setRegResendMessage(connectionErrorMessage()))
+          return
+        }
         setLoginError(data.error || 'Invalid email or password')
         return
       }
