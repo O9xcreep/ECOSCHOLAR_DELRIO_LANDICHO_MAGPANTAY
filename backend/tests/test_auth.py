@@ -199,6 +199,22 @@ class TestForgotAndResetPassword:
         assert check_password_hash(updated['password'], 'BrandNewPass123')
         assert not check_password_hash(updated['password'], 'OldPass123')
 
+    def test_reset_password_verifies_an_unverified_account(self, client, db):
+        """The emailed link proves inbox ownership, so it also unblocks an
+        account that registered but never entered its verification code."""
+        import app as app_module
+        client.post('/api/register', json=register_payload())
+        user = db.users.find_one({'email': 'juan@test.com'})
+        assert user['email_verified'] is False
+        token = app_module._reset_serializer.dumps({'id': str(user['_id'])})
+
+        res = client.post('/api/reset-password', json={'token': token, 'new_password': 'BrandNewPass123'})
+        assert res.status_code == 200
+        assert db.users.find_one({'_id': user['_id']})['email_verified'] is True
+
+        login = client.post('/api/login', json={'email': 'juan@test.com', 'password': 'BrandNewPass123'})
+        assert login.status_code == 200
+
     def test_reset_password_too_short(self, client, make_user):
         import app as app_module
         user = make_user(email='reset2@test.com')

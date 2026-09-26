@@ -584,9 +584,11 @@ def reset_password():
     if not user_oid:
         return jsonify({"error": "This reset link is invalid."}), 400
 
+    # The link was only ever emailed to this address, so using it also proves
+    # the inbox is theirs - an account stuck unverified can finish here.
     result = db.users.update_one(
         {"_id": user_oid},
-        {"$set": {"password": generate_password_hash(new_password), "password_set": True}}
+        {"$set": {"password": generate_password_hash(new_password), "password_set": True, "email_verified": True}}
     )
     if result.matched_count == 0:
         return jsonify({"error": "This reset link is invalid."}), 400
