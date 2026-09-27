@@ -569,7 +569,33 @@ function Login() {
                 <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Ask your LGU's admin for this code.</p>
               </div>
 
-              {regData.join_code.trim() ? (
+              <div className="lp-field">
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '10px',
+                  cursor: 'pointer',
+                  fontWeight: '400',
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  lineHeight: '1.6'
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={privacyConsent}
+                    onChange={e => { setPrivacyConsent(e.target.checked); setRegError('') }}
+                    style={{ marginTop: '3px', flexShrink: 0, accentColor: 'var(--brand)' }}
+                  />
+                  <span>
+                    I consent to the collection and processing of my personal data
+                    in accordance with the{' '}
+                    <strong>Data Privacy Act of 2012 (RA 10173)</strong>.
+                    My information will only be used for scholarship evaluation purposes.
+                  </span>
+                </label>
+              </div>
+
+              {regData.join_code.trim() && privacyConsent ? (
                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <GoogleLogin
                     onSuccess={handleGoogleRegisterSuccess}
@@ -582,7 +608,9 @@ function Login() {
                   <button type="button" disabled className="lp-btn" style={{ opacity: .5, cursor: 'not-allowed', width: '250px' }}>
                     Continue with Google
                   </button>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Enter your LGU join code above first</p>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                    {!regData.join_code.trim() ? 'Enter your LGU join code above first' : 'Agree to the Data Privacy Act above first'}
+                  </p>
                 </div>
               )}
               <div className="lp-or">or fill in the rest yourself</div>
@@ -680,31 +708,6 @@ function Login() {
                 {regData.confirm_password && regData.confirm_password !== regData.password && (
                   <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
                 )}
-              </div>
-              <div className="lp-field">
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: '10px',
-                  cursor: 'pointer',
-                  fontWeight: '400',
-                  fontSize: '13px',
-                  color: 'var(--text-secondary)',
-                  lineHeight: '1.6'
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={privacyConsent}
-                    onChange={e => { setPrivacyConsent(e.target.checked); setRegError('') }}
-                    style={{ marginTop: '3px', flexShrink: 0, accentColor: 'var(--brand)' }}
-                  />
-                  <span>
-                    I consent to the collection and processing of my personal data
-                    in accordance with the{' '}
-                    <strong>Data Privacy Act of 2012 (RA 10173)</strong>.
-                    My information will only be used for scholarship evaluation purposes.
-                  </span>
-                </label>
               </div>
               <button className="lp-btn" onClick={handleRegister} disabled={regLoading}>
                 {regLoading ? <><span className="spinner" /> Creating Account…</> : 'Create Account'}
