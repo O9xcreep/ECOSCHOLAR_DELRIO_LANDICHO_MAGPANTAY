@@ -257,6 +257,7 @@ function ApplyForm() {
   const [proofFile, setProofFile] = useState(null)
   const [formError, setFormError] = useState('')
   const [sendingCode, setSendingCode] = useState(false)
+  const [privacyConsent, setPrivacyConsent] = useState(false)
 
   // Set once "Continue with Google" verifies the applicant's email - full
   // name/email come from Google (locked, no password needed) and the
@@ -322,6 +323,7 @@ function ApplyForm() {
       return 'A valid LGU join code is required'
     }
     if (!proofFile) return 'A valid identification or proof-of-employment document is required'
+    if (!privacyConsent) return 'You must agree to the Data Privacy Act to submit a request'
     return ''
   }
 
@@ -338,6 +340,7 @@ function ApplyForm() {
       return 'A valid LGU join code is required'
     }
     if (!proofFile) return 'A valid identification or proof-of-employment document is required'
+    if (!privacyConsent) return 'You must agree to the Data Privacy Act to submit a request'
     return ''
   }
 
@@ -367,6 +370,7 @@ function ApplyForm() {
   const handleGoogleStart = useCallback(async (credentialResponse) => {
     setFormError('')
     if (!orgInfoComplete) { setFormError('Choose an LGU (join or create) above first'); return }
+    if (!privacyConsent) { setFormError('You must agree to the Data Privacy Act to continue'); return }
     if (!credentialResponse.credential) { setFormError('Google sign-in failed. Please try again.'); return }
 
     setSendingCode(true)
@@ -389,7 +393,7 @@ function ApplyForm() {
     } finally {
       setSendingCode(false)
     }
-  }, [orgInfoComplete])
+  }, [orgInfoComplete, privacyConsent])
 
   const handleSubmitWithGoogle = useCallback(async () => {
     setFormError('')
@@ -619,6 +623,32 @@ function ApplyForm() {
         )}
       </div>
 
+      <div className="lp-field">
+        <label style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px',
+          cursor: 'pointer',
+          fontWeight: '400',
+          fontSize: '13px',
+          color: 'var(--text-secondary)',
+          lineHeight: '1.6'
+        }}>
+          <input
+            type="checkbox"
+            checked={privacyConsent}
+            onChange={e => { setPrivacyConsent(e.target.checked); setFormError('') }}
+            style={{ marginTop: '3px', flexShrink: 0, accentColor: 'var(--brand)' }}
+          />
+          <span>
+            I consent to the collection and processing of my personal data
+            in accordance with the{' '}
+            <strong>Data Privacy Act of 2012 (RA 10173)</strong>.
+            My information will only be used for evaluating this request.
+          </span>
+        </label>
+      </div>
+
       {googleVerified ? (
         <div className="lp-field">
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
@@ -631,7 +661,7 @@ function ApplyForm() {
             </button>
           </p>
         </div>
-      ) : orgInfoComplete ? (
+      ) : orgInfoComplete && privacyConsent ? (
         <>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <GoogleLogin
@@ -648,8 +678,10 @@ function ApplyForm() {
             <button type="button" disabled className="lp-btn" style={{ opacity: .5, cursor: 'not-allowed', width: '250px' }}>
               Continue with Google
             </button>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-              {data.orgMode === 'create' ? 'Fill in your organization\'s name and municipality above first' : 'Enter your LGU join code above first'}
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+              {!orgInfoComplete
+                ? (data.orgMode === 'create' ? 'Fill in your organization\'s name and municipality above first' : 'Enter your LGU join code above first')
+                : 'Agree to the Data Privacy Act above first'}
             </p>
           </div>
           <div className="lp-or">or fill in the rest yourself</div>
