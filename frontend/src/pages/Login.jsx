@@ -569,13 +569,22 @@ function Login() {
                 <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Ask your LGU's admin for this code.</p>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <GoogleLogin
-                  onSuccess={handleGoogleRegisterSuccess}
-                  onError={() => setRegError('Google sign-up failed. Please try again.')}
-                  text="signup_with"
-                />
-              </div>
+              {regData.join_code.trim() ? (
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <GoogleLogin
+                    onSuccess={handleGoogleRegisterSuccess}
+                    onError={() => setRegError('Google sign-up failed. Please try again.')}
+                    text="signup_with"
+                  />
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                  <button type="button" disabled className="lp-btn" style={{ opacity: .5, cursor: 'not-allowed', width: '250px' }}>
+                    Continue with Google
+                  </button>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Enter your LGU join code above first</p>
+                </div>
+              )}
               <div className="lp-or">or fill in the rest yourself</div>
 
               <div className="lp-form-grid-2">
