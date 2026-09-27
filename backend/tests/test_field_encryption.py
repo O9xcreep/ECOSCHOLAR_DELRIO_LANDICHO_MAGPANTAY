@@ -6,7 +6,6 @@ import pytest
 
 from field_crypto import encrypt_field, decrypt_field, is_encrypted, blind_index, ENCRYPTED_APPLICANT_FIELDS
 from tests.test_withdraw import VALID_APPLY_PAYLOAD
-from tests.test_auth import register_payload, get_otp_code
 
 
 def login(client, user):
@@ -83,17 +82,3 @@ class TestApplicationsAreStoredEncrypted:
         res = self._apply(client, login(client, student), fullName='Old Record', email='new@test.com',
                           dob='2001-01-01')
         assert res.status_code == 409
-
-
-class TestRegistrationProfileIsEncrypted:
-    def test_profile_is_ciphertext_in_db_and_plain_via_api(self, client, db):
-        client.post('/api/register', json=register_payload(email='enc-reg@test.com'))
-        stored = db.users.find_one({'email': 'enc-reg@test.com'})
-        assert is_encrypted(stored['address']) and is_encrypted(stored['contactNumber'])
-
-        res = client.post('/api/register/verify-otp', json={'email': 'enc-reg@test.com',
-                                                             'code': get_otp_code(db, 'enc-reg@test.com')})
-        headers = {'Authorization': f"Bearer {res.get_json()['token']}"}
-        profile = client.get('/api/profile', headers=headers).get_json()['profile']
-        assert profile['address'] == register_payload()['address']
-        assert not profile['contactNumber'].startswith('enc:')

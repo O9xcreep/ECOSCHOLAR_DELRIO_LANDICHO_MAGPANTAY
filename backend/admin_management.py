@@ -16,7 +16,8 @@ from helpers import oid, iso, send_email_async, get_default_organization_id, \
     generate_unique_join_code, find_active_organization_by_code, serialize_organization, \
     get_organization_municipality
 from auth import require_permission, require_auth, current_organization_oid, ADMIN_PERMISSIONS, \
-    create_and_send_otp, verify_otp, issue_token, _admin_apply_serializer, ADMIN_APPLY_TOKEN_MAX_AGE
+    create_and_send_otp, verify_otp, issue_token, _admin_apply_serializer, ADMIN_APPLY_TOKEN_MAX_AGE, \
+    verify_google_credential
 from documents import allowed_file, ALLOWED_EXTENSIONS, safe_mime_for
 from memberships import create_membership_from_approved_request, serialize_membership, _activate_membership
 from activity import log_activity
@@ -353,17 +354,27 @@ def create_admin_from_approved_request(req, role, permissions):
     create_admin_with_setup_email, no placeholder password or set-password
     email is needed since they picked a real one upfront."""
     db = get_db()
+    google_id = req.get("google_id")
     doc = {
         "full_name": req["full_name"],
         "email": req["email"],
         "password": req["password_hash"],
-        "password_set": True,
+        # A Google-verified applicant never chose a real password (see
+        # submit_admin_request) - flag it the same way an invited account
+        # with a placeholder password is flagged.
+        "password_set": not google_id,
         "role": role,
         "status": "active",
         "municipality": req.get("municipality", ""),
         "created_at": datetime.utcnow(),
         "privacy_consent": True,
     }
+    # Omit the key entirely rather than storing google_id: None - users.google_id
+    # has a unique sparse index, and a sparse index still indexes an explicit
+    # null, so every password-only account setting it to None would collide
+    # on the second insert.
+    if google_id:
+        doc["google_id"] = google_id
     if role == 'lgu_member':
         doc["permissions"] = permissions or {p: False for p in ADMIN_PERMISSIONS}
     doc["organization_id"] = req.get("organization_id") or get_default_organization_id(db)
@@ -475,6 +486,28 @@ def verify_admin_apply_start_otp():
 
     token = _admin_apply_serializer.dumps({"email": email, "purpose": "admin_apply"})
     return jsonify({"token": token})
+
+# Google already proves the email is real, so this mints the exact same
+# admin_apply token verify-start-otp does - just without an OTP round trip.
+# submit_admin_request reads the embedded google_sub to know a password
+# isn't needed for this request.
+@app.route('/api/admin-requests/start-google', methods=['POST'])
+@limiter.limit("5 per minute")
+def start_admin_request_google():
+    data = request.get_json() or {}
+    credential = data.get('credential') or ''
+    if not credential:
+        return jsonify({"error": "Missing Google credential"}), 400
+
+    try:
+        google_user = verify_google_credential(credential)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    token = _admin_apply_serializer.dumps({
+        "email": google_user['email'], "purpose": "admin_apply", "google_sub": google_user['sub'],
+    })
+    return jsonify({"token": token, "full_name": google_user['name'], "email": google_user['email']})
 
 # Shared by both ways of becoming an admin: a public applicant proving their
 # email (mode "apply", creates a pending admin_requests row) and someone
@@ -594,10 +627,11 @@ def submit_admin_request():
     except BadSignature:
         return jsonify({"error": "This session is invalid."}), 400
     email = (payload.get('email') or '').strip().lower()
+    google_sub = payload.get('google_sub')
 
-    if not full_name or not email or not contact_number or not password:
+    if not full_name or not email or not contact_number or (not google_sub and not password):
         return jsonify({"error": "Full name, password, and contact number are required"}), 400
-    if len(password) < 8:
+    if not google_sub and len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
     # A valid ID or proof-of-employment document is required, raising the bar
@@ -655,7 +689,10 @@ def submit_admin_request():
     result = db.admin_requests.insert_one({
         "full_name": full_name,
         "email": email,
-        "password_hash": generate_password_hash(password),
+        # A Google-verified applicant has no password to hash - store an
+        # unusable placeholder instead, same as any other Google-only account.
+        "password_hash": generate_password_hash(password) if not google_sub else generate_password_hash(secrets.token_urlsafe(32)),
+        "google_id": google_sub,
         "municipality": municipality,
         "contact_number": contact_number,
         "message": message,

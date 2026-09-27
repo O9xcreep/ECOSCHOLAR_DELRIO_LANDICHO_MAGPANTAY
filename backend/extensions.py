@@ -26,6 +26,11 @@ if not SECRET_KEY:
         raise RuntimeError('SECRET_KEY environment variable must be set in production')
 
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+# OAuth client ID Google issues ID tokens for - used to verify "Sign in with
+# Google" credentials server-side. Same value the frontend uses to render the
+# button (VITE_GOOGLE_CLIENT_ID), since a Google ID token's audience must
+# match the client ID that requested it.
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
 # Email is sent via HTTP API, not SMTP - Render's free tier blocks outbound
 # SMTP ports. EMAIL_PROVIDER selects "resend" (default) or "mailjet".
 EMAIL_PROVIDER = os.getenv('EMAIL_PROVIDER', 'resend').strip().lower()
@@ -89,6 +94,7 @@ def _ensure_indexes():
         _mongo_db.organizations.create_index("join_code", unique=True)
         _mongo_db.revoked_tokens.create_index("token_hash")
         _mongo_db.users.create_index("email", unique=True)
+        _mongo_db.users.create_index("google_id", unique=True, sparse=True)
         _mongo_db.applicants.create_index("organization_id")
         _mongo_db.applicants.create_index([("organization_id", 1), ("cycle_id", 1)])
         _mongo_db.notifications.create_index([("user_id", 1), ("organization_id", 1)])

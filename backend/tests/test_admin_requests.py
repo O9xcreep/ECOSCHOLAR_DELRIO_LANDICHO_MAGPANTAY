@@ -5,6 +5,7 @@ including two-person approval for can_manage_members grants. Tests default
 to "join" mode against the default organization; see test_organizations.py
 for the "founding" flow and org-scoped review behavior."""
 import io
+from unittest.mock import patch
 
 import app as app_module
 
@@ -27,6 +28,12 @@ def make_apply_token(email=APPLICANT_EMAIL):
 
 def get_otp_code(db, email):
     return db.otps.find_one({'email': email, 'purpose': 'admin_apply'})['code']
+
+
+def make_google_apply_token(email=APPLICANT_EMAIL, sub='google-sub-1'):
+    """Shortcut for the token start_admin_request_google mints - a Google-
+    verified applicant skips the OTP round trip entirely."""
+    return app_module._admin_apply_serializer.dumps({'email': email, 'purpose': 'admin_apply', 'google_sub': sub})
 
 
 def submit_request(client, db, token=None, include_file=True, filename='proof.pdf', join_code=None, **overrides):
@@ -66,6 +73,30 @@ class TestStartAdminRequest:
         res2 = client.post('/api/admin-requests/start', json={'email': 'brand-new@test.com'})
         assert res1.status_code == res2.status_code == 200
         assert res1.get_json() == res2.get_json()
+
+
+class TestStartAdminRequestGoogle:
+    # admin_management.py imports verify_google_credential via `from auth
+    # import ...`, its own separate name binding - patch it there, not on
+    # the auth module, or the endpoint's own lookup won't see the mock.
+    def test_success_returns_token_and_name(self, client):
+        with patch.object(app_module.admin_management, 'verify_google_credential',
+                           return_value={'email': APPLICANT_EMAIL, 'name': 'Juan Dela Cruz', 'sub': 'google-sub-1'}):
+            res = client.post('/api/admin-requests/start-google', json={'credential': 'fake'})
+        assert res.status_code == 200
+        body = res.get_json()
+        assert body['email'] == APPLICANT_EMAIL
+        assert body['full_name'] == 'Juan Dela Cruz'
+        assert 'token' in body
+
+    def test_missing_credential_rejected(self, client):
+        res = client.post('/api/admin-requests/start-google', json={})
+        assert res.status_code == 400
+
+    def test_invalid_credential_rejected(self, client):
+        with patch.object(app_module.admin_management, 'verify_google_credential', side_effect=ValueError('bad token')):
+            res = client.post('/api/admin-requests/start-google', json={'credential': 'garbage'})
+        assert res.status_code == 400
 
 
 class TestVerifyStartOtp:
@@ -183,6 +214,38 @@ class TestSubmitAdminRequest:
         assert stored['proof_of_employment']['filename'] == 'id-card.png'
 
 
+class TestSubmitAdminRequestWithGoogle:
+    """A Google-verified applicant's token carries google_sub, so the proof-
+    of-employment document is still required but no password is."""
+
+    def test_submit_with_no_password_succeeds(self, client, db):
+        res = submit_request(client, db, token=make_google_apply_token(), password='')
+        assert res.status_code == 201, res.get_json()
+        stored = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        assert stored['google_id'] == 'google-sub-1'
+
+    def test_still_requires_proof_of_employment_file(self, client, db):
+        res = submit_request(client, db, token=make_google_apply_token(), password='', include_file=False)
+        assert res.status_code == 400
+        assert db.admin_requests.find_one({'email': APPLICANT_EMAIL}) is None
+
+    def test_password_only_path_has_no_google_id(self, client, db):
+        submit_request(client, db)
+        stored = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        assert stored.get('google_id') is None
+
+    def test_approval_creates_google_linked_account_with_no_password_set(self, client, db, auth_headers):
+        submit_request(client, db, token=make_google_apply_token(), password='')
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+
+        res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
+        assert res.status_code == 201, res.get_json()
+
+        created = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert created['google_id'] == 'google-sub-1'
+        assert created['password_set'] is False
+
+
 class TestListAdminRequests:
     def test_requires_admin_role(self, client, auth_headers):
         res = client.get('/api/admin-requests', headers=auth_headers('student'))
@@ -253,6 +316,18 @@ class TestApproveAdminRequest:
 
         updated_req = db.admin_requests.find_one({'_id': req['_id']})
         assert updated_req['status'] == 'approved'
+
+    def test_password_only_approval_never_sets_a_null_google_id(self, client, db, auth_headers):
+        """users.google_id has a unique sparse index - storing an explicit
+        None for every password-only account would collide on the second
+        one, since a sparse index still indexes an explicit null. The key
+        must be omitted entirely, not set to None."""
+        submit_request(client, db)
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        res = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=auth_headers())
+        assert res.status_code == 201
+        created = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert 'google_id' not in created
 
     def test_join_mode_ignores_submitted_municipality_uses_orgs_own(self, client, db):
         """Joining an EXISTING org always inherits its municipality - the

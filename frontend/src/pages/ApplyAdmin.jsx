@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { GoogleLogin } from '@react-oauth/google'
 import { API_BASE_URL, setSession } from '../api'
 import AuthShell from '../components/AuthShell'
 
@@ -257,6 +258,12 @@ function ApplyForm() {
   const [formError, setFormError] = useState('')
   const [sendingCode, setSendingCode] = useState(false)
 
+  // Set once "Continue with Google" verifies the applicant's email - full
+  // name/email come from Google (locked, no password needed) and the
+  // admin_apply token is already in hand, so submission skips the OTP step.
+  const [googleVerified, setGoogleVerified] = useState(false)
+  const [googleToken, setGoogleToken] = useState('')
+
   const [joinCodeOrgName, setJoinCodeOrgName] = useState('')
   const [joinCodeChecking, setJoinCodeChecking] = useState(false)
   const [joinCodeError, setJoinCodeError] = useState('')
@@ -310,6 +317,89 @@ function ApplyForm() {
     if (!proofFile) return 'A valid identification or proof-of-employment document is required'
     return ''
   }
+
+  // Google already supplied full name + email and needs no password - only
+  // the LGU/org choice, contact number, and proof file still matter here.
+  const validateFormForGoogle = () => {
+    const { contactNumber, municipality } = data
+    if (!contactNumber.trim()) return 'Contact number is required'
+    if (!/^09\d{9}$/.test(contactNumber.replace(/\s/g, ''))) return 'Enter a valid Philippine mobile number'
+    if (data.orgMode === 'create') {
+      if (!data.orgName.trim()) return 'Organization name is required'
+      if (!municipality) return 'Municipality is required'
+    } else if (!data.joinCode.trim()) {
+      return 'A valid LGU join code is required'
+    }
+    if (!proofFile) return 'A valid identification or proof-of-employment document is required'
+    return ''
+  }
+
+  // Shared by both the password+OTP path and the Google path - only the
+  // token that proves the email differs between them.
+  const submitAdminRequest = useCallback(async (token) => {
+    const formData = new FormData()
+    formData.append('token', token)
+    formData.append('full_name', data.fullName.trim())
+    formData.append('password', data.password)
+    formData.append('municipality', data.municipality)
+    formData.append('contact_number', data.contactNumber.trim())
+    formData.append('message', data.message.trim())
+    formData.append('file', proofFile)
+    formData.append('org_mode', data.orgMode)
+    if (data.orgMode === 'create') {
+      formData.append('org_name', data.orgName.trim())
+    } else {
+      formData.append('join_code', data.joinCode.trim().toUpperCase())
+    }
+    const res = await fetch(`${API_BASE_URL}/api/admin-requests`, { method: 'POST', body: formData })
+    const result = await res.json()
+    return { ok: res.ok, result }
+  }, [data, proofFile])
+
+  // ── CONTINUE WITH GOOGLE ── (verifies the email up front, no OTP needed)
+  const handleGoogleStart = useCallback(async (credentialResponse) => {
+    setFormError('')
+    if (!credentialResponse.credential) { setFormError('Google sign-in failed. Please try again.'); return }
+
+    setSendingCode(true)
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin-requests/start-google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: credentialResponse.credential })
+      })
+      const result = await res.json()
+      if (!res.ok) {
+        setFormError(result.error || 'Could not verify your Google account. Please try again.')
+        return
+      }
+      setData(p => ({ ...p, fullName: result.full_name || p.fullName, email: result.email, password: '', confirmPassword: '' }))
+      setGoogleToken(result.token)
+      setGoogleVerified(true)
+    } catch {
+      setFormError('Unable to reach the server. Please try again.')
+    } finally {
+      setSendingCode(false)
+    }
+  }, [])
+
+  const handleSubmitWithGoogle = useCallback(async () => {
+    setFormError('')
+    const validationError = validateFormForGoogle()
+    if (validationError) { setFormError(validationError); return }
+
+    setSendingCode(true)
+    try {
+      const { ok, result } = await submitAdminRequest(googleToken)
+      if (!ok) { setFormError(result.error || 'Unable to submit your request. Please try again.'); return }
+      setStep('success')
+    } catch {
+      setFormError('Unable to reach the server. Please try again.')
+    } finally {
+      setSendingCode(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, proofFile, googleToken, submitAdminRequest])
 
   const handleSendCode = useCallback(async () => {
     setFormError('')
@@ -366,25 +456,9 @@ function ApplyForm() {
         return
       }
 
-      const formData = new FormData()
-      formData.append('token', verifyResult.token)
-      formData.append('full_name', data.fullName.trim())
-      formData.append('password', data.password)
-      formData.append('municipality', data.municipality)
-      formData.append('contact_number', data.contactNumber.trim())
-      formData.append('message', data.message.trim())
-      formData.append('file', proofFile)
-      formData.append('org_mode', data.orgMode)
-      if (data.orgMode === 'create') {
-        formData.append('org_name', data.orgName.trim())
-      } else {
-        formData.append('join_code', data.joinCode.trim().toUpperCase())
-      }
-
-      const submitRes = await fetch(`${API_BASE_URL}/api/admin-requests`, { method: 'POST', body: formData })
-      const submitResult = await submitRes.json()
-      if (!submitRes.ok) {
-        setOtpError(submitResult.error || 'Unable to submit your request. Please try again.')
+      const { ok, result } = await submitAdminRequest(verifyResult.token)
+      if (!ok) {
+        setOtpError(result.error || 'Unable to submit your request. Please try again.')
         return
       }
 
@@ -394,9 +468,9 @@ function ApplyForm() {
     } finally {
       setVerifying(false)
     }
-  }, [otpCode, data, proofFile])
+  }, [otpCode, data.email, submitAdminRequest])
 
-  const handleFormKeyDown = (e) => { if (e.key === 'Enter') handleSendCode() }
+  const handleFormKeyDown = (e) => { if (e.key === 'Enter') (googleVerified ? handleSubmitWithGoogle() : handleSendCode()) }
   const handleOtpKeyDown = (e) => { if (e.key === 'Enter') handleVerifyAndSubmit() }
 
   if (step === 'success') {
@@ -468,6 +542,31 @@ function ApplyForm() {
 
       {formError && <div className="lp-alert error">{formError}</div>}
 
+      {googleVerified ? (
+        <div className="lp-field">
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            Continuing as <strong>{data.fullName}</strong> ({data.email}) via Google.{' '}
+            <button className="lp-link" type="button" onClick={() => {
+              setGoogleVerified(false); setGoogleToken(''); setFormError('')
+              setData(p => ({ ...p, fullName: '', email: '' }))
+            }}>
+              Use a different method
+            </button>
+          </p>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleStart}
+              onError={() => setFormError('Google sign-in failed. Please try again.')}
+              text="continue_with"
+            />
+          </div>
+          <div className="lp-or">or fill in the rest yourself</div>
+        </>
+      )}
+
       <div className="lp-field">
         <label>Your LGU</label>
         <div className="lp-seg">
@@ -524,60 +623,64 @@ function ApplyForm() {
         )}
       </div>
 
-      <div className="lp-field">
-        <label>Full Name</label>
-        <input
-          className="lp-input"
-          type="text"
-          placeholder="Enter your full name"
-          value={data.fullName}
-          autoComplete="name"
-          onChange={e => { setData(p => ({ ...p, fullName: e.target.value })); setFormError('') }}
-          onKeyDown={handleFormKeyDown}
-        />
-      </div>
+      {!googleVerified && (
+        <>
+          <div className="lp-field">
+            <label>Full Name</label>
+            <input
+              className="lp-input"
+              type="text"
+              placeholder="Enter your full name"
+              value={data.fullName}
+              autoComplete="name"
+              onChange={e => { setData(p => ({ ...p, fullName: e.target.value })); setFormError('') }}
+              onKeyDown={handleFormKeyDown}
+            />
+          </div>
 
-      <div className="lp-field">
-        <label>Email Address</label>
-        <input
-          className="lp-input"
-          type="email"
-          placeholder="Enter your official email address"
-          value={data.email}
-          autoComplete="email"
-          onChange={e => { setData(p => ({ ...p, email: e.target.value })); setFormError('') }}
-          onKeyDown={handleFormKeyDown}
-        />
-      </div>
+          <div className="lp-field">
+            <label>Email Address</label>
+            <input
+              className="lp-input"
+              type="email"
+              placeholder="Enter your official email address"
+              value={data.email}
+              autoComplete="email"
+              onChange={e => { setData(p => ({ ...p, email: e.target.value })); setFormError('') }}
+              onKeyDown={handleFormKeyDown}
+            />
+          </div>
 
-      <div className="lp-field">
-        <label>Password</label>
-        <input
-          className="lp-input"
-          type="password"
-          placeholder="Enter a password with at least 8 characters"
-          value={data.password}
-          autoComplete="new-password"
-          onChange={e => { setData(p => ({ ...p, password: e.target.value })); setFormError('') }}
-          onKeyDown={handleFormKeyDown}
-        />
-      </div>
+          <div className="lp-field">
+            <label>Password</label>
+            <input
+              className="lp-input"
+              type="password"
+              placeholder="Enter a password with at least 8 characters"
+              value={data.password}
+              autoComplete="new-password"
+              onChange={e => { setData(p => ({ ...p, password: e.target.value })); setFormError('') }}
+              onKeyDown={handleFormKeyDown}
+            />
+          </div>
 
-      <div className="lp-field">
-        <label>Confirm Password</label>
-        <input
-          className="lp-input"
-          type="password"
-          placeholder="Re-enter your password"
-          value={data.confirmPassword}
-          autoComplete="new-password"
-          onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setFormError('') }}
-          onKeyDown={handleFormKeyDown}
-        />
-        {data.confirmPassword && data.confirmPassword !== data.password && (
-          <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
-        )}
-      </div>
+          <div className="lp-field">
+            <label>Confirm Password</label>
+            <input
+              className="lp-input"
+              type="password"
+              placeholder="Re-enter your password"
+              value={data.confirmPassword}
+              autoComplete="new-password"
+              onChange={e => { setData(p => ({ ...p, confirmPassword: e.target.value })); setFormError('') }}
+              onKeyDown={handleFormKeyDown}
+            />
+            {data.confirmPassword && data.confirmPassword !== data.password && (
+              <p style={{ fontSize: '12px', color: 'var(--danger)', marginTop: '4px' }}>Passwords do not match</p>
+            )}
+          </div>
+        </>
+      )}
 
       {data.orgMode === 'create' && (
         <div className="lp-field">
@@ -646,9 +749,15 @@ function ApplyForm() {
         </label>
       </div>
 
-      <button className="lp-btn" onClick={handleSendCode} disabled={sendingCode}>
-        {sendingCode ? <><span className="spinner" /> Sending Code…</> : 'Send Verification Code'}
-      </button>
+      {googleVerified ? (
+        <button className="lp-btn" onClick={handleSubmitWithGoogle} disabled={sendingCode}>
+          {sendingCode ? <><span className="spinner" /> Submitting…</> : 'Submit Request'}
+        </button>
+      ) : (
+        <button className="lp-btn" onClick={handleSendCode} disabled={sendingCode}>
+          {sendingCode ? <><span className="spinner" /> Sending Code…</> : 'Send Verification Code'}
+        </button>
+      )}
 
       <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
         Already have an account?{' '}

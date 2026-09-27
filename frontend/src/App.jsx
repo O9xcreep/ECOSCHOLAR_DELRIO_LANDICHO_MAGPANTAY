@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { GoogleOAuthProvider } from '@react-oauth/google'
 
 // Layouts
 import AdminLayout from './layouts/AdminLayout'
@@ -30,6 +31,7 @@ const ActivityLog = lazy(() => import('./pages/admin/ActivityLog'))
 
 function App() {
   return (
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || ''}>
     <BrowserRouter>
       <Suspense fallback={<div style={{ padding: '3rem', textAlign: 'center', color: '#4b5563' }}>Loading...</div>}>
       <Routes>
@@ -79,6 +81,7 @@ function App() {
       </Routes>
       </Suspense>
     </BrowserRouter>
+    </GoogleOAuthProvider>
   )
 }
 

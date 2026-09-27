@@ -1,18 +1,10 @@
 # -*- coding: utf-8 -*-
 """Register / login / forgot-password / reset-password / change-password."""
+from unittest.mock import patch
+
 from werkzeug.security import check_password_hash
 
 import app as app_module
-
-VALID_PROFILE = {
-    'dob': '2003-05-14', 'gender': 'Male', 'religion': 'Roman Catholic',
-    'citizenship': 'Filipino', 'contactNumber': '09171234567',
-    'address': '123 Mabini St',
-    'fatherName': 'Pedro Cruz', 'fatherOccupation': 'Laborer/Driver', 'fatherEducation': 'High School',
-    'motherName': 'Maria Cruz', 'motherOccupation': 'Unemployed', 'motherEducation': 'Elementary',
-    'monthlyIncome': '8000', 'familySize': '5', 'numSiblings': '3', 'numSiblingsStudying': '2',
-    'housingSituation': 'Rented', 'hasOtherScholarship': 'no', 'otherScholarshipDetails': '',
-}
 
 
 def default_join_code():
@@ -28,10 +20,16 @@ def register_payload(email='juan@test.com', **overrides):
     payload = {
         'full_name': 'Juan Dela Cruz', 'email': email, 'password': 'ValidPass123',
         'join_code': default_join_code(),
-        **VALID_PROFILE,
     }
     payload.update(overrides)
     return payload
+
+
+def fake_google_user(email='google@test.com', name='Google User', sub='google-sub-123'):
+    """Stands in for a verified Google Identity Services credential - tests
+    patch auth.verify_google_credential to return this instead of making a
+    real call to Google."""
+    return {'email': email, 'name': name, 'sub': sub}
 
 
 def get_otp_code(db, email):
@@ -68,8 +66,93 @@ class TestRegister:
         res = client.post('/api/register', json={'full_name': 'X', 'email': 'x@test.com', 'password': 'ValidPass123'})
         assert res.status_code == 400
 
-    def test_register_invalid_gender(self, client):
-        res = client.post('/api/register', json=register_payload(gender='Other'))
+
+class TestRegisterGoogle:
+    """POST /api/register/google - Google already proved the email is real,
+    so this skips the OTP step entirely and the account is usable right away."""
+
+    def test_creates_a_new_verified_account_with_no_otp(self, client, db):
+        with patch.object(app_module.auth, 'verify_google_credential', return_value=fake_google_user()):
+            res = client.post('/api/register/google', json={'credential': 'fake', 'join_code': default_join_code()})
+        assert res.status_code == 201, res.get_json()
+        body = res.get_json()
+        assert body['user']['role'] == 'student'
+        assert body['user']['email'] == 'google@test.com'
+        assert 'token' in body
+
+        user = db.users.find_one({'email': 'google@test.com'})
+        assert user['email_verified'] is True
+        assert user['google_id'] == 'google-sub-123'
+        assert user['password_set'] is False
+
+    def test_missing_join_code_rejected(self, client):
+        with patch.object(app_module.auth, 'verify_google_credential', return_value=fake_google_user()):
+            res = client.post('/api/register/google', json={'credential': 'fake'})
+        assert res.status_code == 400
+
+    def test_invalid_join_code_rejected(self, client):
+        with patch.object(app_module.auth, 'verify_google_credential', return_value=fake_google_user()):
+            res = client.post('/api/register/google', json={'credential': 'fake', 'join_code': 'NOPE1234'})
+        assert res.status_code == 400
+
+    def test_invalid_credential_rejected(self, client):
+        with patch.object(app_module.auth, 'verify_google_credential', side_effect=ValueError('bad token')):
+            res = client.post('/api/register/google', json={'credential': 'garbage', 'join_code': default_join_code()})
+        assert res.status_code == 400
+
+    def test_existing_email_in_same_org_signs_in_instead_of_erroring(self, client, db, make_user):
+        make_user(email='google@test.com', role='student')
+        with patch.object(app_module.auth, 'verify_google_credential', return_value=fake_google_user()):
+            res = client.post('/api/register/google', json={'credential': 'fake', 'join_code': default_join_code()})
+        assert res.status_code == 200
+        assert res.get_json()['user']['email'] == 'google@test.com'
+        assert db.users.find_one({'email': 'google@test.com'})['google_id'] == 'google-sub-123'
+
+    def test_existing_email_in_a_different_org_is_rejected(self, client, db, make_user):
+        make_user(email='google@test.com', role='student')
+        other_org_id = db.organizations.insert_one({
+            'name': 'Other LGU', 'join_code': 'OTHRORG1', 'status': 'active',
+        }).inserted_id
+        with patch.object(app_module.auth, 'verify_google_credential', return_value=fake_google_user()):
+            res = client.post('/api/register/google', json={'credential': 'fake', 'join_code': 'OTHRORG1'})
+        assert res.status_code == 409
+
+
+class TestLoginGoogle:
+    """POST /api/login/google - only ever signs in an EXISTING account;
+    no matching account points the caller at registration instead."""
+
+    def test_logs_in_an_existing_account_and_links_it(self, client, db, make_user):
+        make_user(email='google-login@test.com', role='student')
+        with patch.object(app_module.auth, 'verify_google_credential',
+                           return_value=fake_google_user(email='google-login@test.com')):
+            res = client.post('/api/login/google', json={'credential': 'fake'})
+        assert res.status_code == 200
+        assert res.get_json()['user']['email'] == 'google-login@test.com'
+        assert db.users.find_one({'email': 'google-login@test.com'})['google_id'] == 'google-sub-123'
+
+    def test_finds_by_linked_google_id_even_if_email_changed_since(self, client, db, make_user):
+        user = make_user(email='already-linked@test.com', role='student')
+        db.users.update_one({'_id': user['id']}, {'$set': {'google_id': 'sub-999'}})
+        with patch.object(app_module.auth, 'verify_google_credential',
+                           return_value={'email': 'new-address@test.com', 'name': 'X', 'sub': 'sub-999'}):
+            res = client.post('/api/login/google', json={'credential': 'fake'})
+        assert res.status_code == 200
+        assert res.get_json()['user']['email'] == 'already-linked@test.com'
+
+    def test_no_matching_account_returns_404(self, client):
+        with patch.object(app_module.auth, 'verify_google_credential', return_value=fake_google_user()):
+            res = client.post('/api/login/google', json={'credential': 'fake'})
+        assert res.status_code == 404
+        assert res.get_json()['needs_registration'] is True
+
+    def test_invalid_credential_rejected(self, client):
+        with patch.object(app_module.auth, 'verify_google_credential', side_effect=ValueError('bad token')):
+            res = client.post('/api/login/google', json={'credential': 'garbage'})
+        assert res.status_code == 400
+
+    def test_missing_credential_rejected(self, client):
+        res = client.post('/api/login/google', json={})
         assert res.status_code == 400
 
 

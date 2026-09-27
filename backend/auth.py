@@ -8,10 +8,11 @@ from functools import wraps
 from flask import request, jsonify, g
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_auth_transport
 
-from extensions import app, limiter, get_db, DEBUG, SECRET_KEY, FRONTEND_URL, _mongo_db
-from helpers import oid, send_email_async, get_organization_name, find_active_organization_by_code, \
-    ml_education_map, ml_occupation_categories, ml_housing_situations
+from extensions import app, limiter, get_db, DEBUG, SECRET_KEY, FRONTEND_URL, GOOGLE_CLIENT_ID, _mongo_db
+from helpers import oid, send_email_async, get_organization_name, find_active_organization_by_code
 from activity import log_activity
 from field_crypto import encrypt_fields, decrypt_fields, ENCRYPTED_PROFILE_FIELDS
 
@@ -72,6 +73,27 @@ def create_and_send_otp(email, purpose, full_name=''):
     """
     send_email_async(email, copy['subject'], html)
 
+_google_auth_transport_request = google_auth_transport.Request()
+
+def verify_google_credential(credential):
+    """Verifies a Google Identity Services ID token and returns
+    {email, name, sub}. Raises ValueError with a safe, user-facing message
+    on any failure (bad signature/audience, or an unverified email)."""
+    if not GOOGLE_CLIENT_ID:
+        raise ValueError("Google sign-in isn't configured on this server.")
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            credential, _google_auth_transport_request, GOOGLE_CLIENT_ID)
+    except Exception:
+        raise ValueError("Your Google sign-in couldn't be verified. Please try again.")
+    if not claims.get('email_verified'):
+        raise ValueError("Your Google account's email address isn't verified.")
+    return {
+        "email": claims['email'].strip().lower(),
+        "name": claims.get('name') or claims['email'],
+        "sub": claims['sub'],
+    }
+
 def verify_otp(email, purpose, code):
     """Returns (ok, error_message). Consumes the code on success only."""
     db = get_db()
@@ -110,6 +132,53 @@ def revoke_token(token):
         return
     expires_at = issued_at + timedelta(seconds=TOKEN_MAX_AGE)
     _mongo_db.revoked_tokens.insert_one({"token_hash": hash_token(token), "expires_at": expires_at})
+
+def build_session(db, user):
+    """Builds the (user_payload, token) pair every successful sign-in
+    returns - shared by password login and Google sign-in so both stay in
+    sync (membership backfill, organization_name, lgu_member permissions)."""
+    # An account created before the memberships feature has no membership
+    # row for its own org yet - backfill it here on login instead of
+    # requiring a one-time migration script to run first. Mirrors
+    # migrate_phase_b_memberships.py's logic; harmless to also run that
+    # script separately, this just makes it unnecessary for any account
+    # that logs in at least once.
+    if user['role'] != 'admin' and user.get('organization_id'):
+        if not db.memberships.find_one({"user_id": user['_id'], "organization_id": user['organization_id']}):
+            db.memberships.insert_one({
+                "user_id": user['_id'], "organization_id": user['organization_id'], "role": user['role'],
+                "permissions": user.get('permissions') if user['role'] == 'lgu_member' else None,
+                "municipality": user.get('municipality') if user['role'] in ('lgu_admin', 'lgu_member') else None,
+                "joined_at": user.get('created_at') or datetime.utcnow(),
+            })
+
+    user_payload = {
+        "id": str(user['_id']),
+        "full_name": user['full_name'],
+        "email": user['email'],
+        "role": user['role'],
+        "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
+        "organization_name": get_organization_name(db, user.get('organization_id')),
+    }
+    # Informational only - every endpoint re-checks permissions fresh.
+    if user['role'] == 'lgu_member':
+        user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
+    return user_payload, issue_token(user_payload)
+
+def find_or_link_google_user(db, google_user):
+    """Looks up a user by Google sub, falling back to their (Google-verified)
+    email - and in that fallback case, attaches the Google id to the account
+    so next time it's found directly. Returns None if no account matches
+    either way."""
+    user = db.users.find_one({"google_id": google_user['sub']})
+    if user:
+        return user
+    user = db.users.find_one({"email": google_user['email']})
+    if user and not user.get('google_id'):
+        db.users.update_one({"_id": user['_id']}, {"$set": {"google_id": google_user['sub'], "email_verified": True}})
+        user['google_id'] = google_user['sub']
+        user['email_verified'] = True
+    return user
 
 def require_auth(f):
     @wraps(f)
@@ -239,39 +308,50 @@ def login():
                 "email": user['email'],
             }), 403
 
-        # An account created before the memberships feature has no membership
-        # row for its own org yet - backfill it here on login instead of
-        # requiring a one-time migration script to run first. Mirrors
-        # migrate_phase_b_memberships.py's logic; harmless to also run that
-        # script separately, this just makes it unnecessary for any account
-        # that logs in at least once.
-        if user['role'] != 'admin' and user.get('organization_id'):
-            if not db.memberships.find_one({"user_id": user['_id'], "organization_id": user['organization_id']}):
-                db.memberships.insert_one({
-                    "user_id": user['_id'], "organization_id": user['organization_id'], "role": user['role'],
-                    "permissions": user.get('permissions') if user['role'] == 'lgu_member' else None,
-                    "municipality": user.get('municipality') if user['role'] in ('lgu_admin', 'lgu_member') else None,
-                    "joined_at": user.get('created_at') or datetime.utcnow(),
-                })
-
-        user_payload = {
-            "id": str(user['_id']),
-            "full_name": user['full_name'],
-            "email": user['email'],
-            "role": user['role'],
-            "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
-            "organization_name": get_organization_name(db, user.get('organization_id')),
-        }
-        # Informational only - every endpoint re-checks permissions fresh.
-        if user['role'] == 'lgu_member':
-            user_payload["permissions"] = {p: bool(user.get('permissions', {}).get(p)) for p in ADMIN_PERMISSIONS}
-
+        user_payload, token = build_session(db, user)
         log_activity('auth', 'Logged in', actor=user_actor)
-        return jsonify({
-            "message": "Login successful",
-            "user": user_payload,
-            "token": issue_token(user_payload)
-        })
+        return jsonify({"message": "Login successful", "user": user_payload, "token": token})
+
+    except Exception:
+        if DEBUG:
+            raise
+        return jsonify({"error": "Login failed"}), 500
+
+# ── AUTH: LOGIN WITH GOOGLE ──
+# Google already proves the email is real, so this never sends/checks an
+# OTP. It only ever signs in an EXISTING account - a Google sign-in with no
+# matching account is pointed at registration instead (see register_google
+# below), same as a plain login never auto-creates one.
+@app.route('/api/login/google', methods=['POST'])
+@limiter.limit("8 per minute")
+def login_google():
+    data = request.get_json() or {}
+    credential = data.get('credential') or ''
+    if not credential:
+        return jsonify({"error": "Missing Google credential"}), 400
+
+    try:
+        google_user = verify_google_credential(credential)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    try:
+        db = get_db()
+        user = find_or_link_google_user(db, google_user)
+
+        if not user:
+            log_activity('auth', 'Failed Google sign-in - no account with this email',
+                         actor={"email": google_user['email']}, outcome='failure')
+            return jsonify({
+                "error": "No account found for this Google account. Create one first.",
+                "needs_registration": True,
+            }), 404
+
+        user_actor = {"id": user['_id'], "email": user['email'], "role": user['role'],
+                      "full_name": user.get('full_name'), "organization_id": user.get('organization_id')}
+        user_payload, token = build_session(db, user)
+        log_activity('auth', 'Logged in with Google', actor=user_actor)
+        return jsonify({"message": "Login successful", "user": user_payload, "token": token})
 
     except Exception:
         if DEBUG:
@@ -287,7 +367,11 @@ def logout():
     return jsonify({"message": "Logged out"})
 
 
-# Personal-info fields collected at registration, reused to prefill the application form.
+# Personal-info fields once collected at registration, reused to prefill the
+# application form. Registration no longer collects these - they're now
+# filled in once, directly on the application form itself (or later via
+# Settings' PUT /api/profile) - but GET /api/profile below still reports
+# them, so a student who filled these in some other way still gets prefilled.
 PROFILE_FIELDS = [
     'dob', 'gender', 'religion', 'citizenship', 'contactNumber', 'address',
     'fatherName', 'fatherOccupation', 'fatherEducation',
@@ -295,9 +379,6 @@ PROFILE_FIELDS = [
     'monthlyIncome', 'familySize', 'numSiblings', 'numSiblingsStudying',
     'housingSituation', 'hasOtherScholarship', 'otherScholarshipDetails',
 ]
-
-def _is_blank(v):
-    return v is None or (isinstance(v, str) and v.strip() == '')
 
 # ── AUTH: REGISTER ──
 @app.route("/api/register", methods=["POST"])
@@ -321,37 +402,6 @@ def register():
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
-    profile_data = {}
-    for field in PROFILE_FIELDS:
-        value = data.get(field, '')
-        profile_data[field] = value.strip() if isinstance(value, str) else value
-
-    required_profile_fields = [f for f in PROFILE_FIELDS if f != 'otherScholarshipDetails']
-    missing = [f for f in required_profile_fields if _is_blank(profile_data.get(f))]
-    if missing:
-        return jsonify({"error": "All personal information fields are required"}), 400
-
-    if profile_data['gender'] not in ('Male', 'Female'):
-        return jsonify({"error": "Gender must be Male or Female"}), 400
-    if profile_data['fatherEducation'] not in ml_education_map or profile_data['motherEducation'] not in ml_education_map:
-        return jsonify({"error": "Invalid education level"}), 400
-    if profile_data['fatherOccupation'] not in ml_occupation_categories or profile_data['motherOccupation'] not in ml_occupation_categories:
-        return jsonify({"error": "Invalid occupation category"}), 400
-    if profile_data['housingSituation'] not in ml_housing_situations:
-        return jsonify({"error": "Invalid housing situation"}), 400
-    if profile_data['hasOtherScholarship'] not in ('yes', 'no'):
-        return jsonify({"error": "Invalid scholarship answer"}), 400
-    if profile_data['hasOtherScholarship'] == 'yes' and _is_blank(profile_data.get('otherScholarshipDetails')):
-        return jsonify({"error": "Please provide details about your other scholarship"}), 400
-
-    try:
-        profile_data['monthlyIncome'] = float(profile_data['monthlyIncome'])
-        profile_data['familySize'] = int(profile_data['familySize'])
-        profile_data['numSiblings'] = int(profile_data['numSiblings'])
-        profile_data['numSiblingsStudying'] = int(profile_data['numSiblingsStudying'])
-    except (TypeError, ValueError):
-        return jsonify({"error": "Income, family size, and sibling counts must be numbers"}), 400
-
     try:
         db = get_db()
 
@@ -362,12 +412,12 @@ def register():
             "full_name": full_name,
             "email": email,
             "password": generate_password_hash(password),
+            "password_set": True,
             "role": "student",
             "status": "active",
             "email_verified": False,
             "created_at": datetime.utcnow(),
             "privacy_consent": True,
-            **encrypt_fields(profile_data, ENCRYPTED_PROFILE_FIELDS),
             "organization_id": organization["_id"],
         })
         db.memberships.insert_one({
@@ -386,6 +436,91 @@ def register():
         return jsonify({
             "message": "Enter the verification code sent to your email to finish creating your account.",
             "email": email,
+        }), 201
+
+    except Exception:
+        if DEBUG:
+            raise
+        return jsonify({"error": "Registration failed"}), 500
+
+# ── AUTH: REGISTER WITH GOOGLE ──
+# Google already proves the email is real, so this skips the OTP step
+# entirely - the account is ready to use immediately. If the email already
+# belongs to an account in the SAME organization, this signs them in instead
+# of erroring (Google verified they own the address either way); a match in
+# a different organization is rejected since a join code decides which LGU a
+# student belongs to and we won't silently move them.
+@app.route('/api/register/google', methods=['POST'])
+@limiter.limit("8 per minute")
+def register_google():
+    data = request.get_json() or {}
+    credential = data.get('credential') or ''
+    join_code = (data.get('join_code') or '').strip().upper()
+
+    if not credential:
+        return jsonify({"error": "Missing Google credential"}), 400
+    if not join_code:
+        return jsonify({"error": "An LGU join code is required"}), 400
+
+    try:
+        google_user = verify_google_credential(credential)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    organization = find_active_organization_by_code(get_db(), join_code)
+    if not organization:
+        return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 400
+
+    try:
+        db = get_db()
+        email = google_user['email']
+        existing = db.users.find_one({"email": email})
+
+        if existing:
+            if str(existing.get('organization_id')) != str(organization['_id']):
+                return jsonify({
+                    "error": "An account with this email already exists under a different LGU. Sign in instead.",
+                }), 409
+            user = find_or_link_google_user(db, google_user)
+            user_actor = {"id": user['_id'], "email": user['email'], "role": user['role'],
+                          "full_name": user.get('full_name'), "organization_id": user.get('organization_id')}
+            user_payload, token = build_session(db, user)
+            log_activity('auth', 'Logged in with Google', actor=user_actor)
+            return jsonify({"message": "Login successful", "user": user_payload, "token": token})
+
+        result = db.users.insert_one({
+            "full_name": google_user['name'],
+            "email": email,
+            "password": generate_password_hash(secrets.token_urlsafe(32)),
+            "password_set": False,
+            "google_id": google_user['sub'],
+            "role": "student",
+            "status": "active",
+            "email_verified": True,
+            "created_at": datetime.utcnow(),
+            "privacy_consent": True,
+            "organization_id": organization["_id"],
+        })
+        db.memberships.insert_one({
+            "user_id": result.inserted_id,
+            "organization_id": organization["_id"],
+            "role": "student",
+            "permissions": None,
+            "municipality": None,
+            "joined_at": datetime.utcnow(),
+        })
+        log_activity('account', 'Registered a student account with Google',
+                     actor={"id": result.inserted_id, "email": email, "role": "student",
+                            "full_name": google_user['name'], "organization_id": organization["_id"]})
+
+        user_payload = {
+            "id": str(result.inserted_id), "full_name": google_user['name'], "email": email, "role": "student",
+            "organization_id": str(organization["_id"]),
+        }
+        return jsonify({
+            "message": "Your account is ready.",
+            "user": user_payload,
+            "token": issue_token(user_payload),
         }), 201
 
     except Exception:
