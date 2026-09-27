@@ -20,6 +20,8 @@ services:
         value: "false"
       - key: FRONTEND_URL
         sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
       - key: EMAIL_PROVIDER
         value: resend
       - key: RESEND_API_KEY
