@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, displayStatus, connectionErrorMessage } from '../../api'
+import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
 import { INCOME_RANGES } from '../../incomeRanges'
@@ -623,7 +624,7 @@ function Step2({ data, onChange, errors, customFields, extraFieldsData, onExtraF
 }
 
 // ── STEP 3 ──
-function Step3({ data, onChange, errors, consent, onConsentChange, requirements }) {
+function Step3({ data, onChange, onFileError, errors, consent, onConsentChange, requirements }) {
   const visibleRequirements = requirements.filter(r => r.enabled)
 
   return (
@@ -652,7 +653,20 @@ function Step3({ data, onChange, errors, consent, onConsentChange, requirements 
                 id={`doc-${req.id}`}
                 style={{ display: 'none' }}
                 accept=".pdf,.jpg,.jpeg,.png"
-                onChange={e => onChange(req.label, e.target.files[0])}
+                onChange={async e => {
+                  const raw = e.target.files[0]
+                  if (!raw) return
+                  // Downscale before this ever gets held in memory or uploaded -
+                  // a raw camera photo can be large enough to crash a low-memory
+                  // phone at this point (see fileUtils.js).
+                  const file = await compressImageFile(raw)
+                  if (file.size > MAX_UPLOAD_BYTES) {
+                    onFileError(req.label, 'File is too large (max 5MB). Try a lower-resolution photo or a smaller file.')
+                    e.target.value = ''
+                    return
+                  }
+                  onChange(req.label, file)
+                }}
               />
             </div>
 
@@ -935,6 +949,10 @@ function ApplicationForm() {
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }))
   }
 
+  const handleStep3FileError = (field, message) => {
+    setErrors(prev => ({ ...prev, [field]: message }))
+  }
+
   const handleNext = () => {
     let currentErrors = {}
     if (currentStep === 1) {
@@ -1179,6 +1197,7 @@ function ApplicationForm() {
         <Step3
           data={step3Data}
           onChange={handleStep3Change}
+          onFileError={handleStep3FileError}
           errors={errors}
           requirements={docRequirements}
           consent={privacyConsent}

@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { GoogleLogin } from '@react-oauth/google'
 import { API_BASE_URL, setSession } from '../api'
+import { compressImageFile, MAX_UPLOAD_BYTES } from '../fileUtils'
 import AuthShell from '../components/AuthShell'
 
 // Two ways to land here:
@@ -782,7 +783,22 @@ function ApplyForm() {
             className="lp-file-upload-input"
             type="file"
             accept=".pdf,.jpg,.jpeg,.png"
-            onChange={e => { setProofFile(e.target.files[0] || null); setFormError('') }}
+            onChange={async e => {
+              const raw = e.target.files[0]
+              setFormError('')
+              if (!raw) { setProofFile(null); return }
+              // Downscale before this ever gets held in memory or uploaded -
+              // a raw camera photo can be large enough to crash a low-memory
+              // phone at this point (see fileUtils.js).
+              const file = await compressImageFile(raw)
+              if (file.size > MAX_UPLOAD_BYTES) {
+                setFormError('That file is too large (max 5MB). Try a lower-resolution photo or a smaller file.')
+                e.target.value = ''
+                setProofFile(null)
+                return
+              }
+              setProofFile(file)
+            }}
           />
           <span className="lp-file-upload-icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

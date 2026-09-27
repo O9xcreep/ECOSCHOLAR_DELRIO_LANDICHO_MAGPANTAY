@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus, connectionErrorMessage } from '../../api'
+import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import ScoreBreakdown from '../../components/ScoreBreakdown'
@@ -43,6 +44,7 @@ function ApplicantDetails() {
   const [loadError, setLoadError] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
   const [withdrawError, setWithdrawError] = useState('')
+  const [uploadError, setUploadError] = useState('')
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState('')
 
   const user = getUser() || {}
@@ -137,8 +139,18 @@ function ApplicantDetails() {
     }
   }
 
-  const handleUpload = async (id, file) => {
-    if (!file || !application) return
+  const handleUpload = async (id, rawFile) => {
+    if (!rawFile || !application) return
+    setUploadError('')
+
+    // Downscale before ever creating a preview or reading it into a
+    // request body - an uncompressed camera photo can be large enough to
+    // crash a low-memory phone at this point (see fileUtils.js).
+    const file = await compressImageFile(rawFile)
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError('That file is too large (max 5MB). Try a lower-resolution photo or a smaller file.')
+      return
+    }
 
     setDocs(prev => prev.map(d => d.id === id ? { ...d, file, status: 'Uploaded' } : d))
 
@@ -472,6 +484,7 @@ function ApplicantDetails() {
       {/* Documents */}
       <Reveal className="av-card">
         <h3 className="av-card-title">Documents</h3>
+        {uploadError && <p className="av-withdraw-error">{uploadError}</p>}
 
         <div className="doc-stats">
           <StatTile value={uploaded} label="Uploaded" color="#059669" index={0} />
