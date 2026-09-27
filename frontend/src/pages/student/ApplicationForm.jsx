@@ -830,7 +830,15 @@ function ApplicationForm() {
         const res = await apiFetch(`/api/student/application?email=${encodeURIComponent(lockedEmail)}`)
         if (res.ok) {
           const data = await res.json()
-          if (data.application || (data.current_cycle && !data.current_cycle.is_open)) {
+          // A self-withdrawn application (Withdrawn, no admin_comment) doesn't
+          // block a fresh submission - same rule the dashboard uses to decide
+          // "Start Application" vs "View My Application". Only a still-active
+          // application (or one Withdrawn by admin request, which must go
+          // through the edit flow instead) should send the student back.
+          const app = data.application
+          const isWithdrawn = app?.application_status === 'Withdrawn'
+          const blocksFreshApplication = app && !(isWithdrawn && !app.admin_comment)
+          if (blocksFreshApplication || (data.current_cycle && !data.current_cycle.is_open)) {
             navigate('/student/dashboard')
             return
           }
