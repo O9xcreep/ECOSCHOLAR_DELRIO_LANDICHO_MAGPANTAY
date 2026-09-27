@@ -10,6 +10,10 @@ __pycache__/
 # MongoDB GridFS now, nothing permanent is ever written here.
 uploads/
 
+# Database backups (scripts/backup_database.py) - real applicant/account data,
+# never committed.
+backups/
+
 # Old, retired models - superseded by the ecoscholar_* model files
 model.pkl
 model_combined.pkl
