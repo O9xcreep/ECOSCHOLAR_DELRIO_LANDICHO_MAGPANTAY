@@ -296,6 +296,13 @@ function ApplyForm() {
     }
   }, [data.joinCode])
 
+  // Whether "Your LGU" (join vs. create - i.e. lgu_member vs. lgu_admin/
+  // founding) is filled in enough to know which request is being made,
+  // before Google is even offered as an option.
+  const orgInfoComplete = data.orgMode === 'create'
+    ? !!(data.orgName.trim() && data.municipality)
+    : !!data.joinCode.trim()
+
   const validateForm = () => {
     const { fullName, email, password, confirmPassword, municipality, contactNumber } = data
     if (!fullName.trim())      return 'Full name is required'
@@ -359,6 +366,7 @@ function ApplyForm() {
   // ── CONTINUE WITH GOOGLE ── (verifies the email up front, no OTP needed)
   const handleGoogleStart = useCallback(async (credentialResponse) => {
     setFormError('')
+    if (!orgInfoComplete) { setFormError('Choose an LGU (join or create) above first'); return }
     if (!credentialResponse.credential) { setFormError('Google sign-in failed. Please try again.'); return }
 
     setSendingCode(true)
@@ -381,7 +389,7 @@ function ApplyForm() {
     } finally {
       setSendingCode(false)
     }
-  }, [])
+  }, [orgInfoComplete])
 
   const handleSubmitWithGoogle = useCallback(async () => {
     setFormError('')
@@ -542,31 +550,6 @@ function ApplyForm() {
 
       {formError && <div className="lp-alert error">{formError}</div>}
 
-      {googleVerified ? (
-        <div className="lp-field">
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            Continuing as <strong>{data.fullName}</strong> ({data.email}) via Google.{' '}
-            <button className="lp-link" type="button" onClick={() => {
-              setGoogleVerified(false); setGoogleToken(''); setFormError('')
-              setData(p => ({ ...p, fullName: '', email: '' }))
-            }}>
-              Use a different method
-            </button>
-          </p>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <GoogleLogin
-              onSuccess={handleGoogleStart}
-              onError={() => setFormError('Google sign-in failed. Please try again.')}
-              text="continue_with"
-            />
-          </div>
-          <div className="lp-or">or fill in the rest yourself</div>
-        </>
-      )}
-
       <div className="lp-field">
         <label>Your LGU</label>
         <div className="lp-seg">
@@ -619,9 +602,59 @@ function ApplyForm() {
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
               A new organization has no existing team to review this request, so it will instead be reviewed by the platform's Super Admin. Once approved, you will receive a join code to share with your team.
             </p>
+            <select
+              className="lp-input"
+              style={{ marginTop: '10px' }}
+              value={data.municipality}
+              onChange={e => { setData(p => ({ ...p, municipality: e.target.value })); setFormError('') }}>
+              <option value="">Select your city or municipality</option>
+              {ADDRESS_CITIES.map(c => (
+                <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              This becomes your new organization's municipality - everyone who later joins it inherits this automatically.
+            </p>
           </>
         )}
       </div>
+
+      {googleVerified ? (
+        <div className="lp-field">
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+            Continuing as <strong>{data.fullName}</strong> ({data.email}) via Google.{' '}
+            <button className="lp-link" type="button" onClick={() => {
+              setGoogleVerified(false); setGoogleToken(''); setFormError('')
+              setData(p => ({ ...p, fullName: '', email: '' }))
+            }}>
+              Use a different method
+            </button>
+          </p>
+        </div>
+      ) : orgInfoComplete ? (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleStart}
+              onError={() => setFormError('Google sign-in failed. Please try again.')}
+              text="continue_with"
+            />
+          </div>
+          <div className="lp-or">or fill in the rest yourself</div>
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+            <button type="button" disabled className="lp-btn" style={{ opacity: .5, cursor: 'not-allowed', width: '250px' }}>
+              Continue with Google
+            </button>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+              {data.orgMode === 'create' ? 'Fill in your organization\'s name and municipality above first' : 'Enter your LGU join code above first'}
+            </p>
+          </div>
+          <div className="lp-or">or fill in the rest yourself</div>
+        </>
+      )}
 
       {!googleVerified && (
         <>
@@ -680,24 +713,6 @@ function ApplyForm() {
             )}
           </div>
         </>
-      )}
-
-      {data.orgMode === 'create' && (
-        <div className="lp-field">
-          <label>Municipality</label>
-          <select
-            className="lp-input"
-            value={data.municipality}
-            onChange={e => { setData(p => ({ ...p, municipality: e.target.value })); setFormError('') }}>
-            <option value="">Select your city or municipality</option>
-            {ADDRESS_CITIES.map(c => (
-              <option key={c.city} value={c.city}>{c.city}, {c.province}</option>
-            ))}
-          </select>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            This becomes your new organization's municipality - everyone who later joins it inherits this automatically.
-          </p>
-        </div>
       )}
 
       <div className="lp-field">
