@@ -1,8 +1,4 @@
 {
-  "sex_map": {
-    "Male": 1,
-    "Female": 0
-  },
   "education_map": {
     "None": 0,
     "Elementary": 1,
@@ -56,7 +52,6 @@
     "other_scholarship_penalty": 15
   },
   "imputation_values": {
-    "Sex_Bin": 0.5,
     "Household_Size_Num": 3.5,
     "Siblings_Studying_Num": 1.5,
     "Father_Edu_Ord": 2.0,

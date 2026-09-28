@@ -133,7 +133,9 @@ DATE_FIXED_BRACKETS = {'02-May': '2-5', '05-Oct': '5-10', '02-Mar': '2-3', '04-M
 # than the more precarious Living with relatives (two dummies changing at once isn't covered by
 # either one's own constraint - found by test, see ecoscholar_features.py). A single monotonic
 # column gives the full ordering.
-# Sex is excluded: the formula gives it no role in either direction, so there's nothing to audit.
+# Sex is excluded from the feature set entirely (not just unconstrained): the formula gives it no
+# role in eligibility, and leaving it in as an input - even unconstrained - would let the model
+# pick up incidental correlations with the label that have nothing to do with need.
 ALL_FORMULA_DIRECTIONS = {
     'GWA Numeric': 1,
     'Income_Num': -1,
@@ -240,7 +242,7 @@ def print_mapping(mapping, unmapped):
 def build_config(base_maps):
     """Encoding maps + feature contract for the new model. Sex/education/income/housing maps and
     the frozen normalisation bounds are carried over unchanged from the existing files."""
-    maps = {k: base_maps[k] for k in ('sex_map', 'education_map', 'income_bracket_map',
+    maps = {k: base_maps[k] for k in ('education_map', 'income_bracket_map',
                                       'housing_precarity_map', 'normalization_bounds')}
     maps['occupation_need_map'] = OCCUPATION_NEED
     maps['occupation_need_unknown'] = OCCUPATION_NEED_UNKNOWN
@@ -248,7 +250,7 @@ def build_config(base_maps):
     # housing_categories is kept for reference/display only - HousingPrecarity (below) replaced
     # the old one-hot-per-category encoding, so nothing builds feature columns from this anymore.
     housing_categories = list(base_maps['housing_precarity_map'])
-    columns = ['Sex_Bin', 'Household_Size_Num', 'Siblings_Studying_Num',
+    columns = ['Household_Size_Num', 'Siblings_Studying_Num',
                'Father_Edu_Ord', 'Mother_Edu_Ord', 'Income_Num', 'GWA Numeric',
                'Holds_Other_Scholarship', 'FatherOccNeed', 'MotherOccNeed', 'HousingPrecarity']
     contract = {'feature_columns': columns, 'numeric_columns': columns,

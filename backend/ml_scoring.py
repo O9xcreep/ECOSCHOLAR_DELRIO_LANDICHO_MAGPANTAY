@@ -58,7 +58,6 @@ def build_feature_row(applicant):
     father_edu = applicant.get('father_education')
     mother_edu = applicant.get('mother_education')
     row = {
-        'sex': applicant.get('gender'),
         'household_size': applicant.get('family_size'),
         'siblings': applicant.get('num_siblings'),
         'siblings_studying': applicant.get('num_siblings_studying'),
@@ -99,7 +98,6 @@ BREAKDOWN_FACTORS = [
     ("Housing situation", ["HousingPrecarity"]),
     ("Parents' occupation", ["FatherOccNeed", "MotherOccNeed"]),
     ("Parents' education", ["Father_Edu_Ord", "Mother_Edu_Ord"]),
-    ("Sex", ["Sex_Bin"]),
 ]
 
 def build_score_breakdown(applicant):
@@ -128,13 +126,12 @@ REJECTION_REASON_TEXT = {
     "Housing situation": "housing situation showed less financial need than typical for approved applicants",
     "Parents' occupation": "parents' occupations showed less financial need than typical for approved applicants",
     "Parents' education": "parents' education level indicated comparatively lower financial need",
-    "Sex": "applicant profile",
 }
 
 def generate_rejection_reason(breakdown):
     """Names the (up to two) factors that pulled the ML score down the most."""
     factors = (breakdown or {}).get('factors') or []
-    weakest = [f for f in sorted(factors, key=lambda f: f['points']) if f['points'] < 0 and f['label'] != 'Sex'][:2]
+    weakest = [f for f in sorted(factors, key=lambda f: f['points']) if f['points'] < 0][:2]
     if not weakest:
         return "Primary factors: the overall combination of financial-need indicators was below this cycle's eligibility bar."
     reasons = [REJECTION_REASON_TEXT.get(f['label'], f['label']) for f in weakest]

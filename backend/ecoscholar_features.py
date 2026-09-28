@@ -67,7 +67,6 @@ def build_feature_vector(applicant, maps, contract):
     One raw applicant record -> a 1-row DataFrame in the exact column order the models were
     trained on. `applicant` keys (matching the survey schema in Chapter III):
 
-        sex: 'Male' | 'Female'
         household_size / siblings_studying: number or bracket string, e.g. 4 or '2-5'
         father_education / mother_education: one of the education_map keys
         father_occupation / mother_occupation: one of the application form's occupation options
@@ -77,7 +76,6 @@ def build_feature_vector(applicant, maps, contract):
         holds_other_scholarship: bool or 0/1
     """
     row = {}
-    row['Sex_Bin'] = maps['sex_map'].get(applicant.get('sex'), np.nan)
     row['Household_Size_Num'] = bracket_midpoint(applicant.get('household_size'))
     # Raw sibling count ('siblings') is deliberately NOT a feature: the Total Score formula
     # below never reads it (only household size and siblings-studying feed the burden term),

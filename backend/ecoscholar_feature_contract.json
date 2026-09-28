@@ -1,6 +1,5 @@
 {
   "feature_columns": [
-    "Sex_Bin",
     "Household_Size_Num",
     "Siblings_Studying_Num",
     "Father_Edu_Ord",
@@ -13,7 +12,6 @@
     "HousingPrecarity"
   ],
   "numeric_columns": [
-    "Sex_Bin",
     "Household_Size_Num",
     "Siblings_Studying_Num",
     "Father_Edu_Ord",
@@ -26,7 +24,6 @@
     "HousingPrecarity"
   ],
   "classifier_columns": [
-    "Sex_Bin",
     "Household_Size_Num",
     "Siblings_Studying_Num",
     "Father_Edu_Ord",

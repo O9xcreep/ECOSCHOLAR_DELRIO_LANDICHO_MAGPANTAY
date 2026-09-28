@@ -12,14 +12,15 @@ Trained model bundle, shipped as separate files (not one pickle):
 - **`ecoscholar_scaler.joblib`** (StandardScaler) — applied before the
   **classifier only**; the regressor uses raw unscaled features
 - **`ecoscholar_feature_contract.json`** — the exact ordered list of feature
-  columns both models expect (11: sex, household size, siblings studying,
+  columns both models expect (10: household size, siblings studying,
   both parents' education and occupation-need, income, GWA, holds-other-
   scholarship, and a single ordinal housing-precarity score - no raw sibling
-  count, no per-occupation or per-housing-category dummies),
-  `classifier_columns` (those 11 plus `EligibilityCutoff`, the classifier's
+  count, no per-occupation or per-housing-category dummies, no sex - see
+  "Discrimination safeguard still applies" below),
+  `classifier_columns` (those 10 plus `EligibilityCutoff`, the classifier's
   input), and `monotone_constraints` (which features are monotone-constrained
   and in which direction, including the cutoff)
-- **`ecoscholar_encoding_maps.json`** — `sex_map`, `education_map`,
+- **`ecoscholar_encoding_maps.json`** — `education_map`,
   `income_bracket_map`, `housing_precarity_map`, `occupation_need_map`, the
   frozen normalization bounds and `total_score_weights` used by
   `estimate_total_score()`, `imputation_values` (training medians for blank
@@ -130,13 +131,13 @@ the feature's marginal correlation with Total Score:
   unconstrained: under 0.2%, not worth the accuracy cost.
 
 See `MONOTONE_DIRECTIONS` / `ALL_FORMULA_DIRECTIONS` in `train_model.py` for the exact set and
-the reasoning. Sex is the one feature with no formula-fixed direction at all, so it's excluded
-from both.
+the reasoning. Sex is excluded from the feature set entirely, not just from the constraints - see
+"Discrimination safeguard still applies" below.
 
 ## `app.py` integration points
 
 - **`build_feature_row(applicant)`** — maps one MongoDB applicant document
-  into the flat dict `score_applicant()` expects (`sex`, `household_size`,
+  into the flat dict `score_applicant()` expects (`household_size`,
   `siblings_studying`, `father_education`, `mother_education`,
   `father_occupation`, `mother_occupation`, `monthly_income_bracket`,
   `housing_situation`, `gwa`, `holds_other_scholarship`; `siblings` is still
@@ -220,3 +221,11 @@ LGU-custom fields (see Form Builder) are stored under `applicant.extra_fields`
 and are never read by `build_feature_row()` - swapping the model doesn't
 change this. No custom field can reach the classifier or regressor,
 regardless of which model is deployed behind them.
+
+Sex is deliberately excluded from the feature set for the same reason, one
+step further: the Chapter III formula never gave it a role in eligibility,
+so `build_feature_row()` doesn't pass it and `build_feature_vector()` doesn't
+read it - it's not merely left unconstrained, it cannot reach either model at
+all. This closes off any chance of the classifier picking up an incidental
+correlation between sex and the label in a 300-row training survey and
+treating it as signal.

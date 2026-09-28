@@ -130,7 +130,6 @@ def explain_priority_score(applicant: dict) -> dict:
 if __name__ == '__main__':
     # Quick manual smoke test
     sample_applicant = {
-        'sex': 'Female',
         'household_size': '2-5',
         'siblings': '2-3',
         'siblings_studying': '1-2',
