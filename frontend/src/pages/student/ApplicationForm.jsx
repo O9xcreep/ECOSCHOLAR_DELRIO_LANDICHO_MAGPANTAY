@@ -15,6 +15,8 @@ const OCCUPATION_CATEGORIES = [
   'Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade',
   'Office/Clerical', 'Professional', 'Deceased/Not Applicable'
 ]
+// Display text only - the submitted value stays the exact category string above.
+const OCCUPATION_LABELS = { Unemployed: 'Unemployed (including Housewife/Househusband)' }
 const HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
 
 const COURSES = [
@@ -377,7 +379,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
               value={data.fatherOccupation}
               onChange={e => onChange('fatherOccupation', e.target.value)}>
               <option value="">Select occupation</option>
-              {OCCUPATION_CATEGORIES.map(o => <option key={o} value={o}>{o}</option>)}
+              {OCCUPATION_CATEGORIES.map(o => <option key={o} value={o}>{OCCUPATION_LABELS[o] || o}</option>)}
             </select>
           </Field>
 
@@ -405,7 +407,7 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
               value={data.motherOccupation}
               onChange={e => onChange('motherOccupation', e.target.value)}>
               <option value="">Select occupation</option>
-              {OCCUPATION_CATEGORIES.map(o => <option key={o} value={o}>{o}</option>)}
+              {OCCUPATION_CATEGORIES.map(o => <option key={o} value={o}>{OCCUPATION_LABELS[o] || o}</option>)}
             </select>
           </Field>
 
