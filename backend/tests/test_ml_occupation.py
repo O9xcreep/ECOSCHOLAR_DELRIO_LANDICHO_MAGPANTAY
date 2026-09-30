@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Parent occupation is a model feature (encoded as a need score from the form's 7 dropdown
+"""Parent occupation is a model feature (encoded as a need score from the form's 8 dropdown
 options) and the models are constrained so a higher need can never lower a result: an
 unemployed or deceased parent must never count against an applicant. These tests pin that down,
 plus the encoding details (income bracket keys, unknown occupation) the model depends on."""
@@ -14,7 +14,7 @@ from ecoscholar_features import occupation_need
 # Mirrors DEFAULT_OCCUPATION_CATEGORIES in helpers.py / the application form dropdown.
 FORM_OCCUPATIONS = [
     'Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade',
-    'Office/Clerical', 'Professional', 'Deceased/Not Applicable',
+    'Office/Clerical', 'Professional', 'OFW', 'Deceased/Not Applicable',
 ]
 NEEDIEST = ['Unemployed', 'Deceased/Not Applicable']
 LEAST_NEEDY = 'Professional'
@@ -86,7 +86,7 @@ class TestOccupationEncoding:
     def test_unemployed_and_deceased_are_the_highest_need(self):
         needs = {o: occupation_need(o, ep._maps) for o in FORM_OCCUPATIONS}
         assert needs['Unemployed'] == needs['Deceased/Not Applicable'] == max(needs.values())
-        assert needs['Professional'] == min(needs.values())
+        assert needs['Professional'] == needs['OFW'] == min(needs.values())
 
     def test_blank_or_unrecognised_occupation_is_neutral_not_penalised(self):
         unknown = ep._maps['occupation_need_unknown']

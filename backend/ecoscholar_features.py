@@ -10,7 +10,7 @@ No model files are loaded here; every function takes the encoding `maps` and fea
 ecoscholar_feature_contract.json) as arguments.
 
 Parent occupation is encoded as a *need score* (0-100, higher = more financial need) looked
-up from the 7 options in the application form's occupation dropdown, and the models are
+up from the 8 options in the application form's occupation dropdown, and the models are
 constrained so a higher need score can never lower an applicant's result. That is what keeps
 an unemployed or deceased parent from counting against an applicant.
 """
@@ -94,8 +94,8 @@ def build_feature_vector(applicant, maps, contract):
     # A single ordinal precarity score (housing_precarity_map: Owned=0, ... Informal settler=100,
     # same map estimate_total_score() uses below), not one dummy per category. Three independent
     # one-hot dummies each only constrain themselves against an implicit "no housing dummy set"
-    # baseline, which does NOT transitively guarantee Rented scores no better than the more
-    # precarious Living with relatives (found by test - two dummies changing at once isn't
+    # baseline, which does NOT transitively guarantee Living with relatives scores no better than
+    # the more precarious Rented (found by test - two dummies changing at once isn't
     # covered by either one's own constraint). A single monotonic column guarantees the full
     # ordering, and also gives a sensible score to Informal settler even though the training
     # survey has no such rows (a one-hot dummy for it would otherwise just read all-zero, i.e.

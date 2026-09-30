@@ -8,7 +8,7 @@ and writes the five files ecoscholar_predict.py loads.
 
 What it does, in order:
   1. Cleans the survey (Excel turned brackets like "2-5" into dates like "02-May" in some rows).
-  2. Maps each free-text parent occupation onto the 7 options in the application form's dropdown,
+  2. Maps each free-text parent occupation onto the 8 options in the application form's dropdown,
      so the model only ever sees values the form can actually send. Rules are in OCCUPATION_RULES;
      the full raw -> category table is printed so it can be reviewed.
   3. Scores every applicant with the Chapter III Total Score, now including an occupation-need
@@ -35,8 +35,15 @@ What it does, in order:
 
 STUDY ASSUMPTIONS (not sourced; confirm with the panel): the OCCUPATION_NEED values, the 5%
 occupation weight (carved out of the parents'-education weight so the total stays 100%), and the
-rule that a housewife/house husband counts as "Unemployed" (the form has no homemaker option) and
-that "OFW" counts as unknown (it names a place of work, not a job type).
+rule that a housewife/house husband counts as "Unemployed" (that parent earns no income; the form
+labels the option "Unemployed (including Housewife/Househusband)").
+
+Two scores follow the survey's own income data rather than assumption
+(notebooks/no_constraint_experiments.py, Part A):
+  - "OFW" is its own option scored 0, the same as Professional: OFW households report the highest
+    income in the survey (mean about P21,000, against about P20,000-21,000 for Professional).
+  - Housing scores Rented (60) above Living with relatives (40): renters report the lowest income
+    of any housing group (mean P5,714, 95% at P10,000 or less, against P9,688 and 69%).
 """
 import argparse
 import json
@@ -79,8 +86,13 @@ OCCUPATION_NEED = {
     'Skilled Trade': 40,
     'Office/Clerical': 20,
     'Professional': 0,
+    'OFW': 0,
 }
 OCCUPATION_NEED_UNKNOWN = 50      # blank / unrecognised -> neutral, counts neither for nor against
+
+# The form's housing dropdown, with how precarious each option is. Higher = more need.
+# 'Informal settler' has no rows in the survey; its score is an assumption.
+HOUSING_PRECARITY = {'Owned': 0, 'Living with relatives': 40, 'Rented': 60, 'Informal settler': 100}
 
 # Chapter III weights, with the parents'-education 10% split into education 5% + occupation 5%.
 TOTAL_SCORE_WEIGHTS = {
@@ -93,7 +105,7 @@ assert abs(sum(v for k, v in TOTAL_SCORE_WEIGHTS.items() if k != 'other_scholars
 OCCUPATION_RULES = [
     ('Deceased/Not Applicable', ['deceased']),
     ('Unemployed', ['housewife', 'house wife', 'hoysewife', 'hohsewife', 'househusband', 'house husband']),
-    (None, ['ofw']),
+    ('OFW', ['ofw']),
     ('Informal/Vendor', ['vendor', 'sari sari', 'sari-sari', 'online seller', 'karinderya', 'lottery',
                          'rice dealer', 'small business', 'self employed', 'kakanin', 'repacker',
                          'slipper', 'shoe maker', 'sewer']),
@@ -126,11 +138,11 @@ DATE_FIXED_BRACKETS = {'02-May': '2-5', '05-Oct': '5-10', '02-Mar': '2-3', '04-M
 #   parent education up          -> education-need down        -> total down (-1, -1)
 #   holds another scholarship    -> flat 15-point penalty       -> total down (-1)
 #   occupation need up           -> occupation-need score up    -> total up   (+1, +1)
-#   housing precarity up (Owned=0 ... Living with relatives=60) -> housing-need score up (+1)
+#   housing precarity up (Owned=0 ... Rented=60) -> housing-need score up (+1)
 # Housing is one ordinal column (HousingPrecarity, from housing_precarity_map), not one dummy per
 # category - three independent one-hot dummies each only constrain themselves against an implicit
-# "no dummy set" baseline, which does NOT transitively guarantee, say, Rented scores no better
-# than the more precarious Living with relatives (two dummies changing at once isn't covered by
+# "no dummy set" baseline, which does NOT transitively guarantee, say, Living with relatives scores
+# no better than the more precarious Rented (two dummies changing at once isn't covered by
 # either one's own constraint - found by test, see ecoscholar_features.py). A single monotonic
 # column gives the full ordering.
 # Sex is excluded from the feature set entirely (not just unconstrained): the formula gives it no
@@ -240,16 +252,17 @@ def print_mapping(mapping, unmapped):
 
 
 def build_config(base_maps):
-    """Encoding maps + feature contract for the new model. Sex/education/income/housing maps and
-    the frozen normalisation bounds are carried over unchanged from the existing files."""
-    maps = {k: base_maps[k] for k in ('education_map', 'income_bracket_map',
-                                      'housing_precarity_map', 'normalization_bounds')}
+    """Encoding maps + feature contract for the new model. Education/income maps and the frozen
+    normalisation bounds are carried over unchanged from the existing files."""
+    maps = {k: base_maps[k] for k in ('education_map', 'income_bracket_map')}
+    maps['housing_precarity_map'] = HOUSING_PRECARITY
+    maps['normalization_bounds'] = base_maps['normalization_bounds']
     maps['occupation_need_map'] = OCCUPATION_NEED
     maps['occupation_need_unknown'] = OCCUPATION_NEED_UNKNOWN
     maps['total_score_weights'] = TOTAL_SCORE_WEIGHTS
     # housing_categories is kept for reference/display only - HousingPrecarity (below) replaced
     # the old one-hot-per-category encoding, so nothing builds feature columns from this anymore.
-    housing_categories = list(base_maps['housing_precarity_map'])
+    housing_categories = list(HOUSING_PRECARITY)
     columns = ['Household_Size_Num', 'Siblings_Studying_Num',
                'Father_Edu_Ord', 'Mother_Edu_Ord', 'Income_Num', 'GWA Numeric',
                'Holds_Other_Scholarship', 'FatherOccNeed', 'MotherOccNeed', 'HousingPrecarity']

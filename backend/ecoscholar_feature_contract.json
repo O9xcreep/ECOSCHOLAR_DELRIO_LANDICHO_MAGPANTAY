@@ -38,8 +38,8 @@
   ],
   "housing_categories": [
     "Owned",
-    "Rented",
     "Living with relatives",
+    "Rented",
     "Informal settler"
   ],
   "monotone_constraints": {

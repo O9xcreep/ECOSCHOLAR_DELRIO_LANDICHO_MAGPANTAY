@@ -65,8 +65,8 @@ class TestLessParentEducationNeverCountsAgainstAnApplicant:
 
 class TestMorePrecariousHousingNeverCountsAgainstAnApplicant:
     def test_score_never_drops_as_housing_gets_more_precarious(self):
-        # Owned (least precarious) -> Rented -> Living with relatives (most, of the trained categories)
-        by_precarity = ['Owned', 'Rented', 'Living with relatives']
+        # Owned (least precarious) -> Living with relatives -> Rented (most, of the trained categories)
+        by_precarity = ['Owned', 'Living with relatives', 'Rented']
         for kw in applicant_grid():
             results = [score(make_applicant(**kw, housing=h)) for h in by_precarity]
             scores = [r[0] for r in results]

@@ -13,10 +13,13 @@ import { INCOME_RANGES } from '../../incomeRanges'
 const EDUCATION_LEVELS = ['None', 'Elementary', 'High School', 'Vocational', 'College', 'Postgraduate']
 const OCCUPATION_CATEGORIES = [
   'Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade',
-  'Office/Clerical', 'Professional', 'Deceased/Not Applicable'
+  'Office/Clerical', 'Professional', 'OFW', 'Deceased/Not Applicable'
 ]
 // Display text only - the submitted value stays the exact category string above.
-const OCCUPATION_LABELS = { Unemployed: 'Unemployed (including Housewife/Househusband)' }
+const OCCUPATION_LABELS = {
+  Unemployed: 'Unemployed (including Housewife/Househusband)',
+  OFW: 'OFW (Overseas Filipino Worker)'
+}
 const HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
 
 const COURSES = [

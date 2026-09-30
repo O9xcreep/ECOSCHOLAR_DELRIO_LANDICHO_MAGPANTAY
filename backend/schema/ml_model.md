@@ -71,19 +71,20 @@ produce. Both are handled without changing the form:
    matching label. Boundaries must stay in sync with
    `ecoscholar_encoding_maps.json`'s `income_bracket_map`.
 2. **Occupation**: the survey collected free-text occupation, but our form
-   uses a constrained 7-option dropdown. The model is trained on the
+   uses a constrained 8-option dropdown. The model is trained on the
    dropdown's options only: `scripts/train_model.py` maps each survey answer
-   onto one of the 7 (`OCCUPATION_RULES`, printed for review on every run),
-   and each option is encoded as a **need score** from 0 (Professional) to 100
+   onto one of the 8 (`OCCUPATION_RULES`, printed for review on every run),
+   and each option is encoded as a **need score** from 0 (Professional, OFW) to 100
    (Unemployed, Deceased/Not Applicable), `occupation_need_map` in the
    encoding maps. A blank or unrecognised occupation scores the neutral 50.
    The Total Score the models learn includes an occupation term (5%, taken
    from the parents'-education weight), and both models are **monotone
    constrained**: a higher need score can never lower an applicant's
    eligibility or priority score. `tests/test_ml_occupation.py` enforces this.
-   The need values, the 5% weight, "housewife = Unemployed" and "OFW =
-   unknown" are study assumptions (see the `train_model.py` docstring) and
-   change the Chapter III formula. The previous model used 11 free-text
+   The need values, the 5% weight and "housewife = Unemployed" are study
+   assumptions (see the `train_model.py` docstring) and change the Chapter III
+   formula. OFW = 0 follows the survey's income data (OFW households report
+   the highest income, on par with Professional). The previous model used 11 free-text
    categories, ignored the difference between Unemployed and Professional, and
    sometimes scored unemployed/deceased-parent applicants lower.
 
@@ -100,11 +101,13 @@ Also: our form's `"Postgraduate"` (no space) is translated to the model's
    at all (only household size and siblings-studying feed the burden term) - pure redundancy.
    Removing it didn't change accuracy (it couldn't: no label ever depended on it).
 2. **Housing went from three one-hot dummies to a single ordinal `HousingPrecarity` column**
-   (from `housing_precarity_map`: Owned=0, Rented=40, Living with relatives=60, Informal
-   settler=100 - same map `estimate_total_score()` uses). Three independent dummies each only
+   (from `housing_precarity_map`: Owned=0, Living with relatives=40, Rented=60, Informal
+   settler=100 - same map `estimate_total_score()` uses; Rented sits above Living with
+   relatives because renters report the lowest income of any housing group in the survey).
+   Three independent dummies each only
    constrain themselves against an implicit "no dummy set" baseline; that does **not**
-   transitively guarantee, say, Rented never outscores the more precarious Living with
-   relatives - two dummies changing at once isn't covered by either one's own monotonic
+   transitively guarantee, say, Living with relatives never outscores the more precarious
+   Rented - two dummies changing at once isn't covered by either one's own monotonic
    constraint. `tests/test_ml_monotonicity.py` caught exactly this on the old encoding. The
    single-column version also gives Informal settler a sensible score by extrapolation even
    though the training survey has zero such rows, where a one-hot dummy for it would have just

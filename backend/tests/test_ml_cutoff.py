@@ -62,7 +62,7 @@ class TestOneModelServesEveryBar:
             assert len({score(applicant, p)[0] for p in ELIGIBILITY_TOP_PERCENT_CHOICES}) == 1
 
     def test_more_need_still_never_counts_against_an_applicant_at_any_bar(self):
-        by_need = ['Professional', 'Office/Clerical', 'Skilled Trade', 'Laborer/Driver', 'Informal/Vendor', 'Unemployed']
+        by_need = ['OFW', 'Professional', 'Office/Clerical', 'Skilled Trade', 'Laborer/Driver', 'Informal/Vendor', 'Unemployed']
         for p in (10, 30, 60):
             for gpa, income in itertools.product((84, 92), (2500, 12500)):
                 eligible = [score(make_applicant(gpa=gpa, income=income, occupation=o), p)[1] == 'Eligible'

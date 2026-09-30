@@ -90,7 +90,7 @@ def send_email_async(to_email, subject, html_body):
 # ── ML CONFIG (shared by registration and application submission) ──
 # Form dropdown options. Keep in sync with schema/ml_model.md.
 DEFAULT_EDUCATION_MAP = {'None': 0, 'Elementary': 1, 'High School': 2, 'Vocational': 3, 'College': 4, 'Postgraduate': 5}
-DEFAULT_OCCUPATION_CATEGORIES = ['Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade', 'Office/Clerical', 'Professional', 'Deceased/Not Applicable']
+DEFAULT_OCCUPATION_CATEGORIES = ['Unemployed', 'Informal/Vendor', 'Laborer/Driver', 'Skilled Trade', 'Office/Clerical', 'Professional', 'OFW', 'Deceased/Not Applicable']
 DEFAULT_HOUSING_SITUATIONS = ['Owned', 'Rented', 'Living with relatives', 'Informal settler']
 ml_education_map = DEFAULT_EDUCATION_MAP
 ml_occupation_categories = DEFAULT_OCCUPATION_CATEGORIES
