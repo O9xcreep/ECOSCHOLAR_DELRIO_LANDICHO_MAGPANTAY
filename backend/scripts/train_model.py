@@ -192,7 +192,9 @@ MONOTONE_DIRECTIONS = {
 
 XGB_PARAMS = dict(n_estimators=200, max_depth=4, learning_rate=0.1, eval_metric='logloss',
                   random_state=RANDOM_STATE)
-RF_PARAMS = dict(n_estimators=200, max_depth=8, min_samples_leaf=2, random_state=RANDOM_STATE, n_jobs=-1)
+# Pipeline 1's grid-searched regressor settings (notebook Table 20); chosen over the earlier fixed
+# max_depth=8, min_samples_leaf=2 after notebooks/hyperparameter_sensitivity.py showed they rank better.
+RF_PARAMS = dict(n_estimators=200, max_depth=10, min_samples_leaf=1, random_state=RANDOM_STATE, n_jobs=-1)
 
 
 def map_occupation(raw):
