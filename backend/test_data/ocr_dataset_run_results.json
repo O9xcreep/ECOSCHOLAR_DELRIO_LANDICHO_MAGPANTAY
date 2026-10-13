@@ -1,5 +1,5 @@
 {
-  "overall_match_rate": 0.7931,
+  "overall_match_rate": 0.8103,
   "total_samples": 58,
   "table_24_by_document_type": [
     {
@@ -20,11 +20,11 @@
     },
     {
       "document_type": "Barangay Endorsement",
-      "verified": 4,
-      "partially_verified": 2,
+      "verified": 3,
+      "partially_verified": 3,
       "failed_verification": 0,
       "total": 6,
-      "mean_confidence": 89.0
+      "mean_confidence": 83.5
     },
     {
       "document_type": "School ID",
@@ -44,11 +44,11 @@
     },
     {
       "document_type": "4Ps Certificate",
-      "verified": 5,
+      "verified": 4,
       "partially_verified": 0,
-      "failed_verification": 0,
+      "failed_verification": 1,
       "total": 5,
-      "mean_confidence": 100.0
+      "mean_confidence": 80.0
     }
   ],
   "note": "Aggregated counts only - no applicant names or extracted text."

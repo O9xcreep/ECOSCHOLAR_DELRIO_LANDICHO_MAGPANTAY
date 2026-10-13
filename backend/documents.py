@@ -19,7 +19,7 @@ from werkzeug.utils import secure_filename
 from extensions import app, limiter, get_db, DEBUG, UPLOAD_FOLDER, _fs
 from helpers import oid, iso, serialize_document
 from auth import require_auth, require_permission, current_organization_oid, has_permission
-from ocr import extract_and_verify
+from ocr import extract_and_verify, names_other_person
 from activity import log_activity
 from field_crypto import decrypt_field
 
@@ -60,6 +60,12 @@ def compute_perceptual_hash(file_bytes, filename):
 
 # Hamming distance (of 64 bits) below which two documents count as a near-duplicate.
 NEAR_DUPLICATE_THRESHOLD = 8
+# A pHash fingerprints layout, not content - two applicants' copies of the same
+# printed form (one barangay's indigency certificate, one school's COR) hash
+# almost identically. So a pHash match is only a candidate; the OCR check
+# confirms it by finding the other applicant's name on this document. Keeps
+# the closest few so a common template doesn't store every other applicant.
+MAX_NEAR_DUPLICATE_CANDIDATES = 10
 
 # Editing-tool names that shouldn't appear in a scanned form's metadata.
 EDITING_TOOL_SIGNATURES = ('photoshop', 'gimp', 'canva', 'illustrator', 'snapseed', 'picsart', 'lightroom')
@@ -216,6 +222,26 @@ def build_status_query_fragment(statuses):
         return clauses[0]
     return {"$or": clauses}
 
+def record_near_duplicate_flag(db, applicant_oid, document_name, match, org_id, now=None):
+    """Inserts a near_duplicate_document flag for one pHash match, unless the
+    same pair is already flagged and unresolved (OCR re-checks re-confirm)."""
+    existing = {
+        "applicant_id": applicant_oid,
+        "duplicate_of_id": match["applicant_id"],
+        "reason": "near_duplicate_document",
+        "document_name": document_name,
+        "resolved": False,
+        "organization_id": org_id,
+    }
+    if db.duplicate_flags.find_one(existing, {"_id": 1}):
+        return
+    db.duplicate_flags.insert_one({
+        **existing,
+        "duplicate_of_document_name": match.get("document_name"),
+        "similarity_distance": match.get("distance"),
+        "flagged_at": now or datetime.utcnow(),
+    })
+
 # ── OCR ──
 def compute_ocr_result(applicant, applicant_oid, document_name):
     """Runs OCR + content/fraud checks on one uploaded document. Read-only
@@ -252,13 +278,20 @@ def compute_ocr_result(applicant, applicant_oid, document_name):
             "gpa": academic.get('gpa'),
         }
 
-        _, result = extract_and_verify(temp_path, document_name, applicant_data)
+        extracted_text, result = extract_and_verify(temp_path, document_name, applicant_data)
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
     # Merge in metadata-forensics flags from upload time.
     result['flags'] = list(result['flags']) + list(doc.get('metadata_flags') or [])
+
+    # A visually near-identical upload is only another applicant's copy if it
+    # carries their name - otherwise it's the same template, filled in for us.
+    result['confirmed_near_duplicates'] = [
+        m for m in doc.get('near_duplicate_candidates') or []
+        if names_other_person(m.get('full_name', ''), applicant_data['full_name'], extracted_text)
+    ]
     result['document_name'] = document_name
     return result
 
@@ -276,6 +309,12 @@ def persist_ocr_result(db, applicant_oid, org_id, result):
             "documents.$.ocr_checked_at": datetime.utcnow(),
         }}
     )
+    # Popped, not read - holds ObjectIds, and the result is returned as JSON.
+    for match in result.pop('confirmed_near_duplicates', None) or []:
+        try:
+            record_near_duplicate_flag(db, applicant_oid, result['document_name'], match, org_id)
+        except Exception:
+            pass
 
 def run_ocr_check(db, applicant, applicant_oid, document_name, org_id):
     """Single-document OCR check: compute, then persist. Advisory only,
@@ -401,6 +440,14 @@ def upload_document():
                     "documents.$.file_hash": file_hash,
                     "documents.$.phash": phash,
                     "documents.$.metadata_flags": metadata_flags,
+                    "documents.$.near_duplicate_candidates": [],
+                },
+                 # A replaced file needs a fresh OCR check, not the old file's result.
+                 "$unset": {
+                    "documents.$.ocr_status": "",
+                    "documents.$.ocr_confidence": "",
+                    "documents.$.ocr_flags": "",
+                    "documents.$.ocr_checked_at": "",
                 }}
             )
 
@@ -458,10 +505,10 @@ def upload_document():
                 except Exception:
                     pass
             elif phash:
-                # Fraud signal: near-duplicate via perceptual hash (re-saved/cropped copy).
+                # Near-duplicate via perceptual hash (re-saved/cropped copy).
                 try:
                     this_hash = imagehash.hex_to_hash(phash)
-                    best_match_doc, best_match_applicant, best_distance = None, None, None
+                    matches = []
                     for other in db.applicants.find(
                         {"_id": {"$ne": applicant_oid}, "documents.phash": {"$exists": True, "$ne": None}, "organization_id": org_id},
                         {"full_name": 1, "documents.document_name": 1, "documents.phash": 1}
@@ -471,21 +518,24 @@ def upload_document():
                                 continue
                             # Cast to native int - numpy.int64 isn't bson-encodable.
                             distance = int(this_hash - imagehash.hex_to_hash(d['phash']))
-                            if best_distance is None or distance < best_distance:
-                                best_distance, best_match_doc, best_match_applicant = distance, d, other
+                            if distance <= NEAR_DUPLICATE_THRESHOLD:
+                                matches.append({
+                                    "applicant_id": other["_id"],
+                                    "full_name": other.get("full_name", ""),
+                                    "document_name": d.get("document_name"),
+                                    "distance": distance,
+                                })
+                    matches.sort(key=lambda m: m["distance"])
 
-                    if best_match_applicant and best_distance <= NEAR_DUPLICATE_THRESHOLD:
-                        db.duplicate_flags.insert_one({
-                            "applicant_id": applicant_oid,
-                            "duplicate_of_id": best_match_applicant["_id"],
-                            "reason": "near_duplicate_document",
-                            "document_name": document_name,
-                            "duplicate_of_document_name": best_match_doc.get("document_name"),
-                            "similarity_distance": best_distance,
-                            "flagged_at": now,
-                            "resolved": False,
-                            "organization_id": org_id,
-                        })
+                    if matches and document_name == SELFIE_DOC_LABEL:
+                        # No text to confirm against, and a face photo has no
+                        # shared template - a close match is flagged directly.
+                        record_near_duplicate_flag(db, applicant_oid, document_name, matches[0], org_id, now)
+                    elif matches:
+                        db.applicants.update_one(
+                            {"_id": applicant_oid, "documents.document_name": document_name, "organization_id": org_id},
+                            {"$set": {"documents.$.near_duplicate_candidates": matches[:MAX_NEAR_DUPLICATE_CANDIDATES]}}
+                        )
                 except Exception:
                     pass
 

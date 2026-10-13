@@ -142,9 +142,10 @@ def _normalize(text):
     return ''.join(c for c in text if not unicodedata.combining(c))
 
 # Similarity needed for an OCR'd word to count as a misread of the expected
-# word (e.g. 'panaligan' read as 'panallgan'). High enough that a different
-# surname doesn't pass - only words of 5+ letters are matched fuzzily.
-FUZZY_RATIO = 0.8
+# word (e.g. 'panaligan' read as 'panallgan'). Allows one misread letter in
+# 7+ letter words; shorter words must match exactly, so a one-letter-different
+# name ('maria' / 'mario') never passes.
+FUZZY_RATIO = 0.85
 FUZZY_MIN_LEN = 5
 
 def _word_in(word, text_lower, text_words):
@@ -160,6 +161,32 @@ def _word_in(word, text_lower, text_words):
         if matcher.quick_ratio() >= FUZZY_RATIO and matcher.ratio() >= FUZZY_RATIO:
             return True
     return False
+
+def _name_parts(full_name):
+    return [p for p in re.findall(r"[a-z]+", _normalize(full_name)) if len(p) > 2]
+
+def name_appears(full_name, extracted_text):
+    """Whether a person's name genuinely appears in the text: 2+ distinct name
+    parts for multi-word names (1 for single-word names)."""
+    text_lower = _normalize(extracted_text)
+    text_words = set(re.findall(r"[a-z]+", text_lower))
+    name_parts = _name_parts(full_name or '')
+    matches = sum(1 for p in name_parts if _word_in(p, text_lower, text_words))
+    return matches >= 2 if len(name_parts) >= 2 else matches >= 1
+
+def names_other_person(other_name, own_name, extracted_text):
+    """Whether the text names `other_name` rather than `own_name`. Used to
+    confirm a visually near-identical document is really another applicant's
+    copy - not just the same printed template. Beyond the usual name check,
+    a part of the other name that `own_name` doesn't share (e.g. the first
+    name, for siblings with the same surname) must appear verbatim."""
+    if not name_appears(other_name, extracted_text):
+        return False
+    distinguishing = set(_name_parts(other_name)) - set(_name_parts(own_name or ''))
+    if not distinguishing:
+        return True  # identical names - possibly the same person applying twice
+    text_words = set(re.findall(r"[a-z]+", _normalize(extracted_text)))
+    return any(p in text_words for p in distinguishing)
 
 def _significant_words(text, min_len=3):
     return [w for w in re.findall(r"[a-z]+", _normalize(text)) if len(w) > min_len]
@@ -239,10 +266,7 @@ def verify_document(doc_type, extracted_text, applicant_data):
     }
 
     # ── Gating check: does the applicant's name genuinely appear? ──
-    full_name = applicant_data.get('full_name', '') or ''
-    name_parts = [p for p in re.findall(r"[a-z]+", _normalize(full_name)) if len(p) > 2]
-    name_matches = sum(1 for p in name_parts if _word_in(p, text_lower, text_words))
-    name_found = name_matches >= 2 if len(name_parts) >= 2 else name_matches >= 1
+    name_found = name_appears(applicant_data.get('full_name', ''), extracted_text)
 
     results['checks'].append({
         'check': 'Applicant name found',
