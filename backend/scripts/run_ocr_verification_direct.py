@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Runs the OCR verification pipeline (ocr.extract_text + ocr.verify_document)
+"""Runs the OCR verification pipeline (ocr.extract_and_verify)
 directly against two labeled document sets, with no Flask server, database,
 or GridFS involved - just the pure OCR/verification functions:
 
@@ -32,7 +32,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.join(HERE, "..")
 sys.path.insert(0, BACKEND_DIR)
 
-from ocr import extract_text, verify_document  # noqa: E402
+from ocr import extract_and_verify  # noqa: E402
 
 CONSTRUCTED_DIR = os.path.join(BACKEND_DIR, "test_data", "ocr_verification")
 CONSTRUCTED_LABELS = os.path.join(CONSTRUCTED_DIR, "labels.json")
@@ -50,8 +50,7 @@ def run_sample(base_dir, sample):
     if not os.path.exists(file_path):
         return {**sample, "error": f"file not found: {file_path}"}
 
-    extracted_text = extract_text(file_path)
-    result = verify_document(sample["document_type"], extracted_text, sample["applicant"])
+    extracted_text, result = extract_and_verify(file_path, sample["document_type"], sample["applicant"])
 
     expected = sample.get("expected_status")
     if expected is None:

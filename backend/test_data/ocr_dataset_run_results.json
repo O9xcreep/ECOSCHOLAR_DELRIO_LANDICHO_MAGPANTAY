@@ -1,54 +1,54 @@
 {
-  "overall_match_rate": 0.8448,
+  "overall_match_rate": 0.7931,
   "total_samples": 58,
   "table_24_by_document_type": [
     {
       "document_type": "Enrollment Form",
-      "verified": 9,
+      "verified": 12,
       "partially_verified": 2,
-      "failed_verification": 5,
+      "failed_verification": 2,
       "total": 16,
-      "mean_confidence": 64.1
+      "mean_confidence": 81.2
     },
     {
       "document_type": "Proof of Income",
-      "verified": 4,
-      "partially_verified": 2,
-      "failed_verification": 6,
+      "verified": 6,
+      "partially_verified": 3,
+      "failed_verification": 3,
       "total": 12,
-      "mean_confidence": 43.1
+      "mean_confidence": 66.0
     },
     {
       "document_type": "Barangay Endorsement",
-      "verified": 3,
+      "verified": 4,
       "partially_verified": 2,
-      "failed_verification": 1,
+      "failed_verification": 0,
       "total": 6,
-      "mean_confidence": 72.3
+      "mean_confidence": 89.0
     },
     {
       "document_type": "School ID",
-      "verified": 5,
-      "partially_verified": 0,
-      "failed_verification": 5,
+      "verified": 8,
+      "partially_verified": 1,
+      "failed_verification": 1,
       "total": 10,
-      "mean_confidence": 53.3
+      "mean_confidence": 90.0
     },
     {
       "document_type": "Grade 12 Grades",
-      "verified": 4,
+      "verified": 7,
       "partially_verified": 2,
-      "failed_verification": 3,
+      "failed_verification": 0,
       "total": 9,
-      "mean_confidence": 63.9
+      "mean_confidence": 93.6
     },
     {
       "document_type": "4Ps Certificate",
-      "verified": 4,
+      "verified": 5,
       "partially_verified": 0,
-      "failed_verification": 1,
+      "failed_verification": 0,
       "total": 5,
-      "mean_confidence": 80.0
+      "mean_confidence": 100.0
     }
   ],
   "note": "Aggregated counts only - no applicant names or extracted text."

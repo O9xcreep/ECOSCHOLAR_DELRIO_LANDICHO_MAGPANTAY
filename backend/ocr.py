@@ -1,8 +1,11 @@
 import pytesseract
 from PIL import Image, ImageOps
 import pdf2image
+from pypdf import PdfReader
+from difflib import SequenceMatcher
 import os
 import re
+import unicodedata
 
 # Set tesseract path (override with TESSERACT_CMD env var on non-Windows hosts)
 _tesseract_cmd = os.getenv('TESSERACT_CMD', r'C:\Program Files\Tesseract-OCR\tesseract.exe')
@@ -17,12 +20,25 @@ MAX_DIMENSION = 2400
 # These are single-purpose forms/certificates, not long documents - caps a
 # runaway multi-page upload from turning one OCR check into a long wait.
 MAX_PDF_PAGES = 3
+# A PDF text layer shorter than this is treated as absent (scanned PDF).
+MIN_PDF_TEXT_LAYER = 50
 
-def preprocess_image(img):
+# OCR passes tried in order until the document verifies. The first pass reads
+# the plain grayscale image, which keeps colored ID cards and shadowed phone
+# photos legible; the fallbacks recover faint/low-contrast scans (hard
+# threshold) and scattered text on cards (sparse-text mode). Each extra pass
+# only runs when the previous ones didn't verify, so clean documents cost one.
+OCR_PASSES = [
+    {'binarize': False, 'psm': 6},
+    {'binarize': True, 'psm': 6},
+    {'binarize': False, 'psm': 11},
+]
+
+def preprocess_image(img, binarize=False):
     """Clean up a scanned/photographed document before OCR: grayscale, stretch
-    contrast, binarize, and rescale to a size Tesseract handles well. Cheap, no
-    new dependencies, and the single biggest lever for accuracy AND speed on
-    real phone-camera photos."""
+    contrast, and rescale to a size Tesseract handles well. `binarize` adds a
+    hard black/white threshold - helps faded scans but wipes out text on
+    colored or shadowed backgrounds, so it's a fallback pass, not the default."""
     img = ImageOps.exif_transpose(img)  # respect phone camera rotation metadata
     img = img.convert('L')  # grayscale
     img = ImageOps.autocontrast(img, cutoff=1)
@@ -36,50 +52,124 @@ def preprocess_image(img):
         scale = MAX_DIMENSION / longest
         img = img.resize((int(width * scale), int(height * scale)), Image.LANCZOS)
 
-    # Simple binarization - push faded/uneven scan backgrounds to white, text to black
-    img = img.point(lambda p: 255 if p > 180 else 0)
+    if binarize:
+        img = img.point(lambda p: 255 if p > 180 else 0)
     return img
 
-def extract_text_from_image(image_path):
-    """Extract text from image file"""
-    try:
-        img = Image.open(image_path)
-        img = preprocess_image(img)
-        text = pytesseract.image_to_string(img, config='--psm 6')
-        return text.strip()
-    except Exception as e:
-        return f"Error reading image: {str(e)}"
-
-def extract_text_from_pdf(pdf_path):
-    """Extract text from PDF file"""
-    try:
-        pages = pdf2image.convert_from_path(pdf_path, dpi=200, first_page=1, last_page=MAX_PDF_PAGES)
-        full_text = ''
-        for page in pages:
-            page = preprocess_image(page)
-            text = pytesseract.image_to_string(page, config='--psm 6')
-            full_text += text + '\n'
-        return full_text.strip()
-    except Exception as e:
-        return f"Error reading PDF: {str(e)}"
-
-def extract_text(file_path):
-    """Auto detect file type and extract text"""
+def _load_images(file_path):
+    """The document's page images (EXIF-corrected later), or [] if unreadable."""
     ext = file_path.lower().split('.')[-1]
     if ext == 'pdf':
-        return extract_text_from_pdf(file_path)
-    elif ext in ['jpg', 'jpeg', 'png']:
-        return extract_text_from_image(file_path)
-    else:
+        return pdf2image.convert_from_path(file_path, dpi=200, first_page=1, last_page=MAX_PDF_PAGES)
+    if ext in ['jpg', 'jpeg', 'png']:
+        return [Image.open(file_path)]
+    return []
+
+def _pdf_text_layer(pdf_path):
+    """Embedded text of a digitally generated PDF (e.g. a downloaded COR) -
+    exact, unlike OCR. Empty string for scanned PDFs."""
+    try:
+        reader = PdfReader(pdf_path)
+        text = '\n'.join((page.extract_text() or '') for page in reader.pages[:MAX_PDF_PAGES]).strip()
+        return text if len(text) >= MIN_PDF_TEXT_LAYER else ''
+    except Exception:
+        return ''
+
+def _ocr_pass(images, binarize, psm):
+    return '\n'.join(
+        pytesseract.image_to_string(preprocess_image(img, binarize), config=f'--psm {psm}')
+        for img in images
+    ).strip()
+
+def extract_text(file_path):
+    """Single-pass text extraction (PDF text layer if present, else OCR)."""
+    ext = file_path.lower().split('.')[-1]
+    if ext not in ['pdf', 'jpg', 'jpeg', 'png']:
         return "Unsupported file type"
+    try:
+        if ext == 'pdf':
+            text_layer = _pdf_text_layer(file_path)
+            if text_layer:
+                return text_layer
+        return _ocr_pass(_load_images(file_path), **OCR_PASSES[0])
+    except Exception as e:
+        return f"Error reading file: {str(e)}"
+
+def extract_and_verify(file_path, doc_type, applicant_data):
+    """Extracts text and verifies it, retrying with the fallback OCR passes
+    while the document isn't Verified. Text from every pass is pooled, since
+    different passes misread different words of the same document. Returns
+    (extracted_text, verify_document result)."""
+    ext = file_path.lower().split('.')[-1]
+    if ext not in ['pdf', 'jpg', 'jpeg', 'png']:
+        text = "Unsupported file type"
+        return text, verify_document(doc_type, text, applicant_data)
+
+    texts = []
+    result = None
+    if ext == 'pdf':
+        text_layer = _pdf_text_layer(file_path)
+        if text_layer:
+            texts.append(text_layer)
+            result = verify_document(doc_type, text_layer, applicant_data)
+            if result['status'] == 'Verified':
+                return text_layer, result
+
+    try:
+        images = _load_images(file_path)
+    except Exception as e:
+        if result:
+            return texts[0], result
+        text = f"Error reading file: {str(e)}"
+        return text, verify_document(doc_type, text, applicant_data)
+
+    for ocr_pass in OCR_PASSES:
+        try:
+            texts.append(_ocr_pass(images, **ocr_pass))
+        except Exception as e:
+            if not texts:
+                texts.append(f"Error reading file: {str(e)}")
+            break
+        result = verify_document(doc_type, '\n'.join(texts), applicant_data)
+        if result['status'] == 'Verified':
+            break
+    return '\n'.join(texts), result
+
+def _normalize(text):
+    """Lowercase and strip accents so 'Peñaloza' on a form matches 'Penaloza'
+    typed in the application (and vice versa)."""
+    text = unicodedata.normalize('NFKD', text.lower())
+    return ''.join(c for c in text if not unicodedata.combining(c))
+
+# Similarity needed for an OCR'd word to count as a misread of the expected
+# word (e.g. 'panaligan' read as 'panallgan'). High enough that a different
+# surname doesn't pass - only words of 5+ letters are matched fuzzily.
+FUZZY_RATIO = 0.8
+FUZZY_MIN_LEN = 5
+
+def _word_in(word, text_lower, text_words):
+    """Exact substring hit, or a near-identical OCR'd word for longer words."""
+    if word in text_lower:
+        return True
+    if len(word) < FUZZY_MIN_LEN:
+        return False
+    for candidate in text_words:
+        if abs(len(candidate) - len(word)) > 2:
+            continue
+        matcher = SequenceMatcher(None, word, candidate)
+        if matcher.quick_ratio() >= FUZZY_RATIO and matcher.ratio() >= FUZZY_RATIO:
+            return True
+    return False
 
 def _significant_words(text, min_len=3):
-    return [w for w in re.findall(r"[a-zA-Z]+", text.lower()) if len(w) > min_len]
+    return [w for w in re.findall(r"[a-z]+", _normalize(text)) if len(w) > min_len]
 
-def _match_count(candidate_text, text_lower, min_len=3):
+def _match_count(candidate_text, text_lower, text_words=None, min_len=3):
     """How many distinct significant words from candidate_text appear in text_lower."""
     words = set(_significant_words(candidate_text, min_len))
-    return sum(1 for w in words if w in text_lower)
+    if text_words is None:
+        text_words = set(re.findall(r"[a-z]+", text_lower))
+    return sum(1 for w in words if _word_in(w, text_lower, text_words))
 
 def _address_keywords(address):
     """Pull out the distinctive location words from a free-text address
@@ -137,7 +227,8 @@ def verify_document(doc_type, extracted_text, applicant_data):
     applicant's name must genuinely appear (2+ distinct name parts for
     multi-word names) or the document is immediately failed; every other
     check requires multiple distinct matching signals."""
-    text_lower = extracted_text.lower()
+    text_lower = _normalize(extracted_text)
+    text_words = set(re.findall(r"[a-z]+", text_lower))
     results = {
         'doc_type': doc_type,
         'extracted_text': extracted_text[:500],
@@ -149,8 +240,8 @@ def verify_document(doc_type, extracted_text, applicant_data):
 
     # ── Gating check: does the applicant's name genuinely appear? ──
     full_name = applicant_data.get('full_name', '') or ''
-    name_parts = [p for p in full_name.lower().split() if len(p) > 2]
-    name_matches = sum(1 for p in name_parts if p in text_lower)
+    name_parts = [p for p in re.findall(r"[a-z]+", _normalize(full_name)) if len(p) > 2]
+    name_matches = sum(1 for p in name_parts if _word_in(p, text_lower, text_words))
     name_found = name_matches >= 2 if len(name_parts) >= 2 else name_matches >= 1
 
     results['checks'].append({
@@ -172,24 +263,24 @@ def verify_document(doc_type, extracted_text, applicant_data):
         course = applicant_data.get('course', '') or ''
         results['checks'].append({
             'check': 'School name found',
-            'passed': _match_count(school, text_lower) >= min(2, len(_significant_words(school)))
-                      and _match_count(school, text_lower) >= 1
+            'passed': _match_count(school, text_lower, text_words) >= min(2, len(_significant_words(school)))
+                      and _match_count(school, text_lower, text_words) >= 1
         })
         results['checks'].append({
             'check': 'Course found',
-            'passed': _match_count(course, text_lower) >= 1
+            'passed': _match_count(course, text_lower, text_words) >= 1
         })
         results['checks'].append({
             'check': 'Enrollment keywords found',
             'passed': _match_count(
-                'enrolled enrollment registration registrar schoolyear semester',
-                text_lower
+                'enrolled enrollment registration registrar semester units subjects assessment',
+                text_lower, text_words
             ) >= 2
         })
 
     elif doc_type == 'Barangay Endorsement':
         address_words = _address_keywords(applicant_data.get('address', '') or '')
-        location_found = any(w in text_lower for w in address_words) if address_words else False
+        location_found = any(_word_in(w, text_lower, text_words) for w in address_words) if address_words else False
         results['checks'].append({
             'check': 'Applicant location found',
             'passed': location_found
@@ -198,7 +289,7 @@ def verify_document(doc_type, extracted_text, applicant_data):
             'check': 'Endorsement keywords found',
             'passed': _match_count(
                 'endorsement barangay certify resident indigent residency certification',
-                text_lower
+                text_lower, text_words
             ) >= 2
         })
 
@@ -206,13 +297,13 @@ def verify_document(doc_type, extracted_text, applicant_data):
         school = applicant_data.get('school', '') or ''
         results['checks'].append({
             'check': 'School name found',
-            'passed': _match_count(school, text_lower) >= 1
+            'passed': _match_count(school, text_lower, text_words) >= 1
         })
         results['checks'].append({
             'check': 'ID keywords found',
             'passed': _match_count(
-                'student identification university college validuntil schoolyear',
-                text_lower
+                'student identification university college valid campus number signature',
+                text_lower, text_words
             ) >= 2
         })
 
@@ -221,7 +312,7 @@ def verify_document(doc_type, extracted_text, applicant_data):
             'check': 'Income document keywords found',
             'passed': _match_count(
                 'income indigency indigent certificate itr revenue tax annual certify',
-                text_lower
+                text_lower, text_words
             ) >= 2
         })
         results['checks'].append({
@@ -253,13 +344,13 @@ def verify_document(doc_type, extracted_text, applicant_data):
         school = applicant_data.get('school', '') or ''
         results['checks'].append({
             'check': 'School name found',
-            'passed': _match_count(school, text_lower) >= 1
+            'passed': _match_count(school, text_lower, text_words) >= 1
         })
         results['checks'].append({
             'check': 'Grade keywords found',
             'passed': _match_count(
-                'grade average gpa gwa seniorhigh deped reportcard weighted form',
-                text_lower
+                'grade average senior deped report weighted semester subject remarks',
+                text_lower, text_words
             ) >= 2
         })
 
@@ -283,7 +374,7 @@ def verify_document(doc_type, extracted_text, applicant_data):
             'check': '4Ps keywords found',
             'passed': _match_count(
                 'pantawid dswd beneficiary conditional household program',
-                text_lower
+                text_lower, text_words
             ) >= 2 or 'pantawid' in text_lower or '4ps' in text_lower
         })
 

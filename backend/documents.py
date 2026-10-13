@@ -19,7 +19,7 @@ from werkzeug.utils import secure_filename
 from extensions import app, limiter, get_db, DEBUG, UPLOAD_FOLDER, _fs
 from helpers import oid, iso, serialize_document
 from auth import require_auth, require_permission, current_organization_oid, has_permission
-from ocr import extract_text, verify_document
+from ocr import extract_and_verify
 from activity import log_activity
 from field_crypto import decrypt_field
 
@@ -252,8 +252,7 @@ def compute_ocr_result(applicant, applicant_oid, document_name):
             "gpa": academic.get('gpa'),
         }
 
-        extracted_text = extract_text(temp_path)
-        result = verify_document(document_name, extracted_text, applicant_data)
+        _, result = extract_and_verify(temp_path, document_name, applicant_data)
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
