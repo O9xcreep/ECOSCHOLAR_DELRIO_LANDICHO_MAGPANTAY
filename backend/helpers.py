@@ -374,6 +374,7 @@ def serialize_document(d):
         "status": d.get('status', 'Missing'),
         "uploaded_at": iso(d.get('uploaded_at')),
         "ocr_status": d.get('ocr_status'),
+        "upload_warning": d.get('upload_warning'),
     }
 
 # ── NOTIFICATION HELPERS ──

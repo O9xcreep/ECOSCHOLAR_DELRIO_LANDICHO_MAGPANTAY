@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus, connectionErrorMessage } from '../../api'
 import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
@@ -46,6 +46,9 @@ function ApplicantDetails() {
   const [withdrawError, setWithdrawError] = useState('')
   const [uploadError, setUploadError] = useState('')
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState('')
+  // Documents whose readability/name pre-check is in flight, by name.
+  const [checking, setChecking] = useState({})
+  const precheckAttempted = useRef(new Set())
 
   const user = getUser() || {}
 
@@ -77,7 +80,12 @@ function ApplicantDetails() {
         if (appData.documents && appData.documents.length > 0) {
           mergedDocs = mergedDocs.map(d => {
             const found = appData.documents.find(u => u.document_name === d.document_name)
-            return found ? { ...d, status: found.status } : d
+            return found ? {
+              ...d,
+              status: found.status,
+              warning: found.upload_warning || '',
+              needsCheck: found.status === 'Uploaded' && !found.ocr_status,
+            } : d
           })
         }
         setDocs(mergedDocs)
@@ -92,6 +100,42 @@ function ApplicantDetails() {
   }
 
   useEffect(() => { loadApplicantDetails() }, [])
+
+  // Asks the server whether an uploaded document is readable and shows the
+  // student's name, so they can replace it now instead of after review.
+  // Advisory only - a warning never blocks the application.
+  const precheckDocument = async (documentName) => {
+    if (!application || documentName === SELFIE_DOC_LABEL) return
+    setChecking(prev => ({ ...prev, [documentName]: true }))
+    try {
+      const res = await apiFetch('/api/documents/precheck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicant_id: application.id, document_name: documentName }),
+      })
+      if (res.ok) {
+        const { warning } = await res.json()
+        setDocs(prev => prev.map(d => d.document_name === documentName ? { ...d, warning: warning || '' } : d))
+      }
+    } catch {
+      // Pre-check is best-effort; admin verification still runs later.
+    } finally {
+      setChecking(prev => ({ ...prev, [documentName]: false }))
+    }
+  }
+
+  // Documents uploaded with the application form (or before this check
+  // existed) get checked the first time the student opens this page - one at
+  // a time, since each is a full OCR pass on the server.
+  useEffect(() => {
+    if (!application) return
+    const pending = docs.filter(d => d.needsCheck && !precheckAttempted.current.has(d.document_name))
+    if (pending.length === 0) return
+    pending.forEach(d => precheckAttempted.current.add(d.document_name))
+    ;(async () => {
+      for (const d of pending) await precheckDocument(d.document_name)
+    })()
+  }, [application, docs])
 
   // Show the actual previously-uploaded selfie image (not just its filename/status)
   // so the student can see what's on file without re-taking it.
@@ -152,7 +196,7 @@ function ApplicantDetails() {
       return
     }
 
-    setDocs(prev => prev.map(d => d.id === id ? { ...d, file, status: 'Uploaded' } : d))
+    setDocs(prev => prev.map(d => d.id === id ? { ...d, file, status: 'Uploaded', warning: '' } : d))
 
     const doc = docs.find(d => d.id === id)
     if (doc && doc.document_name === SELFIE_DOC_LABEL) {
@@ -169,6 +213,7 @@ function ApplicantDetails() {
     try {
       const res = await apiFetch('/api/upload', { method: 'POST', body: formData })
       if (!res.ok) throw new Error('Upload failed')
+      precheckDocument(doc.document_name)
     } catch (err) {
       console.error('Upload error:', err)
       setDocs(prev => prev.map(d =>
@@ -521,6 +566,12 @@ function ApplicantDetails() {
                   {doc.file && <p className="doc-filename">{doc.file.name}</p>}
                   {doc.status === 'Uploaded' && !doc.file && (
                     <p className="doc-filename">Previously uploaded</p>
+                  )}
+                  {doc.status === 'Uploaded' && checking[doc.document_name] && (
+                    <p className="doc-hint">Checking document…</p>
+                  )}
+                  {doc.status === 'Uploaded' && !checking[doc.document_name] && doc.warning && (
+                    <p className="doc-warning" role="alert">{doc.warning}</p>
                   )}
                   {doc.status === 'Missing' && (
                     <p className="doc-hint">Drag & drop or click Upload</p>

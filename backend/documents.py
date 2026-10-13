@@ -242,6 +242,30 @@ def record_near_duplicate_flag(db, applicant_oid, document_name, match, org_id, 
         "flagged_at": now or datetime.utcnow(),
     })
 
+# Fewer real words than this and the OCR couldn't read the file at all
+# (blurry, dark, or tiny photo) - as opposed to reading it fine and not
+# finding what it looked for.
+MIN_READABLE_WORDS = 15
+
+def student_upload_warning(result, document_name):
+    """What to tell the student about an OCR result so they can fix it before
+    review, or None. Deliberately limited to readability, their own name and
+    the document type - value cross-checks and fraud signals stay admin-only,
+    so the student can't use this to tune a doctored document."""
+    if 'error' in result:
+        return None
+    if not result.get('readable', True):
+        return ("We couldn't read the text in this file. Please upload a clearer photo or scan - "
+                "well lit, in focus, and with the whole document visible.")
+    name_check = next((c for c in result.get('checks', []) if c['check'] == 'Applicant name found'), None)
+    if name_check and not name_check['passed']:
+        return (f"We couldn't find your name on this {document_name}. Make sure it's your own document "
+                f"and your full name is clearly visible, then upload it again.")
+    if result.get('status') == 'Failed Verification':
+        article = 'an' if document_name[:1].lower() in 'aeiou' else 'a'
+        return f"This doesn't look like {article} {document_name}. Please check that you uploaded the right document."
+    return None
+
 # ── OCR ──
 def compute_ocr_result(applicant, applicant_oid, document_name):
     """Runs OCR + content/fraud checks on one uploaded document. Read-only
@@ -292,6 +316,7 @@ def compute_ocr_result(applicant, applicant_oid, document_name):
         m for m in doc.get('near_duplicate_candidates') or []
         if names_other_person(m.get('full_name', ''), applicant_data['full_name'], extracted_text)
     ]
+    result['readable'] = len(re.findall(r'[A-Za-z]{3,}', extracted_text)) >= MIN_READABLE_WORDS
     result['document_name'] = document_name
     return result
 
@@ -307,6 +332,7 @@ def persist_ocr_result(db, applicant_oid, org_id, result):
             "documents.$.ocr_confidence": result['confidence'],
             "documents.$.ocr_flags": result['flags'],
             "documents.$.ocr_checked_at": datetime.utcnow(),
+            "documents.$.upload_warning": student_upload_warning(result, result['document_name']),
         }}
     )
     # Popped, not read - holds ObjectIds, and the result is returned as JSON.
@@ -353,6 +379,13 @@ def run_ocr_checks_concurrently(db, applicant, applicant_oid, document_names, or
     with ThreadPoolExecutor(max_workers=min(2, len(document_names))) as pool:
         return list(pool.map(check_and_save, document_names))
 
+def is_applicant_owner(applicant_doc):
+    """Whether the signed-in user is this applicant. Records from before
+    user_id was stored fall back to the email on the record."""
+    if applicant_doc.get('user_id'):
+        return str(applicant_doc['user_id']) == g.current_user['id']
+    return (applicant_doc.get('email') or '').lower() == (g.current_user.get('email') or '').lower()
+
 # ── UPLOAD DOCUMENT ──
 @app.route('/api/upload', methods=['POST'])
 @require_auth
@@ -396,13 +429,8 @@ def upload_document():
             if not status_doc:
                 return jsonify({"error": "Applicant not found"}), 404
             # Only the applicant themselves (or reviewing staff) may change an
-            # application's documents - same rule as viewing them. Records from
-            # before user_id was stored fall back to the email on the record.
-            if status_doc.get('user_id'):
-                is_owner = str(status_doc['user_id']) == g.current_user['id']
-            else:
-                is_owner = (status_doc.get('email') or '').lower() == (g.current_user.get('email') or '').lower()
-            if not is_owner and not has_permission('can_review_applicants'):
+            # application's documents - same rule as viewing them.
+            if not is_applicant_owner(status_doc) and not has_permission('can_review_applicants'):
                 log_activity('document', "Blocked upload to another applicant's application", outcome='failure',
                              target={"type": "applicant", "id": applicant_oid, "label": status_doc.get('full_name')},
                              details=document_name)
@@ -448,6 +476,7 @@ def upload_document():
                     "documents.$.ocr_confidence": "",
                     "documents.$.ocr_flags": "",
                     "documents.$.ocr_checked_at": "",
+                    "documents.$.upload_warning": "",
                 }}
             )
 
@@ -592,6 +621,49 @@ def verify_document_route():
         if 'error' in result:
             return jsonify(result), 404
         return jsonify(result)
+
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── STUDENT PRE-CHECK ── tells a student right after upload if a document is
+# unreadable or doesn't show their name, so they can replace it before review.
+# OCRs a document at most once per upload (a re-upload clears the result), so
+# it can't be called repeatedly to probe the checks; the saved result is the
+# same one admin verification would produce, so that work isn't repeated.
+@app.route('/api/documents/precheck', methods=['POST'])
+@require_auth
+@limiter.limit("20 per minute")
+def precheck_document_route():
+    data = request.get_json(silent=True) or {}
+    applicant_id = data.get('applicant_id')
+    document_name = data.get('document_name')
+    applicant_oid = oid(applicant_id) if isinstance(applicant_id, str) else None
+    if not applicant_oid or not isinstance(document_name, str):
+        return jsonify({"error": "Invalid request"}), 400
+
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+        if not applicant:
+            return jsonify({"error": "Applicant not found"}), 404
+        if not is_applicant_owner(applicant) and not has_permission('can_review_applicants'):
+            return jsonify({"error": "Forbidden"}), 403
+
+        doc = next((d for d in applicant.get('documents', [])
+                    if d.get('document_name') == document_name and d.get('status') == 'Uploaded'), None)
+        if not doc:
+            return jsonify({"error": "Document not found"}), 404
+        if document_name == SELFIE_DOC_LABEL:
+            return jsonify({"warning": None})
+        if doc.get('ocr_status'):
+            return jsonify({"warning": doc.get('upload_warning')})
+
+        result = run_ocr_check(db, applicant, applicant_oid, document_name, org_id)
+        return jsonify({"warning": student_upload_warning(result, document_name)})
 
     except Exception as e:
         app.logger.error(str(e))

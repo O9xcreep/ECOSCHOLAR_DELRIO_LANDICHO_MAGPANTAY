@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""OCR only ever runs on the admin verification side (POST /api/verify-document),
-never during a student's own application - the old /api/ocr-autofill route (student-
-facing, auto-triggered on document upload) has been removed entirely."""
+"""Full OCR results (POST /api/verify-document) are admin-only, and OCR never
+auto-fills a student's form - the old /api/ocr-autofill route has been removed
+entirely. Students only get a limited readability/name warning from
+POST /api/documents/precheck (see test_document_precheck.py)."""
 
 
 class TestVerifyDocumentIsAdminOnly:
