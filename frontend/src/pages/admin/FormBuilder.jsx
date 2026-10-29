@@ -1,8 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { apiFetch, connectionErrorMessage } from '../../api'
 import './FormBuilder.css'
 
-const FIELD_TYPES = ['text', 'textarea', 'number', 'date', 'select', 'checkbox']
+// Friendly, Google Forms-style names for the backend field types.
+const FIELD_TYPES = [
+  { value: 'text', label: 'Short answer' },
+  { value: 'textarea', label: 'Paragraph' },
+  { value: 'number', label: 'Number' },
+  { value: 'date', label: 'Date' },
+  { value: 'select', label: 'Dropdown' },
+  { value: 'checkbox', label: 'Checkboxes' },
+]
+const typeLabel = (type) => FIELD_TYPES.find(t => t.value === type)?.label || type
+const hasOptions = (type) => type === 'select' || type === 'checkbox'
 const SECTIONS = [
   { key: 'personal', label: 'Personal Information (Step 1)' },
   { key: 'school', label: 'School Information (Step 2)' },
@@ -44,8 +54,153 @@ const CORE_FIELDS = {
   ],
 }
 
-const EMPTY_NEW_FIELD = {
-  key: '', label: '', type: 'text', options: '', required: false, section: 'personal',
+// Admins only type the question; the storage key is derived from it so they
+// never have to think about snake_case identifiers.
+function slugifyKey(label) {
+  let key = label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40)
+  if (!key) key = 'field'
+  if (!/^[a-z]/.test(key)) key = `q_${key}`
+  return key
+}
+
+function uniqueKey(label, takenKeys) {
+  const base = slugifyKey(label)
+  let key = base
+  for (let n = 2; takenKeys.includes(key); n++) key = `${base}_${n}`
+  return key
+}
+
+const emptyQuestion = (section) => ({
+  label: '', type: 'text', options: [''], required: false, section,
+})
+
+// One Google Forms-style question card, used both for adding a new question
+// and for editing an existing one (type can't change after creation since
+// applicants may already have answered it).
+function QuestionEditor({ initial, isNew, saving, error, onSave, onCancel }) {
+  const [q, setQ] = useState(initial)
+  const optionRefs = useRef([])
+  // Option to focus after the next render (newly added or the one before a removed one).
+  const pendingFocus = useRef(null)
+
+  useEffect(() => {
+    if (pendingFocus.current !== null) {
+      optionRefs.current[pendingFocus.current]?.focus()
+      pendingFocus.current = null
+    }
+  })
+  const setFocusIndex = (i) => { pendingFocus.current = i }
+
+  const setOption = (i, value) => setQ(p => ({ ...p, options: p.options.map((o, j) => j === i ? value : o) }))
+  const addOption = (afterIndex) => {
+    setQ(p => {
+      const options = [...p.options]
+      options.splice(afterIndex + 1, 0, '')
+      return { ...p, options }
+    })
+    setFocusIndex(afterIndex + 1)
+  }
+  const removeOption = (i) => setQ(p => ({ ...p, options: p.options.filter((_, j) => j !== i) }))
+
+  const handleOptionKey = (e, i) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      addOption(i)
+    } else if (e.key === 'Backspace' && q.options[i] === '' && q.options.length > 1) {
+      e.preventDefault()
+      removeOption(i)
+      setFocusIndex(Math.max(0, i - 1))
+    }
+  }
+
+  return (
+    <div className="fb-q-card">
+      {error && <div className="fb-error">{error}</div>}
+      <div className="fb-q-top">
+        <input
+          className="fb-q-title"
+          type="text"
+          placeholder="Question"
+          autoFocus
+          value={q.label}
+          onChange={e => setQ(p => ({ ...p, label: e.target.value }))}
+          onKeyDown={e => { if (e.key === 'Enter' && !hasOptions(q.type)) onSave(q) }}
+        />
+        <select
+          className="fb-q-type"
+          value={q.type}
+          disabled={!isNew}
+          title={isNew ? '' : "The answer type can't be changed after the question is created"}
+          onChange={e => setQ(p => ({ ...p, type: e.target.value }))}>
+          {FIELD_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+
+      <div className="fb-q-body">
+        {q.type === 'text' && <div className="fb-q-preview-line">Short answer text</div>}
+        {q.type === 'textarea' && <div className="fb-q-preview-line fb-q-preview-long">Long answer text</div>}
+        {q.type === 'number' && <div className="fb-q-preview-line">Number</div>}
+        {q.type === 'date' && <div className="fb-q-preview-line">mm / dd / yyyy</div>}
+
+        {hasOptions(q.type) && (
+          <div className="fb-q-options">
+            {q.options.map((opt, i) => (
+              <div key={i} className="fb-q-option">
+                <span className={`fb-q-option-icon${q.type === 'checkbox' ? ' fb-q-option-icon-box' : ''}`}>
+                  {q.type === 'select' ? `${i + 1}.` : ''}
+                </span>
+                <input
+                  type="text"
+                  placeholder={`Option ${i + 1}`}
+                  value={opt}
+                  ref={el => { optionRefs.current[i] = el }}
+                  onChange={e => setOption(i, e.target.value)}
+                  onKeyDown={e => handleOptionKey(e, i)}
+                />
+                {q.options.length > 1 && (
+                  <button type="button" className="fb-q-option-remove" title="Remove option" onClick={() => removeOption(i)}>
+                    &times;
+                  </button>
+                )}
+              </div>
+            ))}
+            <div className="fb-q-option">
+              <span className={`fb-q-option-icon${q.type === 'checkbox' ? ' fb-q-option-icon-box' : ''}`}>
+                {q.type === 'select' ? `${q.options.length + 1}.` : ''}
+              </span>
+              <button type="button" className="fb-q-option-add" onClick={() => addOption(q.options.length - 1)}>
+                Add option
+              </button>
+            </div>
+            <span className="fb-hint">
+              Tip: press Enter to add the next option.
+              {q.type === 'checkbox' && ' Leave the options empty for a single Yes/No checkbox.'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="fb-q-footer">
+        <label className="fb-q-required">
+          Required
+          <span className="toggle toggle-inline">
+            <input
+              type="checkbox"
+              checked={q.required}
+              onChange={e => setQ(p => ({ ...p, required: e.target.checked }))}
+            />
+            <span className="slider" />
+          </span>
+        </label>
+        <div className="fb-q-footer-actions">
+          <button type="button" className="fb-btn-cancel" onClick={onCancel}>Cancel</button>
+          <button type="button" className="fb-btn-add" onClick={() => onSave(q)} disabled={saving}>
+            {saving ? 'Saving...' : isNew ? 'Add question' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 const EMPTY_NEW_DOC = { label: '', required: true }
@@ -55,8 +210,8 @@ function FormBuilder() {
   const [hiddenBuiltins, setHiddenBuiltins] = useState([])
   const [hideableBuiltins, setHideableBuiltins] = useState({})
   const [loading, setLoading] = useState(true)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [newField, setNewField] = useState(EMPTY_NEW_FIELD)
+  // Which question card is open: { section, id }, where id is null for a new question.
+  const [editing, setEditing] = useState(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -197,36 +352,70 @@ function FormBuilder() {
     setFields(prev => prev.filter(f => f.id !== field.id))
   }
 
-  const handleAddField = async () => {
+  const openEditor = (section, id = null) => {
+    if (formLocked) return
     setError('')
-    if (!newField.key.trim() || !newField.label.trim()) {
-      setError('Key and label are required')
+    setEditing({ section, id })
+  }
+
+  const closeEditor = () => {
+    setEditing(null)
+    setError('')
+  }
+
+  const saveQuestion = async (q) => {
+    setError('')
+    const label = q.label.trim()
+    if (!label) {
+      setError('Please enter the question')
       return
     }
+    const options = hasOptions(q.type) ? q.options.map(o => o.trim()).filter(Boolean) : []
+    if (q.type === 'select' && options.length === 0) {
+      setError('Dropdown questions need at least one option')
+      return
+    }
+    if (new Set(options.map(o => o.toLowerCase())).size !== options.length) {
+      setError('Each option must be different')
+      return
+    }
+
     setSaving(true)
     try {
-      const res = await apiFetch('/api/form-fields', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          key: newField.key.trim(),
-          label: newField.label.trim(),
-          type: newField.type,
-          section: newField.section,
-          required: newField.required,
-          options: (newField.type === 'select' || newField.type === 'checkbox')
-            ? newField.options.split(',').map(o => o.trim()).filter(Boolean)
-            : []
+      if (editing.id) {
+        const res = await apiFetch(`/api/form-fields/${editing.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label, required: q.required, ...(hasOptions(q.type) ? { options } : {}) })
         })
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error || 'Failed to add field')
-        return
+        const data = await res.json()
+        if (!res.ok) {
+          setError(data.error || 'Failed to save question')
+          return
+        }
+        setFields(prev => prev.map(f => f.id === editing.id ? data.field : f))
+      } else {
+        const takenKeys = fields.map(f => f.key)
+        const post = (key) => apiFetch('/api/form-fields', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, label, type: q.type, section: q.section, required: q.required, options })
+        })
+        let res = await post(uniqueKey(label, takenKeys))
+        let data = await res.json()
+        // The generated key can collide with a built-in field name the
+        // frontend doesn't know about - retry once under a custom_ prefix.
+        if (!res.ok && /built-in/i.test(data.error || '')) {
+          res = await post(uniqueKey(`custom ${label}`, takenKeys))
+          data = await res.json()
+        }
+        if (!res.ok) {
+          setError(data.error || 'Failed to add question')
+          return
+        }
+        setFields(prev => [...prev, data.field])
       }
-      setFields(prev => [...prev, data.field])
-      setNewField(EMPTY_NEW_FIELD)
-      setShowAddForm(false)
+      setEditing(null)
     } catch {
       setError(connectionErrorMessage())
     } finally {
@@ -289,7 +478,10 @@ function FormBuilder() {
         <div key={section.key} className="fb-card">
           <h3 className="fb-card-title">{section.label}</h3>
 
-          <p className="fb-subheading">Core Fields (always shown)</p>
+          <details className="fb-core-details">
+          <summary className="fb-subheading">
+            Standard questions (always shown) · {CORE_FIELDS[section.key].length}
+          </summary>
           <div className="fb-field-list fb-field-list-core">
             {CORE_FIELDS[section.key].map(f => (
               <div key={f.label} className="fb-field-row fb-field-row-core">
@@ -301,25 +493,50 @@ function FormBuilder() {
               </div>
             ))}
           </div>
+          </details>
 
-          <p className="fb-subheading">Custom Fields</p>
-          {fields.filter(f => f.section === section.key).length === 0 ? (
-            <p className="fb-empty">No custom fields added yet.</p>
-          ) : (
-            <div className="fb-field-list">
-              {fields.filter(f => f.section === section.key).map(field => (
-                <div key={field.id} className="fb-field-row">
+          <p className="fb-subheading">Your Questions</p>
+          {fields.filter(f => f.section === section.key).length === 0 && editing?.section !== section.key && (
+            <p className="fb-empty">No custom questions yet.</p>
+          )}
+          <div className="fb-field-list">
+            {fields.filter(f => f.section === section.key).map(field => (
+              editing?.id === field.id ? (
+                <QuestionEditor
+                  key={field.id}
+                  initial={{
+                    label: field.label,
+                    type: field.type,
+                    options: field.options.length ? field.options : [''],
+                    required: field.required,
+                    section: field.section,
+                  }}
+                  isNew={false}
+                  saving={saving}
+                  error={error}
+                  onSave={saveQuestion}
+                  onCancel={closeEditor}
+                />
+              ) : (
+                <div
+                  key={field.id}
+                  className={`fb-field-row${formLocked ? '' : ' fb-q-row-clickable'}${field.enabled ? '' : ' fb-q-row-hidden'}`}
+                  onClick={() => openEditor(section.key, field.id)}
+                  title={formLocked ? '' : 'Click to edit'}>
                   <div className="fb-field-info">
                     <p className="fb-field-label">
                       {field.label}
                       {field.required && <span className="fb-required-star"> *</span>}
                     </p>
                     <p className="fb-field-meta">
-                      {field.type}{(field.type === 'select' || field.type === 'checkbox') && field.options.length > 0
+                      {typeLabel(field.type)}{hasOptions(field.type) && field.options.length > 0
                         ? ` · ${field.options.join(', ')}` : ''}
                     </p>
                   </div>
-                  <label className="toggle">
+                  <label
+                    className="toggle"
+                    title={field.enabled ? 'Shown on the form' : 'Hidden from the form'}
+                    onClick={e => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={field.enabled}
@@ -328,106 +545,38 @@ function FormBuilder() {
                     />
                     <span className="slider" />
                   </label>
-                  <button className="fb-btn-delete" onClick={() => deleteField(field)} disabled={formLocked}>Delete</button>
+                  <button
+                    className="fb-btn-delete"
+                    onClick={e => { e.stopPropagation(); deleteField(field) }}
+                    disabled={formLocked}>
+                    Delete
+                  </button>
                 </div>
-              ))}
-            </div>
+              )
+            ))}
+
+            {editing?.section === section.key && editing.id === null && (
+              <QuestionEditor
+                initial={emptyQuestion(section.key)}
+                isNew
+                saving={saving}
+                error={error}
+                onSave={saveQuestion}
+                onCancel={closeEditor}
+              />
+            )}
+          </div>
+
+          {!(editing?.section === section.key && editing.id === null) && (
+            <button
+              className="fb-btn-add fb-btn-add-question"
+              onClick={() => openEditor(section.key)}
+              disabled={formLocked}>
+              + Add question
+            </button>
           )}
         </div>
       ))}
-
-      {/* Add new field */}
-      <div className="fb-card">
-        {!showAddForm ? (
-          <button className="fb-btn-add" onClick={() => setShowAddForm(true)} disabled={formLocked}>
-            + Add Custom Field
-          </button>
-        ) : (
-          <div className="fb-add-form">
-            <h3 className="fb-card-title">New Custom Field</h3>
-            {error && <div className="fb-error">{error}</div>}
-
-            <div className="fb-form-grid">
-              <div className="fb-form-field">
-                <label>Field Key</label>
-                <input
-                  type="text"
-                  placeholder="Enter field key"
-                  value={newField.key}
-                  onChange={e => setNewField(p => ({ ...p, key: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_') }))}
-                />
-                <span className="fb-hint">Lowercase, letters/numbers/underscores only</span>
-              </div>
-
-              <div className="fb-form-field">
-                <label>Label (shown to applicants)</label>
-                <input
-                  type="text"
-                  placeholder="Enter Label"
-                  value={newField.label}
-                  onChange={e => setNewField(p => ({ ...p, label: e.target.value }))}
-                />
-              </div>
-
-              <div className="fb-form-field">
-                <label>Field Type</label>
-                <select
-                  value={newField.type}
-                  onChange={e => setNewField(p => ({ ...p, type: e.target.value }))}>
-                  {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-
-              <div className="fb-form-field">
-                <label>Section</label>
-                <select
-                  value={newField.section}
-                  onChange={e => setNewField(p => ({ ...p, section: e.target.value }))}>
-                  {SECTIONS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-                </select>
-              </div>
-
-              {(newField.type === 'select' || newField.type === 'checkbox') && (
-                <div className="fb-form-field fb-form-field-wide">
-                  <label>Options (comma-separated)</label>
-                  <input
-                    type="text"
-                    placeholder="Yes, No, Not Applicable"
-                    value={newField.options}
-                    onChange={e => setNewField(p => ({ ...p, options: e.target.value }))}
-                  />
-                  {newField.type === 'checkbox' && (
-                    <span className="fb-hint">
-                      Leave blank for a simple Yes/No checkbox, or list options to let
-                      applicants select multiple (e.g. a checklist)
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <div className="fb-form-field">
-                <label className="fb-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={newField.required}
-                    onChange={e => setNewField(p => ({ ...p, required: e.target.checked }))}
-                  />
-                  Required field
-                </label>
-              </div>
-            </div>
-
-            <div className="fb-form-actions">
-              <button className="fb-btn-cancel" onClick={() => { setShowAddForm(false); setNewField(EMPTY_NEW_FIELD); setError('') }}>
-                Cancel
-              </button>
-              <button className="fb-btn-add" onClick={handleAddField} disabled={saving}>
-                {saving ? 'Adding...' : 'Add Field'}
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* Document requirements */}
       <div className="fb-card">
