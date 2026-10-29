@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import writeExcelFile from 'write-excel-file/browser'
 import { apiFetch, getUser, setSession, clearSession, logout, isFullAccess, connectionErrorMessage } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
 import AdminGuide from './AdminGuide'
@@ -590,7 +591,7 @@ function SecurityTab() {
 // 2pm UTC.
 function utcStringToLocalInputValue(utcStr) {
   if (!utcStr) return ''
-  const d = new Date(utcStr.replace(' ', 'T') + 'Z')
+  const d = parseServerDate(utcStr)
   const pad = n => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
@@ -1009,10 +1010,10 @@ function SystemTab() {
           {currentCycle && (
             <p className="info-sub" style={{ marginBottom: '14px' }}>
               Current program: <strong>{currentCycle.label}</strong>
-              {currentCycle.started_at && ` — started ${new Date(currentCycle.started_at).toLocaleDateString('en-PH', {
+              {currentCycle.started_at && ` — started ${parseServerDate(currentCycle.started_at).toLocaleDateString('en-PH', {
                 month: 'long', day: 'numeric', year: 'numeric'
               })}`}
-              {currentCycle.deadline && `, deadline ${new Date(currentCycle.deadline).toLocaleString('en-PH', {
+              {currentCycle.deadline && `, deadline ${parseServerDate(currentCycle.deadline).toLocaleString('en-PH', {
                 month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
               })}`}
               {' '}— {currentCycle.is_open ? <span style={{ color: '#059669' }}>open</span> : <span style={{ color: '#DC2626' }}>closed</span>}

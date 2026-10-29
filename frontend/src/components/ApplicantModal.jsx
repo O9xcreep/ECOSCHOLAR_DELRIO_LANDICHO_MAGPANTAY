@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { apiFetch, displayStatus, connectionErrorMessage } from '../api'
+import { parseServerDate } from '../dateUtils'
 import './ApplicantModal.css'
 import ScoreBreakdown from './ScoreBreakdown'
 
@@ -711,7 +712,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                       <p className="audit-meta">
                         By <strong>{entry.performed_by}</strong>
                         {' · '}
-                        {new Date(entry.performed_at).toLocaleDateString('en-PH', {
+                        {parseServerDate(entry.performed_at).toLocaleDateString('en-PH', {
                           month: 'long', day: 'numeric', year: 'numeric',
                           hour: '2-digit', minute: '2-digit'
                         })}

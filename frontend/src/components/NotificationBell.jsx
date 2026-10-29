@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch } from '../api'
+import { parseServerDate } from '../dateUtils'
 import './NotificationBell.css'
 
 function timeAgo(dateString) {
-  const seconds = Math.floor((Date.now() - new Date(dateString).getTime()) / 1000)
+  const seconds = Math.floor((Date.now() - parseServerDate(dateString).getTime()) / 1000)
   if (seconds < 60) return 'just now'
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}m ago`
@@ -11,7 +12,7 @@ function timeAgo(dateString) {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d ago`
-  return new Date(dateString).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+  return parseServerDate(dateString).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
 }
 
 function NotificationBell() {

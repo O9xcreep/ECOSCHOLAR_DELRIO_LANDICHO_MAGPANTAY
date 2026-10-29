@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus, connectionErrorMessage } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
@@ -337,7 +338,7 @@ function ApplicantDetails() {
 
         {application.submitted_at && (
           <p className="av-submitted">
-            Submitted: {new Date(application.submitted_at).toLocaleDateString('en-PH', {
+            Submitted: {parseServerDate(application.submitted_at).toLocaleDateString('en-PH', {
               month: 'long',
               day: 'numeric',
               year: 'numeric'
@@ -347,7 +348,7 @@ function ApplicantDetails() {
 
         {application.reviewed_at && (
           <p className="av-reviewed">
-            Reviewed on: {new Date(application.reviewed_at)
+            Reviewed on: {parseServerDate(application.reviewed_at)
               .toLocaleDateString('en-PH', {
                 month: 'long',
                 day: 'numeric',

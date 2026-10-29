@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, connectionErrorMessage } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import pageBg from '../../assets/bg1.jpg'
 import './ActivityLog.css'
 
@@ -24,7 +25,7 @@ const PAGE_SIZE = 25
 // Stored in UTC ("YYYY-MM-DD HH:MM:SS"); shown in the viewer's local time.
 function formatWhen(utc) {
   if (!utc) return ''
-  const d = new Date(utc.replace(' ', 'T') + 'Z')
+  const d = parseServerDate(utc)
   return d.toLocaleString('en-PH', {
     month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   })

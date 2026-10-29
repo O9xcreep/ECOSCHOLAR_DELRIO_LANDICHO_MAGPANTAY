@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import ScoreBreakdown from '../../components/ScoreBreakdown'
@@ -219,7 +220,7 @@ function StudentDashboard() {
                   {/* Submitted Date */}
                   {application.submitted_at && (
                     <p className="sd-submitted-date">
-                      Submitted: {new Date(application.submitted_at)
+                      Submitted: {parseServerDate(application.submitted_at)
                         .toLocaleDateString('en-PH', {
                           month: 'long', day: 'numeric', year: 'numeric'
                         })}

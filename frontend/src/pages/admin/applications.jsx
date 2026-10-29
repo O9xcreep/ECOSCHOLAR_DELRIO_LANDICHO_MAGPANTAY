@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, displayStatus } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/admin-bg.jpg'
@@ -172,7 +173,7 @@ function ApplicationsTableCard({
                   <td className="cell-gwa">{app.gpa}</td>
                   <td className="cell-date">
                     {app.submitted_at
-                      ? new Date(app.submitted_at).toLocaleDateString('en-PH', {
+                      ? parseServerDate(app.submitted_at).toLocaleDateString('en-PH', {
                           month: 'short', day: '2-digit', year: 'numeric'
                         })
                       : 'N/A'}

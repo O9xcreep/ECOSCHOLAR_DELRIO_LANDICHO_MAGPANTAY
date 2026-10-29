@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, displayStatus, connectionErrorMessage } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
@@ -1131,7 +1132,7 @@ function ApplicationForm() {
             <span className="existing-app-label">Submitted</span>
             <span className="existing-app-value">
               {existingApplication.submitted_at
-                ? new Date(existingApplication.submitted_at)
+                ? parseServerDate(existingApplication.submitted_at)
                     .toLocaleDateString('en-PH', {
                       month: 'long', day: 'numeric', year: 'numeric'
                     })

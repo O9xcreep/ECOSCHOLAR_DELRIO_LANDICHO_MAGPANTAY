@@ -7,6 +7,7 @@ import {
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { apiFetch, displayStatus, getUser, connectionErrorMessage } from '../../api'
+import { parseServerDate } from '../../dateUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/bg4.jpg'
@@ -189,7 +190,7 @@ useEffect(() => {
     for (const item of items) {
       const raw = item[dateField]
       if (!raw) continue
-      const d = new Date(raw)
+      const d = parseServerDate(raw)
       if (isNaN(d)) continue
       const key = period === 'yearly' ? d.getFullYear() : d.getFullYear() * 12 + d.getMonth()
       if (!buckets[key]) buckets[key] = []
@@ -276,7 +277,7 @@ useEffect(() => {
       {programEnded && !bannerDismissed && (
         <div className="dash-error-banner program-ended-banner">
           <span>
-            This program's deadline ({new Date(liveCycle.deadline).toLocaleDateString('en-PH', {
+            This program's deadline ({parseServerDate(liveCycle.deadline).toLocaleDateString('en-PH', {
               month: 'long', day: 'numeric', year: 'numeric'
             })}) has passed. Export the final ranking, then reset to start a new program.
           </span>
@@ -451,7 +452,7 @@ useEffect(() => {
                         : `Same name + birthdate as existing applicant`}
                     </p>
                     <p className="duplicate-date">
-                      Flagged: {new Date(flag.flagged_at)
+                      Flagged: {parseServerDate(flag.flagged_at)
                         .toLocaleDateString('en-PH', {
                           month: 'short', day: 'numeric', year: 'numeric'
                         })}
@@ -533,7 +534,7 @@ useEffect(() => {
                   </td>
                   <td className="date">
                     {app.submitted_at
-                      ? new Date(app.submitted_at).toLocaleDateString('en-PH', {
+                      ? parseServerDate(app.submitted_at).toLocaleDateString('en-PH', {
                           month: 'short', day: '2-digit', year: 'numeric'
                         })
                       : 'N/A'}
@@ -587,7 +588,7 @@ useEffect(() => {
                   <p className="history-date">
                     Decided by {entry.performed_by || 'System'} on{' '}
                     {entry.performed_at
-                      ? new Date(entry.performed_at).toLocaleDateString('en-PH', {
+                      ? parseServerDate(entry.performed_at).toLocaleDateString('en-PH', {
                           month: 'short', day: 'numeric', year: 'numeric'
                         })
                       : 'N/A'}
