@@ -67,7 +67,7 @@ const RELIGIONS = [
   'Others'
 ]
 
-const YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year']
+const YEAR_LEVELS = ['1st Year', '2nd Year']
 const SEMESTERS = ['1st Semester', '2nd Semester', 'Summer']
 
 // ── VALIDATE STEP 1 ──

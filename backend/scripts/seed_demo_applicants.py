@@ -43,7 +43,7 @@ LAST_NAMES = ["Santos", "Dela Cruz", "Reyes", "Bautista", "Flores", "Magbanua", 
 EDUCATION_LEVELS = list(flask_app.ml_education_map.keys())
 OCCUPATIONS = flask_app.ml_occupation_categories
 HOUSING = flask_app.ml_housing_situations
-YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year']
+YEAR_LEVELS = ['1st Year', '2nd Year']
 SEMESTERS = ['1st Semester', '2nd Semester']
 
 
