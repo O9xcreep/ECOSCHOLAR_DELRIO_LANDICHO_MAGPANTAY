@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus } from '../../api'
 import { parseServerDate } from '../../dateUtils'
+import ApprovedNextSteps from '../../components/ApprovedNextSteps'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import ScoreBreakdown from '../../components/ScoreBreakdown'
@@ -196,6 +197,8 @@ function StudentDashboard() {
                     {application.application_status === 'Incomplete' &&
                       'Your application is incomplete. Please upload all required documents.'}
                   </p>
+
+                  {application.application_status === 'Approved' && <ApprovedNextSteps />}
 
                   {application.application_status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
                     <p className="sd-rejection-reason">{application.rejection_reason}</p>

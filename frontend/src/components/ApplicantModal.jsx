@@ -504,8 +504,14 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </div>
               <div className="info-field">
                 <label>Religion</label>
-                <p>{profile.religion}</p>
+                <p>{profile.religion || 'N/A'}</p>
               </div>
+              {hasValue(profile.citizenship) && (
+                <div className="info-field">
+                  <label>Citizenship</label>
+                  <p>{profile.citizenship}</p>
+                </div>
+              )}
               <div className="info-field full">
                 <label>Address</label>
                 <p>{profile.address}</p>
@@ -523,7 +529,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </div>
               <div className="info-field">
                 <label>Father's Occupation</label>
-                <p>{profile.father_occupation}</p>
+                <p>{profile.father_occupation || 'N/A'}</p>
+              </div>
+              <div className="info-field">
+                <label>Father's Education</label>
+                <p>{profile.father_education || 'N/A'}</p>
               </div>
               <div className="info-field">
                 <label>Mother's Name</label>
@@ -531,7 +541,11 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </div>
               <div className="info-field">
                 <label>Mother's Occupation</label>
-                <p>{profile.mother_occupation}</p>
+                <p>{profile.mother_occupation || 'N/A'}</p>
+              </div>
+              <div className="info-field">
+                <label>Mother's Education</label>
+                <p>{profile.mother_education || 'N/A'}</p>
               </div>
               <div className="info-field">
                 <label>Household Income</label>
@@ -539,7 +553,19 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
               </div>
               <div className="info-field">
                 <label>Family Size</label>
-                <p>{profile.family_size} members</p>
+                <p>{profile.family_size != null && profile.family_size !== '' ? `${profile.family_size} members` : 'N/A'}</p>
+              </div>
+              <div className="info-field">
+                <label>Housing Situation</label>
+                <p>{profile.housing_situation || 'N/A'}</p>
+              </div>
+              <div className="info-field">
+                <label>Number of Siblings</label>
+                <p>{profile.num_siblings ?? 'N/A'}</p>
+              </div>
+              <div className="info-field">
+                <label>Siblings Currently Studying</label>
+                <p>{profile.num_siblings_studying ?? 'N/A'}</p>
               </div>
               <div className="info-field full">
                 <label>Other Scholarship</label>
@@ -570,7 +596,7 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                     return (
                       <div key={key} className="info-field">
                         <label>{label}</label>
-                        <p>{Array.isArray(value) ? value.join(', ') : String(value)}</p>
+                        <p>{Array.isArray(value) ? value.join(', ') : typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value)}</p>
                       </div>
                     )
                   })}

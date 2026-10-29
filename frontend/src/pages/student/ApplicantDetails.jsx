@@ -6,6 +6,7 @@ import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import ScoreBreakdown from '../../components/ScoreBreakdown'
+import ApprovedNextSteps from '../../components/ApprovedNextSteps'
 import pageBg from '../../assets/bg1.jpg'
 import './ApplicantDetails.css'
 
@@ -36,6 +37,17 @@ const STATUS_MESSAGES = {
   'Withdrawn': 'You have withdrawn this application. If you change your mind, you can submit a new application.',
 }
 
+// Renders a stored answer for display; booleans come from single Yes/No
+// checkboxes and arrays from multi-option checkbox questions.
+function formatAnswer(value) {
+  if (value === null || value === undefined || value === '') return 'N/A'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  if (Array.isArray(value)) return value.length ? value.join(', ') : 'N/A'
+  return String(value)
+}
+
+const hasAnswer = (v) => Array.isArray(v) ? v.length > 0 : (v !== null && v !== undefined && v !== '')
+
 function ApplicantDetails() {
   const navigate = useNavigate()
   const [application, setApplication] = useState(null)
@@ -49,6 +61,8 @@ function ApplicantDetails() {
   const [selfiePreviewUrl, setSelfiePreviewUrl] = useState('')
   // Documents whose readability/name pre-check is in flight, by name.
   const [checking, setChecking] = useState({})
+  // This LGU's custom questions, to label the answers in application.extra_fields.
+  const [customFieldDefs, setCustomFieldDefs] = useState([])
   const precheckAttempted = useRef(new Set())
 
   const user = getUser() || {}
@@ -59,10 +73,15 @@ function ApplicantDetails() {
     if (!user.email) { setLoading(false); return }
 
     try {
-      const [appRes, reqRes] = await Promise.all([
+      const [appRes, reqRes, fieldsRes] = await Promise.all([
         apiFetch(`/api/student/application?email=${encodeURIComponent(user.email)}`),
         apiFetch('/api/document-requirements'),
+        apiFetch('/api/form-fields'),
       ])
+      if (fieldsRes.ok) {
+        const fieldsData = await fieldsRes.json()
+        setCustomFieldDefs(fieldsData.fields || [])
+      }
       if (!appRes.ok) throw new Error(`Request failed with status ${appRes.status}`)
       const appData = await appRes.json()
 
@@ -332,6 +351,8 @@ function ApplicantDetails() {
             : STATUS_MESSAGES[displayed] || 'Your application is being processed.'}
         </p>
 
+        {displayed === 'Approved' && <ApprovedNextSteps />}
+
         {status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
           <p className="av-rejection-reason">{application.rejection_reason}</p>
         )}
@@ -452,8 +473,14 @@ function ApplicantDetails() {
           </div>
           <div className="av-field">
             <label>Religion</label>
-            <p>{application.religion}</p>
+            <p>{formatAnswer(application.religion)}</p>
           </div>
+          {hasAnswer(application.citizenship) && (
+            <div className="av-field">
+              <label>Citizenship</label>
+              <p>{application.citizenship}</p>
+            </div>
+          )}
           <div className="av-field full">
             <label>Address</label>
             <p>{application.address}</p>
@@ -471,7 +498,11 @@ function ApplicantDetails() {
           </div>
           <div className="av-field">
             <label>Father's Occupation</label>
-            <p>{application.father_occupation}</p>
+            <p>{formatAnswer(application.father_occupation)}</p>
+          </div>
+          <div className="av-field">
+            <label>Father's Education</label>
+            <p>{formatAnswer(application.father_education)}</p>
           </div>
           <div className="av-field">
             <label>Mother's Name</label>
@@ -479,7 +510,11 @@ function ApplicantDetails() {
           </div>
           <div className="av-field">
             <label>Mother's Occupation</label>
-            <p>{application.mother_occupation}</p>
+            <p>{formatAnswer(application.mother_occupation)}</p>
+          </div>
+          <div className="av-field">
+            <label>Mother's Education</label>
+            <p>{formatAnswer(application.mother_education)}</p>
           </div>
           <div className="av-field">
             <label>Household Income</label>
@@ -487,10 +522,49 @@ function ApplicantDetails() {
           </div>
           <div className="av-field">
             <label>Family Size</label>
-            <p>{application.family_size} members</p>
+            <p>{hasAnswer(application.family_size) ? `${application.family_size} members` : 'N/A'}</p>
+          </div>
+          <div className="av-field">
+            <label>Housing Situation</label>
+            <p>{formatAnswer(application.housing_situation)}</p>
+          </div>
+          <div className="av-field">
+            <label>Number of Siblings</label>
+            <p>{formatAnswer(application.num_siblings)}</p>
+          </div>
+          <div className="av-field">
+            <label>Siblings Currently Studying</label>
+            <p>{formatAnswer(application.num_siblings_studying)}</p>
+          </div>
+          <div className="av-field full">
+            <label>Other Scholarship</label>
+            <p>{application.has_other_scholarship
+              ? `Yes — ${application.other_scholarship_details || 'Not specified'}`
+              : 'No other scholarship'}</p>
           </div>
         </div>
       </div>
+
+      {/* LGU-defined custom questions the student answered */}
+      {application.extra_fields && Object.values(application.extra_fields).some(hasAnswer) && (
+        <div className="av-card">
+          <h3 className="av-card-title">Additional Information</h3>
+          <div className="av-grid">
+            {Object.entries(application.extra_fields)
+              .filter(([, value]) => hasAnswer(value))
+              .map(([key, value]) => {
+                const def = customFieldDefs.find(f => f.key === key)
+                const label = def ? def.label : key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+                return (
+                  <div key={key} className={`av-field${def?.type === 'textarea' ? ' full' : ''}`}>
+                    <label>{label}</label>
+                    <p>{formatAnswer(value)}</p>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
+      )}
 
       {/* Academic Info */}
       <div className="av-card">

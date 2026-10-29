@@ -130,7 +130,8 @@ def income_bracket_label(income):
     }[income_to_bracket(income)]
 
 STATUS_MESSAGES = {
-    'Approved': 'Your scholarship application has been approved.',
+    'Approved': ('Your scholarship application has been approved. Next step: disbursement - '
+                 "your LGU's scholarship office will announce when and where to claim your grant."),
     'Rejected': 'Your scholarship application was not approved this time.',
 }
 STATUS_NOTIF_TYPE = {'Approved': 'approved', 'Rejected': 'rejected'}
