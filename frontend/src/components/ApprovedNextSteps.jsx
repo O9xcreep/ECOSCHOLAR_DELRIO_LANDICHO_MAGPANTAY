@@ -5,22 +5,11 @@ import './ApprovedNextSteps.css'
 // office - so this tells them what to expect rather than promising a date.
 function ApprovedNextSteps() {
   return (
-    <div className="ans-box">
-      <p className="ans-title">Next step: Disbursement of your scholarship grant</p>
-      <ol className="ans-steps">
-        <li>
-          Your LGU's scholarship office will announce the disbursement schedule and
-          venue. Watch your EcoScholar notifications and your email.
-        </li>
-        <li>
-          When you claim your grant, bring a valid ID and your School ID or proof of
-          enrollment, in case the office asks to verify your identity.
-        </li>
-        <li>
-          Keep your contact number and email up to date so the office can reach you.
-        </li>
-      </ol>
-    </div>
+    <p className="ans-note">
+      <strong>What happens next:</strong> your LGU's scholarship office will let you know
+      when and where to claim your grant. Keep an eye on your notifications and email,
+      and bring a valid ID when you go.
+    </p>
   )
 }
 
