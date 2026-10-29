@@ -148,7 +148,7 @@ def get_applicant_limit(db, org_id):
 # The choices must stay inside the range the eligibility classifier was trained on
 # (eligibility_bar.selectable_top_percents in ecoscholar_encoding_maps.json).
 DEFAULT_ELIGIBILITY_TOP_PERCENT = 30
-ELIGIBILITY_TOP_PERCENT_CHOICES = list(range(10, 61, 5))
+ELIGIBILITY_TOP_PERCENT_CHOICES = list(range(10, 61, 10))
 
 def get_eligibility_top_percent(db, org_id):
     """The bar the current program was started with. Before any program (or for a program

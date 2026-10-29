@@ -73,7 +73,7 @@ warnings.filterwarnings('ignore')
 ELIGIBLE_PERCENTILE = 70          # the default bar: top 30% of Total Score are eligible
 DEFAULT_TOP_PERCENT = 100 - ELIGIBLE_PERCENTILE
 TRAIN_TOP_PERCENTS = list(range(5, 61, 5))        # bars the cutoff-aware classifier is trained on
-SELECTABLE_TOP_PERCENTS = list(range(10, 61, 5))  # bars an LGU may choose (inside the trained range)
+SELECTABLE_TOP_PERCENTS = list(range(10, 61, 10))  # bars an LGU may choose (inside the trained range)
 RANDOM_STATE = 42
 
 # The application form's occupation dropdown (frontend ApplicationForm.jsx / helpers.py),

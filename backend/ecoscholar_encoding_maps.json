@@ -172,15 +172,10 @@
     "default_top_percent": 30,
     "selectable_top_percents": [
       10,
-      15,
       20,
-      25,
       30,
-      35,
       40,
-      45,
       50,
-      55,
       60
     ],
     "trained_top_percents": [
