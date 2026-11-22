@@ -56,7 +56,7 @@ def main():
 
     print(f"Inserted {inserted} membership row(s)")
     print(f"Skipped {skipped_existing} (already had a membership row)")
-    print(f"Skipped {skipped_no_org} (no organization_id - Super Admin or legacy account)")
+    print(f"Skipped {skipped_no_org} (no organization_id - retired or legacy account)")
     print("Done.")
 
 

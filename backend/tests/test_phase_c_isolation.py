@@ -24,9 +24,9 @@ def two_orgs_with_admins(db, make_user, client):
     """Org A is the auto-created default org; Org B is a second, freshly made
     one. Returns (org_a_id, headers_a, org_b_id, headers_b)."""
     org_a_id = app_module.get_default_organization_id(db)
-    admin_a = make_user(email='admin-a@test.com', password='TestPass123', role='admin', organization_id=org_a_id)
+    admin_a = make_user(email='admin-a@test.com', password='TestPass123', role='lgu_admin', organization_id=org_a_id)
     org_b_id = make_org(db, 'Org B')
-    admin_b = make_user(email='admin-b@test.com', password='TestPass123', role='admin', organization_id=org_b_id)
+    admin_b = make_user(email='admin-b@test.com', password='TestPass123', role='lgu_admin', organization_id=org_b_id)
     return org_a_id, login_headers(client, admin_a), org_b_id, login_headers(client, admin_b)
 
 
@@ -48,6 +48,24 @@ def make_applicant(db, org_id, email, full_name='Test Applicant', **overrides):
 
 
 class TestApplicantListIsolation:
+    def test_system_owner_remains_scoped_to_own_organization(self, client, db, make_user):
+        org_a_id = app_module.get_default_organization_id(db)
+        owner = make_user(
+            email='owner@test.com',
+            password='TestPass123',
+            role='lgu_admin',
+            organization_id=org_a_id,
+            is_system_owner=True,
+        )
+        org_b_id = make_org(db, 'Org B')
+        make_applicant(db, org_a_id, 'a1@test.com', full_name='Owner Org Applicant')
+        make_applicant(db, org_b_id, 'b1@test.com', full_name='Other Org Applicant')
+
+        response = client.get('/api/applicants', headers=login_headers(client, owner))
+        names = [applicant['full_name'] for applicant in response.get_json()['applicants']]
+        assert 'Owner Org Applicant' in names
+        assert 'Other Org Applicant' not in names
+
     def test_admin_only_sees_own_org_applicants(self, client, db, make_user):
         org_a, headers_a, org_b, headers_b = two_orgs_with_admins(db, make_user, client)
         make_applicant(db, org_a, 'a1@test.com', full_name='Org A Applicant')

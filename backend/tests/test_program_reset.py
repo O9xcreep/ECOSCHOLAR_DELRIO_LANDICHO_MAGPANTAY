@@ -160,7 +160,7 @@ class TestCurrentCycleScoping:
             'full_name': 'Reapply Person', 'email': 'reapply@test.com', 'user_id': student['id'],
             'application': {'status': 'Rejected'},
         })
-        admin = make_user(email='admin2@test.com', password='TestPass123', role='admin')
+        admin = make_user(email='admin2@test.com', password='TestPass123', role='lgu_admin')
         admin_res = client.post('/api/login', json={'email': 'admin2@test.com', 'password': 'TestPass123'})
         admin_headers = {'Authorization': f"Bearer {admin_res.get_json()['token']}"}
         set_reset_password(db, 'CorrectPass1')
@@ -186,7 +186,7 @@ class TestCurrentCycleScoping:
             'full_name': 'Closed Cycle Person', 'email': 'closed@test.com', 'user_id': student['id'],
             'application': {'status': 'Approved', 'submitted_at': datetime.utcnow()},
         })
-        admin = make_user(email='admin3@test.com', password='TestPass123', role='admin')
+        admin = make_user(email='admin3@test.com', password='TestPass123', role='lgu_admin')
         admin_res = client.post('/api/login', json={'email': 'admin3@test.com', 'password': 'TestPass123'})
         admin_headers = {'Authorization': f"Bearer {admin_res.get_json()['token']}"}
         set_reset_password(db, 'CorrectPass1')

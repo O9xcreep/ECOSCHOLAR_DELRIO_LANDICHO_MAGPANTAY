@@ -23,7 +23,7 @@ function AdminLayout() {
   const user = getUser() || {}
 
   const canReview = isFullAccess(user) || !!user.permissions?.can_review_applicants
-  const roleLabel = user.role === 'admin' ? 'Super Admin' : user.role === 'lgu_admin' ? 'Admin' : 'LGU Member'
+  const roleLabel = user.is_system_owner ? 'System Owner' : user.role === 'lgu_admin' ? 'LGU Admin' : 'LGU Member'
 
   // Set when this account belongs to no organization: null while fine or unchecked,
   // { disbandedName } otherwise (name is null for an account that never had one).
@@ -32,9 +32,8 @@ function AdminLayout() {
   // An LGU's Admin can delete their organization while staff are signed in. The
   // server has already moved or cleared those accounts, but this session's token
   // still names the deleted org, so ask the server where the account really stands.
-  // (The Super Admin belongs to no organization by design, so it's skipped.)
+  // (System Owners are also organization-scoped and use the same flow.)
   useEffect(() => {
-    if (getUser()?.role === 'admin') return
     let cancelled = false
     ;(async () => {
       try {

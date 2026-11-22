@@ -14,10 +14,10 @@ import gridfs
 from extensions import app, limiter, get_db, DEBUG, FRONTEND_URL, _fs
 from helpers import oid, iso, send_email_async, get_default_organization_id, \
     generate_unique_join_code, find_active_organization_by_code, serialize_organization, \
-    get_organization_municipality
+    get_organization_municipality, get_current_cycle, is_cycle_open
 from auth import require_permission, require_auth, current_organization_oid, ADMIN_PERMISSIONS, \
     create_and_send_otp, verify_otp, issue_token, _admin_apply_serializer, ADMIN_APPLY_TOKEN_MAX_AGE, \
-    verify_google_credential
+    verify_google_credential, is_system_owner
 from documents import allowed_file, ALLOWED_EXTENSIONS, safe_mime_for
 from memberships import create_membership_from_approved_request, serialize_membership, _activate_membership
 from activity import log_activity
@@ -54,6 +54,29 @@ def lookup_organization():
     if not org:
         return jsonify({"error": "That join code isn't valid. Check it with your LGU and try again."}), 404
     return jsonify({"organization": serialize_organization(org)})
+
+@app.route('/api/organizations/directory', methods=['GET'])
+@limiter.limit("20 per minute")
+def list_public_organization_directory():
+    """Public directory for the sign-in page; exposes only active org names,
+    join codes, and whether their current scholarship cycle accepts applications."""
+    db = get_db()
+    organizations = []
+    for org in db.organizations.find(
+        {"status": "active"},
+        {"name": 1, "join_code": 1, "municipality": 1},
+    ).sort("name", 1):
+        cycle = get_current_cycle(db, org["_id"])
+        organizations.append({
+            "id": str(org["_id"]),
+            "name": org.get("name", ""),
+            "municipality": org.get("municipality", ""),
+            "join_code": org.get("join_code", ""),
+            "program_name": cycle.get("label") if cycle else None,
+            "deadline": iso(cycle.get("deadline")) if cycle else None,
+            "is_open": is_cycle_open(cycle),
+        })
+    return jsonify({"organizations": organizations})
 
 def serialize_admin(u):
     doc = {
@@ -97,9 +120,9 @@ def serialize_admin_membership(u, membership):
     return doc
 
 # ── ADMIN ACCOUNT MANAGEMENT ──
-# Super Admin (role="admin") is deliberately unreachable here - it's a
-# dev/platform account, not part of an LGU's own team. This surface only
-# manages "lgu_admin" (the one Admin seat) and "lgu_member" (team members).
+# This surface manages only the active organization's "lgu_admin" seat and
+# "lgu_member" team accounts. The System Owner remains an LGU Admin in their
+# own organization and is not a platform-wide account.
 @app.route('/api/admins', methods=['GET'])
 @require_permission('can_manage_members')
 def list_admins():
@@ -159,8 +182,7 @@ def create_admin_account():
 @require_permission('can_manage_members')
 def update_admin_permissions(admin_id):
     """Edits an existing LGU Member's permission checkboxes. Does not touch role -
-    the Admin seat can only change hands via transfer_admin_role() below, and Super
-    Admin isn't reachable through this endpoint at all (see the role filter below)."""
+    the Admin seat can only change hands via transfer_admin_role() below."""
     admin_oid = oid(admin_id)
     if not admin_oid:
         return jsonify({"error": "Invalid admin id"}), 400
@@ -191,9 +213,8 @@ def update_admin_permissions(admin_id):
     return jsonify({"admin": serialize_admin_membership(target, membership)})
 
 # ── TRANSFER THE ADMIN SEAT ──
-# Exactly one lgu_admin can exist at a time. Super Admin can assign the first
-# one (or reassign in an emergency); once held, only the current holder can
-# pass it on. The outgoing Admin is demoted to a bare lgu_member (permissions
+# Exactly one lgu_admin seat belongs to an organization. The current holder can
+# pass it on; the outgoing Admin is demoted to a bare lgu_member (permissions
 # cleared) rather than left with residual elevated access.
 @app.route('/api/admins/<admin_id>/transfer-admin', methods=['POST'])
 @require_permission('can_manage_members')
@@ -214,7 +235,7 @@ def transfer_admin_role(admin_id):
     requester_role = g.current_user.get('role')
     current_admin_membership = db.memberships.find_one({"role": "lgu_admin", "organization_id": org_id})
     if requester_role == 'lgu_member':
-        return jsonify({"error": "Only the current Admin (or Super Admin) can pass on the Admin seat"}), 403
+        return jsonify({"error": "Only the current LGU Admin can pass on the Admin seat"}), 403
     if requester_role == 'lgu_admin' and (not current_admin_membership or str(current_admin_membership['user_id']) != g.current_user['id']):
         return jsonify({"error": "Only the current Admin can pass on the Admin seat"}), 403
 
@@ -434,8 +455,8 @@ def serialize_admin_request(r, db=None):
             "admin_id": first_approval["admin_id"],
             "admin_name": first_approval["admin_name"],
         } if first_approval else None,
-        # "Founding" requests bootstrap a new organization and are only ever
-        # reviewed by the platform Super Admin, not by an LGU's own admins.
+        # "Founding" requests bootstrap a new organization and are reviewed by
+        # the designated System Owner.
         "is_founding": bool(r.get("is_founding")),
         "organization_name": org_name,
         # "new_account" (default, for requests predating this field) creates a
@@ -451,16 +472,15 @@ def serialize_admin_request(r, db=None):
 # 2) POST /verify-start-otp exchanges the code for a short-lived token proving
 #    the email was reachable; only then does the full form become fillable,
 #    stored under the token's email, not a client-supplied one.
-# A submission never creates the account directly - it queues a request that
-# an existing admin must approve, since admin accounts can see every
-# applicant's PII and control disbursement decisions.
+# A submission never creates the account directly - it queues a request for
+# review by the relevant organization's Admin or the designated System Owner.
 @app.route('/api/admin-requests/start', methods=['POST'])
 @limiter.limit("5 per minute")
 def start_admin_request():
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
 
-    generic = {"message": "If that address can apply for admin access, a verification code has been sent to it."}
+    generic = {"message": "If that address can request organization access, a verification code has been sent to it."}
     if not email or not re.match(r'^\S+@\S+\.\S+$', email):
         return jsonify({"error": "Enter a valid email address"}), 400
 
@@ -643,9 +663,8 @@ def submit_admin_request():
     if not allowed_file(file.filename):
         return jsonify({"error": f"File must be one of: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
 
-    # "Create" bootstraps a brand-new LGU (reviewed by the platform Super
-    # Admin, since no peer admins exist yet); "join" attaches to an LGU that
-    # already exists, via its own admins' shared join code.
+    # "Create" requests a brand-new organization (reviewed by the System
+    # Owner); "join" attaches to an existing organization by its join code.
     org_mode = (request.form.get('org_mode') or 'join').strip().lower()
     if org_mode not in ('join', 'create'):
         return jsonify({"error": "org_mode must be 'join' or 'create'"}), 400
@@ -811,6 +830,11 @@ def view_admin_request_proof(request_id):
     req = db.admin_requests.find_one({"_id": request_oid})
     if not req:
         return jsonify({"error": "Request not found"}), 404
+    if req.get("is_founding"):
+        if not is_system_owner():
+            return jsonify({"error": "Only the LGU System Owner can view a new organization request"}), 403
+    elif req.get("organization_id") != current_organization_oid():
+        return jsonify({"error": "This request belongs to a different organization"}), 403
 
     proof = req.get('proof_of_employment')
     if not proof or not proof.get('gridfs_id'):
@@ -842,11 +866,11 @@ def list_admin_requests():
     else:
         query = {}
 
-    # An LGU's own admins only see their own organization's regular requests,
-    # never a founding request. The platform Super Admin additionally sees
-    # every founding request, on top of its own organization's regular ones.
+    # An LGU's own admins see their organization's regular requests. The
+    # designated System Owner additionally sees requests to create
+    # organizations, without gaining access to those organizations' data.
     org_id = current_organization_oid()
-    if g.current_user.get('role') == 'admin':
+    if is_system_owner():
         query["$or"] = [
             {"is_founding": True},
             {"is_founding": {"$ne": True}, "organization_id": org_id},
@@ -876,8 +900,8 @@ def approve_admin_request(request_id):
 
     is_founding = bool(req.get("is_founding"))
     if is_founding:
-        if g.current_user.get('role') != 'admin':
-            return jsonify({"error": "Only the platform Super Admin can approve a new organization"}), 403
+        if not is_system_owner():
+            return jsonify({"error": "Only the LGU System Owner can approve a new organization"}), 403
     elif req.get("organization_id") != current_organization_oid():
         return jsonify({"error": "This request belongs to a different organization"}), 403
 
@@ -899,9 +923,9 @@ def approve_admin_request(request_id):
     current_admin_id = g.current_user['id']
 
     if is_founding:
-        # No peer review is possible for a brand-new organization - the Super
-        # Admin's review already served as the vetting step, so the founding
-        # account is created directly as the org's lgu_admin (full access).
+        # No peer review is possible for a brand-new organization - the
+        # System Owner's review is the vetting step, so the founding account
+        # becomes that organization's lgu_admin.
         admin_doc = create_admin_from_approved_request(req, 'lgu_admin', None)
         db.organizations.update_one({"_id": req["organization_id"]}, {"$set": {"status": "active"}})
         db.admin_requests.update_one({"_id": request_oid}, {"$set": {
@@ -946,8 +970,8 @@ def reject_admin_request(request_id):
 
     is_founding = bool(req.get("is_founding"))
     if is_founding:
-        if g.current_user.get('role') != 'admin':
-            return jsonify({"error": "Only the platform Super Admin can reject a new organization"}), 403
+        if not is_system_owner():
+            return jsonify({"error": "Only the LGU System Owner can reject a new organization"}), 403
     elif req.get("organization_id") != current_organization_oid():
         return jsonify({"error": "This request belongs to a different organization"}), 403
 

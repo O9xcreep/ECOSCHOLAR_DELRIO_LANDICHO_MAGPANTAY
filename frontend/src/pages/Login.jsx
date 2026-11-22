@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { GoogleLogin } from '@react-oauth/google'
 import { API_BASE_URL, setSession, fetchWithTimeout, connectionErrorMessage } from '../api'
 import AuthShell from '../components/AuthShell'
+import OrganizationShowcase from '../components/OrganizationShowcase'
 
 
 /* ── SVG Icons ── */
@@ -61,6 +62,31 @@ function PasswordStrength({ password }) {
 function Login() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('login')
+  const [organizationDirectory, setOrganizationDirectory] = useState({
+    organizations: [],
+    loading: true,
+    error: '',
+  })
+
+  const loadOrganizationDirectory = useCallback(async () => {
+    setOrganizationDirectory(previous => ({ ...previous, loading: true, error: '' }))
+    try {
+      const response = await fetchWithTimeout(`${API_BASE_URL}/api/organizations/directory`)
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Could not load organizations.')
+      setOrganizationDirectory({ organizations: data.organizations || [], loading: false, error: '' })
+    } catch {
+      setOrganizationDirectory({
+        organizations: [],
+        loading: false,
+        error: connectionErrorMessage(),
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    loadOrganizationDirectory()
+  }, [loadOrganizationDirectory])
 
   // ── LOGIN ──
   const [loginData, setLoginData] = useState({ email: '', password: '' })
@@ -388,6 +414,14 @@ function Login() {
 
   return (
     <AuthShell
+      showcase={() => (
+        <OrganizationShowcase
+          organizations={organizationDirectory.organizations}
+          loading={organizationDirectory.loading}
+          error={organizationDirectory.error}
+          onRetry={loadOrganizationDirectory}
+        />
+      )}
       after={<>
       {/* FORGOT PASSWORD MODAL */}
       {showForgot && (
@@ -719,7 +753,7 @@ function Login() {
               </p>
               <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
                 LGU official?{' '}
-                <Link className="lp-link" to="/apply-admin">Apply for admin access</Link>
+                <Link className="lp-link" to="/apply-admin">Request an LGU account</Link>
               </p>
             </>
           )}

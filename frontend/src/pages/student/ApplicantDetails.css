@@ -239,7 +239,8 @@
 /* ── DOCUMENTS: STATS ── */
 .doc-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: 132px;
   gap: 16px;
 }
 
@@ -449,7 +450,7 @@
 /* ── RESPONSIVE ── */
 @media (max-width: 1024px) {
   .doc-stats {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -461,7 +462,7 @@
     grid-column: 1;
   }
   .doc-stats {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .doc-item {
     flex-direction: column;

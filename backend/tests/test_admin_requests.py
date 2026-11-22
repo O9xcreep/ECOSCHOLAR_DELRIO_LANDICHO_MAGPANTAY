@@ -493,3 +493,30 @@ class TestFoundingOrgMunicipality:
         org = db.organizations.find_one({'name': 'New LGU'})
         assert org is not None
         assert org['municipality'] == 'Pila'
+
+    def test_only_system_owner_can_review_founding_requests(self, client, db, auth_headers):
+        submission = submit_request(
+            client, db, org_mode='create', org_name='New LGU', municipality='Pila',
+            filename='appointment-letter.pdf',
+        )
+        assert submission.status_code == 201
+        req = db.admin_requests.find_one({'email': APPLICANT_EMAIL})
+        ordinary_admin = auth_headers()
+
+        assert client.get('/api/admin-requests?status=pending', headers=ordinary_admin).get_json()['requests'] == []
+        assert client.get(
+            f'/api/admin-requests/{req["_id"]}/proof-of-employment', headers=ordinary_admin
+        ).status_code == 403
+        assert client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=ordinary_admin).status_code == 403
+
+        owner_headers = auth_headers('lgu_admin', is_system_owner=True)
+        owner_list = client.get('/api/admin-requests?status=pending', headers=owner_headers)
+        assert [request['id'] for request in owner_list.get_json()['requests']] == [str(req['_id'])]
+
+        approved = client.post(f'/api/admin-requests/{req["_id"]}/approve', headers=owner_headers)
+        assert approved.status_code == 201, approved.get_json()
+        new_org = db.organizations.find_one({'name': 'New LGU'})
+        new_admin = db.users.find_one({'email': APPLICANT_EMAIL})
+        assert new_org['status'] == 'active'
+        assert new_admin['role'] == 'lgu_admin'
+        assert new_admin.get('is_system_owner') is not True

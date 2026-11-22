@@ -135,7 +135,7 @@ def make_user(db):
     Tagged with the default organization unless organization_id is passed
     explicitly, or False for an untagged legacy account."""
     def _make(email='user@test.com', password='TestPass123', role='student', full_name='Test User',
-              permissions=None, organization_id=...):
+              permissions=None, organization_id=..., is_system_owner=False):
         doc = {
             'full_name': full_name,
             'email': email,
@@ -156,14 +156,16 @@ def make_user(db):
             doc['organization_id'] = organization_id
         else:
             doc['organization_id'] = app_module.get_default_organization_id(db)
+        if is_system_owner and role == 'lgu_admin' and doc.get('organization_id'):
+            doc['is_system_owner'] = True
+            doc['system_owner_organization_id'] = doc['organization_id']
         user_id = db.users.insert_one(doc).inserted_id
         # Mirrors the membership row every real account-creation path now
         # inserts alongside its users doc (register()/create_admin_with_setup_
         # email()/create_admin_from_approved_request()) - without this, a
         # fixture-created lgu_member/lgu_admin/student has no memberships row,
         # and has_permission()/list_admins()/etc. would treat them as having
-        # none. Skipped for role='admin' (Super Admin, never in memberships)
-        # and for deliberately untagged legacy accounts.
+        # none. Skipped for retired role='admin' and deliberately untagged users.
         if role != 'admin' and doc.get('organization_id'):
             db.memberships.insert_one({
                 'user_id': user_id, 'organization_id': doc['organization_id'], 'role': role,
@@ -178,9 +180,17 @@ def make_user(db):
 @pytest.fixture
 def auth_headers(client, make_user):
     """Registers and logs in a fresh account, returning its Authorization
-    header. For role='lgu_member', pass `permissions` to control access."""
-    def _headers(role='admin', permissions=None):
-        user = make_user(email=f'{role}@test.com', password='TestPass123', role=role, permissions=permissions)
+    header. For role='lgu_member', pass `permissions` to control access.
+    `is_system_owner=True` designates the LGU Admin in its own organization."""
+    def _headers(role='admin', permissions=None, is_system_owner=False):
+        stored_role = 'lgu_admin' if role == 'admin' else role
+        user = make_user(
+            email=f'{role}@test.com',
+            password='TestPass123',
+            role=stored_role,
+            permissions=permissions,
+            is_system_owner=is_system_owner,
+        )
         res = client.post('/api/login', json={'email': user['email'], 'password': user['password']})
         token = res.get_json()['token']
         return {'Authorization': f'Bearer {token}'}

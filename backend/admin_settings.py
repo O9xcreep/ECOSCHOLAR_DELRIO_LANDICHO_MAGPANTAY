@@ -217,7 +217,7 @@ def list_program_cycles():
     return jsonify({"cycles": result})
 
 # ── PROGRAM RESET (archive current cycle, start a new one) ──
-# Super Admin and the LGU's Admin always have this; an lgu_member only gets it
+# The LGU Admin always has this; an lgu_member only gets it
 # if explicitly granted can_reset_program, since it changes what's "live"
 # everywhere in the app at once. Nothing is destructive: see
 # do_program_reset()'s docstring.

@@ -5,7 +5,7 @@ import './AuthShell.css'
 // the right (accent strip, "Secure Access" label, footer). `wide` makes room for two-column
 // forms; `after` renders inside the page but outside the form panel (e.g. a modal), so it still
 // picks up the page's colors.
-function AuthShell({ children, wide = false, after = null }) {
+function AuthShell({ children, wide = false, after = null, showcase = null }) {
   return (
     <div className="lp-page">
       <div className="lp-left">
@@ -28,6 +28,8 @@ function AuthShell({ children, wide = false, after = null }) {
           </p>
         </div>
 
+        {showcase && <div className="lp-showcase-desktop">{showcase()}</div>}
+
         <div className="lp-mission">
           <p className="lp-mission-label">Core Mission</p>
           <p className="lp-quote">
@@ -46,6 +48,8 @@ function AuthShell({ children, wide = false, after = null }) {
           </div>
           {children}
         </div>
+
+        {showcase && <div className="lp-showcase-mobile">{showcase()}</div>}
 
         <footer className="lp-footer">
           © {new Date().getFullYear()} EcoScholar

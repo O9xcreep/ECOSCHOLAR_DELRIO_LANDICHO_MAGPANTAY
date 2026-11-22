@@ -22,7 +22,7 @@ _serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-auth')
 RESET_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _reset_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-reset')
 
-# Proves email ownership for the admin-request flow.
+# Proves email ownership for the organization-access request flow.
 ADMIN_APPLY_TOKEN_MAX_AGE = 30 * 60  # 30 minutes
 _admin_apply_serializer = URLSafeTimedSerializer(SECRET_KEY, salt='ecoscholar-admin-apply')
 
@@ -40,12 +40,12 @@ OTP_COPY = {
         "intro": "Enter this on the sign-up page to finish creating your account.",
     },
     "admin_apply": {
-        "subject": "Continue your EcoScholar admin application",
-        "intro": "Enter this on the admin application page to continue.",
+        "subject": "Continue your EcoScholar organization request",
+        "intro": "Enter this on the organization request page to continue.",
     },
     "admin_setup": {
-        "subject": "Set up your EcoScholar admin account",
-        "intro": f'Enter this code on the <a href="{FRONTEND_URL}/admin-setup">admin setup page</a> to activate your account.',
+        "subject": "Set up your EcoScholar organization account",
+        "intro": f'Enter this code on the <a href="{FRONTEND_URL}/admin-setup">account setup page</a> to activate your account.',
     },
 }
 
@@ -157,6 +157,11 @@ def build_session(db, user):
         "full_name": user['full_name'],
         "email": user['email'],
         "role": user['role'],
+        "is_system_owner": bool(
+            user.get('is_system_owner')
+            and user.get('role') == 'lgu_admin'
+            and user.get('organization_id') == user.get('system_owner_organization_id')
+        ),
         "organization_id": str(user['organization_id']) if user.get('organization_id') else None,
         "organization_name": get_organization_name(db, user.get('organization_id')),
     }
@@ -193,6 +198,8 @@ def require_auth(f):
             return jsonify({"error": "Session expired, please log in again"}), 401
         except BadSignature:
             return jsonify({"error": "Invalid session"}), 401
+        if g.current_user.get('role') == 'admin':
+            return jsonify({"error": "This platform admin account is no longer available. Contact your LGU System Owner."}), 403
         if _mongo_db.revoked_tokens.find_one({"token_hash": hash_token(token)}):
             return jsonify({"error": "Session has been logged out, please log in again"}), 401
         g.current_token = token
@@ -210,20 +217,42 @@ def require_role(*roles):
         return wrapper
     return decorator
 
-# Role tiers: "admin" (Super Admin, platform-level), "lgu_admin" (one per LGU,
-# full access, seat held via transfer-admin), "lgu_member" (scoped via
-# `permissions`). Permissions are read fresh from the database on every
-# request so revocation takes effect immediately.
+# Role tiers: "lgu_admin" (one per organization, full organization-scoped
+# access), "lgu_member" (scoped via `permissions`), and "student". The
+# System Owner is an organization Admin with an additional, narrowly scoped
+# flag for reviewing requests to establish new organizations.
 ADMIN_PERMISSIONS = ('can_review_applicants', 'can_manage_members', 'can_reset_program')
 
 def is_full_access_role(role):
-    """True for Super Admin and the LGU's Admin - both get unconditional access."""
-    return role in ('admin', 'lgu_admin')
+    """True only for an LGU Admin, whose access remains organization-scoped."""
+    return role == 'lgu_admin'
 
 def current_organization_oid():
-    """The requesting user's own organization as an ObjectId, or None for
-    Super Admin / a legacy account."""
+    """The requesting user's active organization as an ObjectId, if any."""
     return oid(g.current_user.get('organization_id'))
+
+def is_system_owner():
+    """Check the designated owner's current database role, not a token claim."""
+    user_oid = oid(g.current_user.get('id'))
+    organization_id = current_organization_oid()
+    if not user_oid or not organization_id:
+        return False
+    db = get_db()
+    user_is_owner = db.users.find_one({
+        "_id": user_oid,
+        "role": "lgu_admin",
+        "is_system_owner": True,
+        "organization_id": organization_id,
+        "system_owner_organization_id": organization_id,
+        "status": "active",
+    }, {"_id": 1}) is not None
+    if not user_is_owner:
+        return False
+    return db.memberships.find_one({
+        "user_id": user_oid,
+        "organization_id": organization_id,
+        "role": "lgu_admin",
+    }) is not None
 
 def has_permission(permission):
     """Plain-function form of require_permission, for OR-ing with another condition."""
@@ -297,6 +326,10 @@ def login():
             log_activity('auth', 'Failed login - wrong password', actor=user_actor, outcome='failure')
             return jsonify({"error": "Invalid email or password"}), 401
 
+        if user.get('role') == 'admin':
+            log_activity('auth', 'Login blocked - retired platform admin role', actor=user_actor, outcome='failure')
+            return jsonify({"error": "This platform admin account is no longer available. Contact your LGU System Owner."}), 403
+
         if not is_hashed:
             db.users.update_one({"_id": user['_id']}, {"$set": {"password": generate_password_hash(password)}})
 
@@ -338,7 +371,6 @@ def login_google():
     try:
         db = get_db()
         user = find_or_link_google_user(db, google_user)
-
         if not user:
             log_activity('auth', 'Failed Google sign-in - no account with this email',
                          actor={"email": google_user['email']}, outcome='failure')
@@ -346,6 +378,8 @@ def login_google():
                 "error": "No account found for this Google account. Create one first.",
                 "needs_registration": True,
             }), 404
+        if user.get('role') == 'admin':
+            return jsonify({"error": "This platform admin account is no longer available. Contact your LGU System Owner."}), 403
 
         user_actor = {"id": user['_id'], "email": user['email'], "role": user['role'],
                       "full_name": user.get('full_name'), "organization_id": user.get('organization_id')}
@@ -675,6 +709,8 @@ def forgot_password():
         db = get_db()
         user = db.users.find_one({"email": email})
         if user:
+            if user.get('role') == 'admin':
+                return jsonify({"error": "This platform admin account is no longer available. Contact your LGU System Owner."}), 403
             token = _reset_serializer.dumps({"id": str(user['_id'])})
             reset_link = f"{FRONTEND_URL}/reset-password?token={token}"
             html = f"""

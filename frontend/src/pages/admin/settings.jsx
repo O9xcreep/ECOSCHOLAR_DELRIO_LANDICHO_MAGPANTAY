@@ -138,7 +138,7 @@ function YourOrganizationsCard() {
                 <span className="info-value">
                   {m.organization_name || 'Unknown organization'}
                   <span className="badge" style={{ marginLeft: '8px', background: '#E0F2FE', color: '#075985' }}>
-                    {m.role === 'lgu_admin' ? 'Admin' : m.role === 'lgu_member' ? 'LGU Member' : 'Student'}
+                    {m.role === 'lgu_admin' ? 'LGU Admin' : m.role === 'lgu_member' ? 'LGU Member' : 'Student'}
                   </span>
                   {m.is_active && <span className="badge badge-green" style={{ marginLeft: '8px' }}>Active</span>}
                 </span>
@@ -468,7 +468,7 @@ function ProfileTab() {
           <div className="info-item">
             <span className="info-label">Role</span>
             <span className="badge badge-purple">
-              {user.role === 'admin' ? 'Super Admin' : user.role === 'lgu_admin' ? 'Admin' : 'LGU Member'}
+                  {user.is_system_owner ? 'System Owner' : user.role === 'lgu_admin' ? 'LGU Admin' : 'LGU Member'}
             </span>
           </div>
 
@@ -479,7 +479,7 @@ function ProfileTab() {
         </div>
       </div>
 
-      {user.role !== 'admin' && <YourOrganizationsCard />}
+      <YourOrganizationsCard />
 
       <div className="settings-card">
         <h4 className="card-label">Session</h4>
@@ -578,7 +578,7 @@ function SecurityTab() {
         </button>
       </div>
 
-      {user.role !== 'admin' && <DangerZoneCard />}
+      <DangerZoneCard />
     </div>
   )
 }
@@ -1254,7 +1254,7 @@ function AdminRequestsSection({ onApproved }) {
   const confirmApproval = async (req) => {
     const confirmMsg = req.request_kind === 'add_membership'
       ? `Add ${req.full_name} (${req.email}) to your team with the permissions selected below? They already have an account elsewhere - this just adds this organization to it.`
-      : `Grant admin access to ${req.full_name} (${req.email}) with the permissions selected below? They already chose a password when applying, so they'll be able to sign in right away.`
+      : `Approve an LGU account request from ${req.full_name} (${req.email}) with the permissions selected below? They already chose a password when applying, so they'll be able to sign in right away.`
     if (!window.confirm(confirmMsg)) return
     setActionError('')
     setActioningId(req.id)
@@ -1297,7 +1297,8 @@ function AdminRequestsSection({ onApproved }) {
   }
 
   const handleReject = async (req) => {
-    if (!window.confirm(`Reject the admin request from ${req.full_name} (${req.email})?`)) return
+    const requestLabel = req.is_founding ? 'new organization request' : 'LGU account request'
+    if (!window.confirm(`Reject the ${requestLabel} from ${req.full_name} (${req.email})?`)) return
     setActionError('')
     setActioningId(req.id)
     try {
@@ -1316,7 +1317,7 @@ function AdminRequestsSection({ onApproved }) {
   if (loadError) {
     return (
       <div>
-        <div className="security-error" style={{ marginBottom: '10px' }}>Couldn't load admin requests.</div>
+        <div className="security-error" style={{ marginBottom: '10px' }}>Couldn't load organization or team requests.</div>
         <button className="btn-change" onClick={loadRequests}>Retry</button>
       </div>
     )
@@ -1325,9 +1326,9 @@ function AdminRequestsSection({ onApproved }) {
 
   return (
     <div className="settings-card" style={{ marginBottom: '20px' }}>
-      <h4 className="card-label" style={{ marginBottom: '4px' }}>Pending Admin Requests</h4>
+      <h4 className="card-label" style={{ marginBottom: '4px' }}>Pending Organization &amp; Team Requests</h4>
       <p className="info-sub" style={{ marginBottom: '14px' }}>
-        Submitted via "Apply as Admin" on the login page. Check their uploaded ID/proof of employment and verify
+        Submitted via "Request an LGU Account" on the login page. Check their uploaded ID/proof of employment and verify
         the requester is a real LGU official before approving.
       </p>
       {actionError && <div className="security-error" style={{ marginBottom: '10px' }}>{actionError}</div>}
@@ -1338,7 +1339,7 @@ function AdminRequestsSection({ onApproved }) {
             {req.is_founding && (
               <div className="security-error" style={{ background: 'var(--accent-light)', color: 'var(--accent-dark)', marginBottom: '12px' }}>
                 New Organization Request — <strong>{req.organization_name}</strong> has no team yet, so this is
-                reviewed here as the platform Super Admin rather than by a peer admin.
+                reviewed by the designated LGU System Owner rather than by an existing organization.
               </div>
             )}
             {req.request_kind === 'add_membership' && (
@@ -1485,7 +1486,7 @@ function JoinCodeCard() {
     <div className="settings-card" style={{ marginBottom: '20px' }}>
       <h4 className="card-label" style={{ marginBottom: '4px' }}>Your LGU's Join Code</h4>
       <p className="info-sub" style={{ marginBottom: '14px' }}>
-        Share this with anyone who needs to register a student account or apply for admin access
+        Share this with anyone who needs to register a student account or request an LGU account
         under <strong>{org.name}</strong> - they'll enter it before filling out the rest of their form.
       </p>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1813,7 +1814,7 @@ function Settings() {
   const currentUser = getUser() || {}
   const canManageMembers = isFullAccess(currentUser) || !!currentUser.permissions?.can_manage_members
 
-  // System (eligibility/reset/export settings) is Super Admin + Admin only. Profile (which
+  // System (eligibility/reset/export settings) is LGU Admin-only. Profile (which
   // includes Security) and Team are available to everyone: Team always shows the guide, and
   // its team-management part only to those with can_manage_members.
   const tabs = ALL_TABS.filter(tab =>

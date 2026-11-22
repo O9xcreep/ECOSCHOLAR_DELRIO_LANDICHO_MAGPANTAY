@@ -234,6 +234,12 @@ class TestLogin:
         assert res.status_code == 200
         assert 'token' in res.get_json()
 
+    def test_retired_platform_admin_cannot_log_in(self, client, make_user):
+        make_user(email='retired-admin@test.com', password='ValidPass123', role='admin')
+        res = client.post('/api/login', json={'email': 'retired-admin@test.com', 'password': 'ValidPass123'})
+        assert res.status_code == 403
+        assert 'no longer available' in res.get_json()['error']
+
     def test_login_wrong_password(self, client, make_user):
         make_user(email='juan@test.com', password='ValidPass123')
         res = client.post('/api/login', json={'email': 'juan@test.com', 'password': 'WrongPass123'})

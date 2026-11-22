@@ -6,7 +6,7 @@ import { compressImageFile, MAX_UPLOAD_BYTES } from '../fileUtils'
 import AuthShell from '../components/AuthShell'
 
 // Two ways to land here:
-// - No token in the URL: the public, self-service "apply for admin access"
+// - No token in the URL: the public, self-service LGU organization/account request
 //   flow - fill in the full form (including your own email), then verify a
 //   one-time code sent to that email before the request is actually
 //   submitted for review.
@@ -550,7 +550,7 @@ function ApplyForm() {
 
   return (
     <ApplyAdminShell>
-      <h2 className="lp-title">Apply as Admin</h2>
+      <h2 className="lp-title">Request an LGU Account</h2>
       <p className="lp-sub">Complete the form below to request administrator access.</p>
 
       {formError && <div className="lp-alert error">{formError}</div>}
@@ -605,7 +605,7 @@ function ApplyForm() {
               onKeyDown={handleFormKeyDown}
             />
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-              A new organization has no existing team to review this request, so it will instead be reviewed by the platform's Super Admin. Once approved, you will receive a join code to share with your team.
+              A new organization has no existing team, so the designated LGU System Owner will review this request. Once approved, you will receive a join code to share with your team.
             </p>
             <select
               className="lp-input"
@@ -765,7 +765,7 @@ function ApplyForm() {
         <textarea
           className="lp-input"
           rows={3}
-          placeholder="State the reason for your admin access request"
+          placeholder="Explain why you need an LGU organization account"
           value={data.message}
           onChange={e => { setData(p => ({ ...p, message: e.target.value })); setFormError('') }}
         />
@@ -775,7 +775,7 @@ function ApplyForm() {
         <label htmlFor="proofFile">Valid ID or Proof of Employment</label>
         <p style={{ fontSize: '12.5px', color: 'var(--text-secondary)', margin: '-2px 0 8px' }}>
           Submit an appointment letter, employee identification, or contract of service (COS) - PDF, JPG, or PNG, up to 5MB.
-          This document will be reviewed by an administrator before your request is approved.
+          This document will be reviewed by the organization's Admin or the LGU System Owner before your request is approved.
         </p>
         <label className="lp-file-upload" htmlFor="proofFile">
           <input

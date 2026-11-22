@@ -6,16 +6,14 @@ import app as app_module
 
 
 class TestRequirePermissionGating:
-    def test_super_admin_bypasses_every_permission_check(self, client, auth_headers):
-        """role='admin' always passes require_permission, regardless of which
-        permission is being checked - matches pre-existing full-access behavior."""
+    def test_lgu_admin_bypasses_every_permission_check(self, client, auth_headers):
+        """The LGU Admin has unconditional access within its active organization."""
         headers = auth_headers()
         assert client.get('/api/admins', headers=headers).status_code == 200
         assert client.get('/api/applicants', headers=headers).status_code == 200
 
     def test_lgu_admin_bypasses_every_permission_check_too(self, client, auth_headers):
-        """The one-per-LGU Admin seat gets the same unconditional full access as
-        Super Admin - it just isn't visible/reachable through the Team UI."""
+        """The LGU Admin has full access, but remains scoped to its organization."""
         headers = auth_headers('lgu_admin')
         assert client.get('/api/admins', headers=headers).status_code == 200
         assert client.get('/api/applicants', headers=headers).status_code == 200
@@ -59,7 +57,7 @@ class TestUpdateAdminPermissions:
     always makes an lgu_member, and the one Admin seat can only change hands via
     POST /api/admins/<id>/transfer-admin (see TestAdminSeatTransfer)."""
 
-    def test_super_admin_can_grant_permissions_to_lgu_member(self, client, auth_headers, db):
+    def test_lgu_admin_can_grant_permissions_to_lgu_member(self, client, auth_headers, db):
         admin_headers = auth_headers()
         create_res = client.post('/api/admins', headers=admin_headers,
                                   json={'full_name': 'Member', 'email': 'member@test.com', 'permissions': {}})
@@ -95,15 +93,15 @@ class TestUpdateAdminPermissions:
                           json={'role': 'lgu_admin', 'permissions': {'can_review_applicants': True}})
         assert res.status_code == 200
         assert res.get_json()['admin']['role'] == 'lgu_member'
-        assert db.users.count_documents({'role': 'lgu_admin'}) == 0
+        assert db.users.count_documents({'role': 'lgu_admin'}) == 1
 
-    def test_cannot_target_super_admin(self, client, auth_headers, make_user):
-        """Super Admin isn't reachable through this LGU-facing endpoint at all -
+    def test_cannot_target_retired_platform_admin(self, client, auth_headers, make_user):
+        """A retired platform account isn't reachable through the LGU endpoint -
         looking it up by id 404s, same as any other id that isn't an lgu_member."""
         admin_headers = auth_headers()
-        other_super_admin = make_user(email='othersuperadmin@test.com', role='admin')
+        retired_admin = make_user(email='retiredadmin@test.com', role='admin')
 
-        res = client.put(f'/api/admins/{other_super_admin["id"]}/permissions', headers=admin_headers,
+        res = client.put(f'/api/admins/{retired_admin["id"]}/permissions', headers=admin_headers,
                           json={'permissions': {}})
         assert res.status_code == 404
 

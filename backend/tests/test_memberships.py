@@ -50,9 +50,14 @@ class TestLoginBackfillsMembership:
         client.post('/api/login', json={'email': 'notlegacy@test.com', 'password': 'TestPass123'})
         assert db.memberships.count_documents({'user_id': user['id']}) == 1
 
-    def test_super_admin_login_creates_no_membership(self, client, auth_headers, db):
-        auth_headers()
-        assert db.memberships.count_documents({}) == 0
+    def test_retired_platform_admin_cannot_log_in_or_create_membership(self, client, make_user, db):
+        retired_admin = make_user(email='retired@test.com', role='admin')
+        response = client.post('/api/login', json={
+            'email': 'retired@test.com',
+            'password': retired_admin['password'],
+        })
+        assert response.status_code == 403
+        assert db.memberships.count_documents({'user_id': retired_admin['id']}) == 0
 
 
 class TestStudentSelfServiceJoin:
@@ -117,10 +122,10 @@ class TestSwitchOrganization:
         res = client.post('/api/organizations/switch', headers=headers, json={'organization_id': str(other_org_id)})
         assert res.status_code == 404
 
-    def test_super_admin_cannot_switch(self, client, auth_headers):
+    def test_lgu_admin_cannot_switch_to_an_unowned_organization(self, client, auth_headers):
         res = client.post('/api/organizations/switch', headers=auth_headers(),
                            json={'organization_id': '000000000000000000000000'})
-        assert res.status_code == 400
+        assert res.status_code == 404
 
 
 class TestListMemberships:
@@ -142,9 +147,12 @@ class TestListMemberships:
         assert len(memberships) == 2
         assert sum(1 for m in memberships if m['is_active']) == 1
 
-    def test_super_admin_has_no_memberships(self, client, auth_headers):
+    def test_lgu_admin_sees_its_organization_membership(self, client, auth_headers):
         res = client.get('/api/memberships', headers=auth_headers())
-        assert res.get_json()['memberships'] == []
+        memberships = res.get_json()['memberships']
+        assert len(memberships) == 1
+        assert memberships[0]['role'] == 'lgu_admin'
+        assert memberships[0]['is_active'] is True
 
 
 class TestDeleteOwnAccount:
@@ -186,9 +194,9 @@ class TestDeleteOwnAccount:
         assert res.status_code == 400
         assert db.users.find_one({'email': 'seat@test.com'}) is not None
 
-    def test_super_admin_cannot_self_delete(self, client, auth_headers):
+    def test_system_owner_cannot_self_delete_while_holding_admin_seat(self, client, auth_headers):
         res = client.delete('/api/account', headers=auth_headers(), json={'password': 'TestPass123'})
-        assert res.status_code == 403
+        assert res.status_code == 400
 
 
 def _login_headers(client, email, password='TestPass123'):
@@ -451,9 +459,9 @@ class TestDeleteOrganization:
             assert res.status_code == 403, email
         assert db.organizations.find_one({'_id': org_id}) is not None
 
-    def test_super_admin_cannot_delete(self, client, db, auth_headers):
+    def test_system_owner_cannot_delete_its_own_organization(self, client, db, auth_headers):
         org_id = app_module.get_default_organization_id(db)
-        res = self._delete(client, auth_headers(), org_id)
+        res = self._delete(client, auth_headers(is_system_owner=True), org_id)
         assert res.status_code == 400
         assert db.organizations.find_one({'_id': org_id}) is not None
 
