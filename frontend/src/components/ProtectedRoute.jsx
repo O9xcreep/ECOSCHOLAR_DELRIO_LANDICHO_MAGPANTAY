@@ -1,10 +1,9 @@
 import { Navigate } from 'react-router-dom'
 import { getToken, getUser } from '../api'
 
-// LGU members (and the LGU's own Admin) share the admin area with Super Admin - their
-// scoped permissions are checked server-side per endpoint, only the route-level
-// admin/student split happens here.
-const ADMIN_AREA_ROLES = ['admin', 'lgu_admin', 'lgu_member']
+// LGU members and the LGU Admin share the organization dashboard; scoped
+// permissions are checked server-side per endpoint.
+const ADMIN_AREA_ROLES = ['lgu_admin', 'lgu_member']
 
 function ProtectedRoute({ role, children }) {
   const token = getToken()
@@ -16,7 +15,10 @@ function ProtectedRoute({ role, children }) {
 
   const allowed = role === 'admin' ? ADMIN_AREA_ROLES.includes(user.role) : user.role === role
   if (role && !allowed) {
-    return <Navigate to={user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'} replace />
+    const destination = user.role === 'admin'
+      ? '/login'
+      : user.role === 'student' ? '/student/dashboard' : '/admin/dashboard'
+    return <Navigate to={destination} replace />
   }
 
   return children

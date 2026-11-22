@@ -6,7 +6,7 @@ import AuthShell from '../components/AuthShell'
 // For a team member an existing admin invited directly (Settings > Team > Add
 // Admin, or Resend Invite) - they got an emailed 6-digit code, not a link.
 // Entering it here only proves the email is theirs; choosing a password
-// happens next on /apply-admin, the same page the public "Apply as Admin"
+// happens next on /apply-admin, the same page the public LGU account request
 // flow uses to finish creating an account.
 
 function AdminSetup() {

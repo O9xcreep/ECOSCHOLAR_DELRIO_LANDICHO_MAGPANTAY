@@ -3,7 +3,8 @@
  * photo shows through the gap the diamond peeks through. */
 .stat-tile-book {
   position: relative;
-  min-height: 108px;
+  box-sizing: border-box;
+  height: 132px;
   padding-top: 24px;
   min-width: 0;
 }

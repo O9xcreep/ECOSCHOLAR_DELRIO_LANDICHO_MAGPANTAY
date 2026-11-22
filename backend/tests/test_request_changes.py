@@ -101,7 +101,7 @@ class TestResubmitAfterRequestChanges:
             'application': {'status': 'Newly Submitted'},
         }).inserted_id
 
-        admin = make_user(email='reviewer@test.com', password='TestPass123', role='admin')
+        admin = make_user(email='reviewer@test.com', password='TestPass123', role='lgu_admin')
         admin_login = client.post('/api/login', json={'email': 'reviewer@test.com', 'password': 'TestPass123'})
         admin_headers = {'Authorization': f"Bearer {admin_login.get_json()['token']}"}
         res = client.put(f'/api/applications/{applicant_id}/request-changes',
@@ -131,7 +131,7 @@ class TestResubmitAfterRequestChanges:
             'application': {'status': 'Newly Submitted'},
         }).inserted_id
 
-        make_user(email='reviewer@test.com', password='TestPass123', role='admin')
+        make_user(email='reviewer@test.com', password='TestPass123', role='lgu_admin')
         admin_login = client.post('/api/login', json={'email': 'reviewer@test.com', 'password': 'TestPass123'})
         admin_headers = {'Authorization': f"Bearer {admin_login.get_json()['token']}"}
         res = client.put(f'/api/applications/{old_id}/request-changes',

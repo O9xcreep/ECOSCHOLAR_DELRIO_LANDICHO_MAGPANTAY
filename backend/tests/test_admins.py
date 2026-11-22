@@ -8,15 +8,15 @@ class TestListAdmins:
         res = client.get('/api/admins', headers=auth_headers('student'))
         assert res.status_code == 403
 
-    def test_excludes_students_and_super_admin(self, client, db, auth_headers, make_user):
-        """Super Admin (role='admin') is a dev/platform account, not part of an LGU's
-        own team - it's deliberately invisible here, even to itself."""
+    def test_excludes_students_and_retired_platform_accounts(self, client, db, auth_headers, make_user):
         make_user(email='student1@test.com', role='student')
-        headers = auth_headers()  # creates admin@test.com, role='admin'
+        make_user(email='legacy-admin@test.com', role='admin')
+        headers = auth_headers()  # creates admin@test.com, role='lgu_admin'
         res = client.get('/api/admins', headers=headers)
         emails = [a['email'] for a in res.get_json()['admins']]
         assert 'student1@test.com' not in emails
-        assert 'admin@test.com' not in emails
+        assert 'legacy-admin@test.com' not in emails
+        assert 'admin@test.com' in emails
 
     def test_lists_lgu_admin_and_lgu_member(self, client, db, auth_headers):
         headers = auth_headers()
@@ -74,15 +74,11 @@ class TestDeleteAdmin:
         res = client.delete(f'/api/admins/{me["_id"]}', headers=headers)
         assert res.status_code == 400
 
-    def test_lgu_member_cannot_remove_a_super_admin(self, client, auth_headers, db):
-        """Super Admin isn't part of the LGU team-management surface; even with
-        can_manage_members this 404s rather than confirming via 403 that the
-        id belongs to an admin."""
-        auth_headers()  # creates the sole super admin, admin@test.com
+    def test_lgu_member_cannot_remove_a_retired_platform_account(self, client, auth_headers, make_user):
+        retired_admin = make_user(email='legacy-admin@test.com', role='admin')
         lgu_headers = auth_headers('lgu_member', permissions={'can_manage_members': True})
-        me = db.users.find_one({'email': 'admin@test.com'})
 
-        res = client.delete(f'/api/admins/{me["_id"]}', headers=lgu_headers)
+        res = client.delete(f'/api/admins/{retired_admin["id"]}', headers=lgu_headers)
         assert res.status_code == 404
 
     def test_delete_target_must_be_a_team_member(self, client, auth_headers, make_user):

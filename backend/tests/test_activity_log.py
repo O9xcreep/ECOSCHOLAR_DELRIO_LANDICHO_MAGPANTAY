@@ -55,7 +55,7 @@ class TestWhoCanReadTheActivityLog:
         actions = [log['action'] for log in res.get_json()['logs']]
         assert 'Logged in' in actions
 
-    def test_super_admin_can_read_the_log(self, client, auth_headers):
+    def test_lgu_admin_can_read_the_log(self, client, auth_headers):
         res = client.get('/api/activity-logs', headers=auth_headers('admin'))
         assert res.status_code == 200
 
@@ -75,6 +75,16 @@ class TestWhoCanReadTheActivityLog:
 
     def test_lgu_admin_never_sees_another_organizations_log(self, client, db, auth_headers):
         headers = auth_headers('lgu_admin')
+        db.activity_logs.insert_one({
+            "created_at": __import__('datetime').datetime.utcnow(), "category": "auth",
+            "action": "Other LGU event", "outcome": "success", "actor": {"email": "x@other.test"},
+            "organization_id": ObjectId(),
+        })
+        actions = [log['action'] for log in client.get('/api/activity-logs', headers=headers).get_json()['logs']]
+        assert 'Other LGU event' not in actions
+
+    def test_system_owner_only_sees_its_organizations_log(self, client, db, auth_headers):
+        headers = auth_headers('lgu_admin', is_system_owner=True)
         db.activity_logs.insert_one({
             "created_at": __import__('datetime').datetime.utcnow(), "category": "auth",
             "action": "Other LGU event", "outcome": "success", "actor": {"email": "x@other.test"},

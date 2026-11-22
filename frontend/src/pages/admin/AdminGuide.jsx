@@ -16,7 +16,7 @@ const STEPS = [
   {
     title: '1. Get your LGU on EcoScholar',
     items: [
-      <>Apply on the <strong>Apply for Admin Access</strong> page and choose <strong>Create a new organization</strong>. The platform admin checks your proof of employment and approves it.</>,
+      <>Request an LGU account on the sign-in page and choose <strong>Create a new organization</strong>. The designated LGU System Owner checks your proof of employment and approves it.</>,
       <>Give students your LGU&apos;s <strong>join code</strong> (Settings &rarr; Team). They need it to register.</>,
     ],
   },

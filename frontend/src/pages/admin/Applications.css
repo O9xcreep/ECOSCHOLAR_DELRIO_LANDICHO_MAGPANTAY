@@ -9,7 +9,8 @@
  * components/StatTile.css - shared with every other stat row in the app. */
 .app-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 132px;
   gap: 16px;
 }
 
@@ -464,7 +465,7 @@
 /* ── RESPONSIVE ── */
 @media (max-width: 1024px) {
   .app-stats {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -479,7 +480,7 @@
 
 @media (max-width: 600px) {
   .app-stats {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .page-header {

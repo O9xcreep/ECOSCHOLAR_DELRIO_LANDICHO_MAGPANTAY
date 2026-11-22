@@ -46,13 +46,25 @@ Runs against an in-memory MongoDB mock (`mongomock`), never the real Atlas
 cluster - no `.env` or network access needed. Also runs automatically on
 push/PR via GitHub Actions (`.github/workflows/backend-tests.yml`).
 
-## Admin accounts
+## Organization accounts
 
-There are no seeded/demo credentials. Create an admin account with:
+Each organization has its own LGU Admin and member accounts. One existing LGU
+Admin is designated as the System Owner; that account can approve requests to
+create new organizations but still only sees records for its own organization.
+There is no platform-wide Super Admin login.
+
+On a fresh install, bootstrap the first organization and System Owner with:
 ```
 python backend/scripts/create_admin.py
 ```
-Student accounts are created through the normal registration flow.
+To designate or transfer the System Owner role to an existing LGU Admin:
+```
+python backend/scripts/assign_system_owner.py
+```
+Both scripts use `backend/.env`, require explicit confirmation, and do not run
+automatically. Student accounts are created through the normal registration
+flow; LGU accounts are requested from the shared sign-in page and approved by
+the System Owner or the relevant organization's Admin.
 
 ## Repo layout
 
@@ -63,5 +75,6 @@ Student accounts are created through the normal registration flow.
   the trained eligibility model bundle (see `backend/schema/ml_model.md` for
   its exact feature schema and encoding)
 - `backend/schema/` — DB schema docs and the ML model contract
+- `COMPLEXITY_ANALYSIS.md` — Big-O analysis of applicant ranking and filtering
 - `backend/scripts/` — one-off migration/seed scripts
 - `frontend/src/pages/admin/` and `frontend/src/pages/student/` — the two portals

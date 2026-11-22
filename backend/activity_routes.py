@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
 """Read side of the activity log (see activity.py for the writer).
 
-Only the LGU's Admin and the platform Super Admin can read it: it records who
-signed in from where and who viewed which applicant's documents, which
-ordinary team members shouldn't be able to browse. The role is re-checked
-against the database, not taken from the session token, so passing on the
-Admin seat revokes access immediately."""
+Only the active organization's Admin can read it: it records sign-ins and
+document access, which ordinary team members shouldn't browse. The role is
+re-checked against the database, not taken from the session token, so passing
+on the Admin seat revokes access immediately."""
 import re
 from datetime import datetime, timedelta
 from flask import request, jsonify, g
@@ -18,9 +17,6 @@ from activity import CATEGORIES
 
 def _is_activity_log_reader(db):
     user_oid = oid(g.current_user.get('id'))
-    if g.current_user.get('role') == 'admin':
-        user = db.users.find_one({"_id": user_oid}, {"role": 1})
-        return bool(user and user.get('role') == 'admin')
     if g.current_user.get('role') == 'lgu_admin':
         return db.memberships.find_one({"user_id": user_oid, "organization_id": current_organization_oid(),
                                         "role": "lgu_admin"}) is not None
@@ -71,10 +67,7 @@ def list_activity_logs():
         return jsonify({"error": "page and page_size must be numbers"}), 400
 
     query = {}
-    # Super Admin sees every organization's log (and platform-level events);
-    # an LGU Admin only ever sees their own organization's.
-    if g.current_user.get('role') != 'admin':
-        query["organization_id"] = current_organization_oid()
+    query["organization_id"] = current_organization_oid()
 
     category = request.args.get('category')
     if category:

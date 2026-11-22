@@ -4,6 +4,7 @@ organization and every write to a per-tenant collection tags itself with it,
 ahead of any query actually filtering on organization_id (that's Phase C).
 Nothing here should change existing behavior - it's purely additive."""
 import app as app_module
+from datetime import datetime, timedelta
 
 REGISTER_PAYLOAD = {
     'full_name': 'Org Test Student', 'email': 'orgtest@test.com', 'password': 'TestPass123',
@@ -147,6 +148,42 @@ class TestLookupOrganization:
         })
         res = client.get('/api/organizations/lookup?code=PEND01')
         assert res.status_code == 404
+
+
+class TestPublicOrganizationDirectory:
+    def test_lists_active_organizations_with_codes_and_program_status(self, client, db):
+        open_org_id = app_module.get_default_organization_id(db)
+        open_org = db.organizations.find_one({"_id": open_org_id})
+        db.program_cycles.insert_one({
+            "organization_id": open_org_id,
+            "label": "2026 Scholarship Program",
+            "started_at": datetime.utcnow(),
+            "closed_at": None,
+            "deadline": datetime.utcnow() + timedelta(days=10),
+        })
+        closed_org_id = db.organizations.insert_one({
+            "name": "Closed Organization", "join_code": "CLOSED01", "status": "active",
+        }).inserted_id
+        db.program_cycles.insert_one({
+            "organization_id": closed_org_id,
+            "label": "Past Program",
+            "closed_at": datetime.utcnow(),
+            "deadline": datetime.utcnow() + timedelta(days=10),
+        })
+        db.organizations.insert_one({
+            "name": "Pending Organization", "join_code": "PENDING1", "status": "pending",
+        })
+
+        response = client.get('/api/organizations/directory')
+        assert response.status_code == 200
+        organizations = response.get_json()["organizations"]
+        assert [org["name"] for org in organizations] == ["Closed Organization", "Default Organization"]
+        by_name = {org["name"]: org for org in organizations}
+        assert by_name["Default Organization"]["join_code"] == open_org["join_code"]
+        assert by_name["Default Organization"]["program_name"] == "2026 Scholarship Program"
+        assert by_name["Default Organization"]["is_open"] is True
+        assert by_name["Closed Organization"]["is_open"] is False
+        assert "PENDING1" not in [org["join_code"] for org in organizations]
 
 
 class TestGetMyOrganization:

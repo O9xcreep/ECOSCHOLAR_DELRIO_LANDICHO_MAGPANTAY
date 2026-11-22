@@ -37,6 +37,11 @@ def _activate_membership(db, user_oid, membership):
 
     user_payload = {
         "id": str(user["_id"]), "full_name": user["full_name"], "email": user["email"], "role": user["role"],
+        "is_system_owner": bool(
+            user.get("is_system_owner")
+            and user.get("role") == "lgu_admin"
+            and user.get("organization_id") == user.get("system_owner_organization_id")
+        ),
         "organization_id": str(user["organization_id"]) if user.get("organization_id") else None,
         "organization_name": get_organization_name(db, user.get("organization_id")),
     }
@@ -90,8 +95,6 @@ def create_membership_from_approved_request(req, permissions):
 @app.route('/api/memberships', methods=['GET'])
 @require_auth
 def list_my_memberships():
-    if g.current_user.get('role') == 'admin':
-        return jsonify({"memberships": []})
     db = get_db()
     user_oid = oid(g.current_user['id'])
     active_org_id = current_organization_oid()
@@ -148,9 +151,6 @@ def join_organization():
 @app.route('/api/organizations/switch', methods=['POST'])
 @require_auth
 def switch_organization():
-    if g.current_user.get('role') == 'admin':
-        return jsonify({"error": "The Super Admin account isn't tied to an organization"}), 400
-
     data = request.get_json() or {}
     target_oid = oid(data.get('organization_id'))
     if not target_oid:
@@ -183,9 +183,6 @@ def _password_matches(user, password):
 @require_auth
 @limiter.limit("5 per minute")
 def delete_own_account():
-    if g.current_user.get('role') == 'admin':
-        return jsonify({"error": "Super Admin accounts can't be deleted through self-service - contact your platform operator."}), 403
-
     data = request.get_json() or {}
     password = data.get('password') or ''
 
@@ -203,6 +200,8 @@ def delete_own_account():
 
     if db.memberships.find_one({"user_id": user_oid, "role": "lgu_admin"}):
         return jsonify({"error": "You currently hold the Admin seat in at least one organization. Transfer it to someone else, or delete the organization, before deleting your account."}), 400
+    if user.get("is_system_owner"):
+        return jsonify({"error": "Assign the System Owner role to another LGU Admin before deleting this account."}), 400
 
     # Memberships are pure relationship data (unlike applicants/notifications/
     # audit_trail, which stay untouched as historical records) - cascade them.
@@ -288,9 +287,6 @@ def _leave_deleted_org(db, user_oid, org_oid, org_name):
 @require_auth
 @limiter.limit("5 per minute")
 def delete_organization(organization_id):
-    if g.current_user.get('role') == 'admin':
-        return jsonify({"error": "The Super Admin account isn't tied to an organization"}), 400
-
     org_oid = oid(organization_id)
     if not org_oid:
         return jsonify({"error": "Invalid organization id"}), 400
@@ -309,6 +305,8 @@ def delete_organization(organization_id):
     organization = db.organizations.find_one({"_id": org_oid})
     if not organization:
         return jsonify({"error": "Organization not found"}), 404
+    if db.users.find_one({"is_system_owner": True, "system_owner_organization_id": org_oid}):
+        return jsonify({"error": "Assign the System Owner role to another organization before deleting this one."}), 400
 
     # 403 rather than 401: the frontend treats any 401 as an expired session
     # and signs the user out, which a mistyped password shouldn't do.
@@ -335,7 +333,7 @@ def delete_organization(organization_id):
     db.memberships.delete_many({"organization_id": org_oid})
     db.organizations.delete_one({"_id": org_oid})
     # Written after the cascade above, so this record of who deleted the
-    # organization survives it (visible to the Super Admin).
+    # organization survives it in the organization's activity log.
     log_activity('settings', 'Deleted the organization and all of its data', organization_id=org_oid,
                  target={"type": "organization", "id": org_oid, "label": organization.get('name')})
 

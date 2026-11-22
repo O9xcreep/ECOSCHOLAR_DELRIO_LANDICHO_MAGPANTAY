@@ -95,6 +95,11 @@ def _ensure_indexes():
         _mongo_db.revoked_tokens.create_index("token_hash")
         _mongo_db.users.create_index("email", unique=True)
         _mongo_db.users.create_index("google_id", unique=True, sparse=True)
+        _mongo_db.users.create_index(
+            "is_system_owner",
+            unique=True,
+            partialFilterExpression={"is_system_owner": True},
+        )
         _mongo_db.applicants.create_index("organization_id")
         _mongo_db.applicants.create_index([("organization_id", 1), ("cycle_id", 1)])
         _mongo_db.notifications.create_index([("user_id", 1), ("organization_id", 1)])

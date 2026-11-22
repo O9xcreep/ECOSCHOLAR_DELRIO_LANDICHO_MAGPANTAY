@@ -14,8 +14,8 @@ const CATEGORY_LABELS = {
 }
 
 const ROLE_LABELS = {
-  admin: 'Super Admin',
-  lgu_admin: 'Admin',
+  admin: 'Retired platform admin',
+  lgu_admin: 'LGU Admin',
   lgu_member: 'LGU Member',
   student: 'Student',
 }
