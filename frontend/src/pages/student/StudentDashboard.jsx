@@ -5,6 +5,7 @@ import { parseServerDate } from '../../dateUtils'
 import ApprovedNextSteps from '../../components/ApprovedNextSteps'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
+import RejectionReasonList from '../../components/RejectionReasonList'
 import ScoreBreakdown from '../../components/ScoreBreakdown'
 import pageBg from '../../assets/student-bg.jpg'
 import './StudentDashboard.css'
@@ -203,6 +204,7 @@ function StudentDashboard() {
                   {application.application_status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
                     <p className="sd-rejection-reason">{application.rejection_reason}</p>
                   )}
+                  <RejectionReasonList application={application} />
 
                   {application.score_breakdown && (
                     <div className="sd-breakdown">

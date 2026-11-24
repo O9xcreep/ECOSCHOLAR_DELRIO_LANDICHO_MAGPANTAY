@@ -5,6 +5,7 @@ import { apiFetch, getUser, setSession, clearSession, logout, isFullAccess, conn
 import { parseServerDate } from '../../dateUtils'
 import FormBuilder from './FormBuilder'
 import GuidelinesEditor from './GuidelinesEditor'
+import LguInvitations from '../../components/LguInvitations'
 import AdminGuide from './AdminGuide'
 import Reveal from '../../components/Reveal'
 import Credits from '../../components/Credits'
@@ -609,6 +610,10 @@ function SystemTab() {
   const [approvedCount, setApprovedCount] = useState(0)
   const [savingLimit, setSavingLimit] = useState(false)
   const [limitError, setLimitError] = useState('')
+  const [qualifications, setQualifications] = useState('')
+  const [savedQualifications, setSavedQualifications] = useState('')
+  const [savingQualifications, setSavingQualifications] = useState(false)
+  const [qualificationsError, setQualificationsError] = useState('')
   const [topPercent, setTopPercent] = useState(30)
   const [savedTopPercent, setSavedTopPercent] = useState(30)
   const [topPercentChoices, setTopPercentChoices] = useState([])
@@ -664,6 +669,9 @@ function SystemTab() {
           setTopPercent(data.eligibility_top_percent)
           setSavedTopPercent(data.eligibility_top_percent)
         }
+        const listed = (data.program_qualifications || []).join('\n')
+        setQualifications(listed)
+        setSavedQualifications(listed)
         setTopPercentChoices(data.eligibility_top_percent_choices || [])
         setEligibilityCutoff(data.eligibility_cutoff ?? null)
 
@@ -721,7 +729,7 @@ function SystemTab() {
       isFirstSetup
         ? "Start this scholarship program now?"
         : "This archives every current applicant record (nothing is deleted - it stays " +
-          "visible in Reports) and starts a brand new program. Students will see a fresh, " +
+          "visible in Archive) and starts a brand new program. Students will see a fresh, " +
           "empty application state. Are you sure?"
     )) return
 
@@ -801,6 +809,27 @@ function SystemTab() {
       setVisibilityError(connectionErrorMessage())
     } finally {
       setSavingVisibility(false)
+    }
+  }
+
+  const handleSaveQualifications = async () => {
+    setQualificationsError('')
+    setSavingQualifications(true)
+    try {
+      const res = await apiFetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ program_qualifications: qualifications.split('\n') })
+      })
+      const data = await res.json()
+      if (!res.ok) { setQualificationsError(data.error || 'Failed to save the qualifications'); return }
+      const listed = (data.program_qualifications || []).join('\n')
+      setQualifications(listed)
+      setSavedQualifications(listed)
+    } catch {
+      setQualificationsError(connectionErrorMessage())
+    } finally {
+      setSavingQualifications(false)
     }
   }
 
@@ -928,6 +957,28 @@ function SystemTab() {
             </button>
           </div>
           {limitError && <div className="security-error" style={{ marginTop: '10px' }}>{limitError}</div>}
+        </div>
+
+        <div className="settings-subcard">
+          <h5 className="settings-subcard-title">Listed Qualifications</h5>
+          <p className="info-sub" style={{ marginBottom: '10px' }}>
+            Shown to everyone in the scholarship list on the sign-in page, next to the number of
+            slots and the deadline. Write one qualification per line. This is information only;
+            it doesn&apos;t change how applicants are scored.
+          </p>
+          <textarea
+            className="settings-select"
+            style={{ width: '100%', minHeight: '110px', background: '#fff', resize: 'vertical' }}
+            aria-label="Listed qualifications, one per line"
+            placeholder={'Resident of the municipality\nCurrently enrolled in college'}
+            value={qualifications}
+            onChange={e => setQualifications(e.target.value)}
+          />
+          <button className="btn-primary" style={{ marginTop: '10px' }} onClick={handleSaveQualifications}
+            disabled={savingQualifications || qualifications === savedQualifications}>
+            {savingQualifications ? 'Saving...' : 'Save'}
+          </button>
+          {qualificationsError && <div className="security-error" style={{ marginTop: '10px' }}>{qualificationsError}</div>}
         </div>
 
         <div className="settings-subcard">
@@ -1486,8 +1537,8 @@ function JoinCodeCard() {
     <div className="settings-card" style={{ marginBottom: '20px' }}>
       <h4 className="card-label" style={{ marginBottom: '4px' }}>Your LGU's Join Code</h4>
       <p className="info-sub" style={{ marginBottom: '14px' }}>
-        Share this with anyone who needs to register a student account or request an LGU account
-        under <strong>{org.name}</strong> - they'll enter it before filling out the rest of their form.
+        Share this with students who need to register under <strong>{org.name}</strong> - they&apos;ll
+        enter it before filling out the rest of their form.
       </p>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span style={{
@@ -1633,6 +1684,7 @@ function TeamTab() {
 
   return (
     <div className="tab-content">
+      {currentUser.is_system_owner && <LguInvitations />}
       <JoinCodeCard />
       <AdminRequestsSection onApproved={loadAdmins} />
       <div className="settings-card">

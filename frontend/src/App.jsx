@@ -27,6 +27,7 @@ const Dashboard = lazy(() => import('./pages/admin/Dashboard'))
 const Ranking = lazy(() => import('./pages/admin/Ranking'))
 const Applications = lazy(() => import('./pages/admin/applications'))
 const Settings = lazy(() => import('./pages/admin/settings'))
+const Archive = lazy(() => import('./pages/admin/Archive'))
 const ActivityLog = lazy(() => import('./pages/admin/ActivityLog'))
 
 function App() {
@@ -75,6 +76,7 @@ function App() {
           <Route path="reports" element={<Navigate to="/admin/dashboard" replace />} />
           {/* Old route from before Form Builder moved into Settings > System */}
           <Route path="form-builder" element={<Navigate to="/admin/settings" replace />} />
+          <Route path="archive" element={<Archive />} />
           <Route path="settings" element={<Settings />} />
           <Route path="activity-log" element={<ActivityLog />} />
         </Route>

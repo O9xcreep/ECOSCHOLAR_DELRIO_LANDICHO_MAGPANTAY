@@ -10,11 +10,14 @@ from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash
 from itsdangerous import BadSignature, SignatureExpired
 import gridfs
+from html import escape
+from pymongo.errors import DuplicateKeyError
 
-from extensions import app, limiter, get_db, DEBUG, FRONTEND_URL, _fs
+from extensions import app, limiter, get_db, DEBUG, FRONTEND_URL, PUBLIC_ADMIN_REQUESTS, _fs
 from helpers import oid, iso, send_email_async, get_default_organization_id, \
     generate_unique_join_code, find_active_organization_by_code, serialize_organization, \
-    get_organization_municipality, get_current_cycle, is_cycle_open
+    get_organization_municipality, get_current_cycle, is_cycle_open, \
+    get_applicant_limit, notify_students_if_program_closed, activate_invited_organization
 from auth import require_permission, require_auth, current_organization_oid, ADMIN_PERMISSIONS, \
     create_and_send_otp, verify_otp, issue_token, _admin_apply_serializer, ADMIN_APPLY_TOKEN_MAX_AGE, \
     verify_google_credential, is_system_owner
@@ -58,25 +61,195 @@ def lookup_organization():
 @app.route('/api/organizations/directory', methods=['GET'])
 @limiter.limit("20 per minute")
 def list_public_organization_directory():
-    """Public directory for the sign-in page; exposes only active org names,
-    join codes, and whether their current scholarship cycle accepts applications."""
+    """Public list of scholarships for the sign-in page: active org names, join codes,
+    and their current program's status, slots and qualifications."""
     db = get_db()
     organizations = []
     for org in db.organizations.find(
         {"status": "active"},
-        {"name": 1, "join_code": 1, "municipality": 1},
+        {"name": 1, "join_code": 1, "municipality": 1, "province": 1},
     ).sort("name", 1):
         cycle = get_current_cycle(db, org["_id"])
+        notify_students_if_program_closed(db, org["_id"])
+        settings = db.settings.find_one({"organization_id": org["_id"]}, {"program_qualifications": 1}) or {}
         organizations.append({
             "id": str(org["_id"]),
             "name": org.get("name", ""),
             "municipality": org.get("municipality", ""),
+            "province": org.get("province", ""),
             "join_code": org.get("join_code", ""),
             "program_name": cycle.get("label") if cycle else None,
             "deadline": iso(cycle.get("deadline")) if cycle else None,
             "is_open": is_cycle_open(cycle),
+            "slots": get_applicant_limit(db, org["_id"]) if cycle else None,
+            "qualifications": settings.get("program_qualifications") or [],
         })
     return jsonify({"organizations": organizations})
+
+# ── LGU INVITATIONS (System Owner only) ──
+# Each LGU is identified by its type, municipality/city and province, and can exist
+# only once. An invited LGU stays hidden until its Admin activates the account.
+PUBLIC_REQUESTS_CLOSED_ERROR = "LGU accounts are by invitation only. Please contact the EcoScholar System Owner."
+LGU_TYPES = {"Municipality": "Municipality of {}", "City": "City of {}"}
+PROVINCES = (
+    "Abra", "Agusan del Norte", "Agusan del Sur", "Aklan", "Albay", "Antique", "Apayao", "Aurora",
+    "Basilan", "Bataan", "Batanes", "Batangas", "Benguet", "Biliran", "Bohol", "Bukidnon",
+    "Bulacan", "Cagayan", "Camarines Norte", "Camarines Sur", "Camiguin", "Capiz", "Catanduanes",
+    "Cavite", "Cebu", "Cotabato", "Davao de Oro", "Davao del Norte", "Davao del Sur",
+    "Davao Occidental", "Davao Oriental", "Dinagat Islands", "Eastern Samar", "Guimaras", "Ifugao",
+    "Ilocos Norte", "Ilocos Sur", "Iloilo", "Isabela", "Kalinga", "La Union", "Laguna",
+    "Lanao del Norte", "Lanao del Sur", "Leyte", "Maguindanao del Norte", "Maguindanao del Sur",
+    "Marinduque", "Masbate", "Metro Manila", "Misamis Occidental", "Misamis Oriental",
+    "Mountain Province", "Negros Occidental", "Negros Oriental", "Northern Samar", "Nueva Ecija",
+    "Nueva Vizcaya", "Occidental Mindoro", "Oriental Mindoro", "Palawan", "Pampanga", "Pangasinan",
+    "Quezon", "Quirino", "Rizal", "Romblon", "Samar", "Sarangani", "Siquijor", "Sorsogon",
+    "South Cotabato", "Southern Leyte", "Sultan Kudarat", "Sulu", "Surigao del Norte",
+    "Surigao del Sur", "Tarlac", "Tawi-Tawi", "Zambales", "Zamboanga del Norte",
+    "Zamboanga del Sur", "Zamboanga Sibugay",
+)
+
+def _owner_only():
+    if not is_system_owner():
+        return jsonify({"error": "Only the LGU System Owner can manage LGU invitations"}), 403
+    return None
+
+def _send_lgu_invitation(org, full_name, email):
+    link = f"{FRONTEND_URL}/admin-setup"
+    send_email_async(email, "You're invited to EcoScholar", f"""
+        <p>Hi {escape(full_name)},</p>
+        <p>You've been invited to manage scholarships for <strong>{escape(org['name'])}, {escape(org['province'])}</strong> on EcoScholar.</p>
+        <p>Open <a href="{link}">{link}</a>, enter this email address, choose <strong>Didn't get a code? Resend</strong>
+        to get your verification code, then set your password.</p>
+        <p>If you weren't expecting this, you can safely ignore this email.</p>
+    """)
+
+def _invited_org_and_admin(db, organization_id):
+    org_oid = oid(organization_id)
+    org = db.organizations.find_one({"_id": org_oid, "status": "invited"}) if org_oid else None
+    return org, (db.users.find_one({"_id": org.get("invited_admin_id")}) if org else None)
+
+@app.route('/api/organizations/invitations', methods=['GET'])
+@require_auth
+def list_lgu_invitations():
+    denied = _owner_only()
+    if denied:
+        return denied
+    db = get_db()
+    result = []
+    for org in db.organizations.find({"status": {"$in": ["active", "invited"]}}).sort("name", 1):
+        invited = org["status"] == "invited"
+        admin = db.users.find_one({"_id": org.get("invited_admin_id")}) if invited else None
+        result.append({
+            "id": str(org["_id"]),
+            "name": org.get("name", ""),
+            "municipality": org.get("municipality", ""),
+            "province": org.get("province", ""),
+            "status": org["status"],
+            "invited_email": (admin or {}).get("email"),
+        })
+    return jsonify({"organizations": result, "provinces": PROVINCES, "lgu_types": list(LGU_TYPES)})
+
+@app.route('/api/organizations/invitations', methods=['POST'])
+@require_auth
+@limiter.limit("10 per minute")
+def invite_lgu():
+    denied = _owner_only()
+    if denied:
+        return denied
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    values = {k: data.get(k) if isinstance(data.get(k), str) else ''
+              for k in ('lgu_type', 'municipality', 'province', 'full_name', 'email')}
+    values = {k: ' '.join(v.split()) for k, v in values.items()}
+    email = values['email'].lower()
+    # "Municipality of Liliw" / "Tayabas City" typed in full would defeat the duplicate check.
+    municipality = re.sub(r'(?i)^(municipality|city)\s+of\s+|\s+city$', '', values['municipality']).strip()
+
+    if values['lgu_type'] not in LGU_TYPES:
+        return jsonify({"error": "Choose Municipality or City"}), 400
+    if values['province'] not in PROVINCES:
+        return jsonify({"error": "Choose a province from the list"}), 400
+    if not municipality or len(municipality) > 60:
+        return jsonify({"error": "Enter the name of the municipality or city"}), 400
+    if not values['full_name'] or len(values['full_name']) > 100:
+        return jsonify({"error": "Enter the LGU official's full name"}), 400
+    if not re.match(r'^\S+@\S+\.\S+$', email):
+        return jsonify({"error": "Enter a valid email address"}), 400
+
+    db = get_db()
+    location_key = f"{municipality}|{values['province']}".lower()
+    duplicate = db.organizations.find_one({"location_key": location_key}) or db.organizations.find_one({
+        # Organizations from before provinces were recorded.
+        "status": {"$in": ["active", "invited"]},
+        "location_key": {"$exists": False},
+        "municipality": {"$regex": f"^{re.escape(municipality)}$", "$options": "i"},
+    })
+    if duplicate:
+        return jsonify({"error": f"{municipality} already has an account: {duplicate.get('name')}"}), 409
+    if db.users.find_one({"email": email}):
+        return jsonify({"error": "An account with this email already exists"}), 409
+
+    org = {
+        "name": LGU_TYPES[values['lgu_type']].format(municipality),
+        "join_code": generate_unique_join_code(db),
+        "status": "invited",
+        "created_at": datetime.utcnow(),
+        "founding_admin_request_id": None,
+        "municipality": municipality,
+        "province": values['province'],
+        "lgu_type": values['lgu_type'],
+        "location_key": location_key,
+    }
+    try:
+        org["_id"] = db.organizations.insert_one(org).inserted_id
+    except DuplicateKeyError:
+        return jsonify({"error": f"{municipality} already has an account"}), 409
+    try:
+        admin = create_admin_with_setup_email(values['full_name'], email, municipality=municipality,
+                                              role='lgu_admin', organization_id=org["_id"], send_code=False)
+        db.organizations.update_one({"_id": org["_id"]}, {"$set": {"invited_admin_id": admin["_id"]}})
+    except Exception:
+        # Don't leave a half-made LGU holding the location.
+        db.organizations.delete_one({"_id": org["_id"]})
+        raise
+    _send_lgu_invitation(org, values['full_name'], email)
+    log_activity('staff', 'Invited an LGU', target={"type": "organization", "id": org["_id"], "label": org["name"]},
+                 details=f"{values['full_name']} ({email}); {municipality}, {values['province']}")
+    return jsonify({"message": f"Invitation sent to {email}"}), 201
+
+@app.route('/api/organizations/invitations/<organization_id>/resend', methods=['POST'])
+@require_auth
+@limiter.limit("5 per minute")
+def resend_lgu_invitation(organization_id):
+    denied = _owner_only()
+    if denied:
+        return denied
+    org, admin = _invited_org_and_admin(get_db(), organization_id)
+    if not org or not admin:
+        return jsonify({"error": "Invitation not found or already accepted"}), 404
+    _send_lgu_invitation(org, admin['full_name'], admin['email'])
+    return jsonify({"message": f"Invitation resent to {admin['email']}"})
+
+@app.route('/api/organizations/invitations/<organization_id>', methods=['DELETE'])
+@require_auth
+def cancel_lgu_invitation(organization_id):
+    """Only an invitation nobody has accepted: it has no applicants or programs yet."""
+    denied = _owner_only()
+    if denied:
+        return denied
+    db = get_db()
+    org, admin = _invited_org_and_admin(db, organization_id)
+    # Conditional on still being "invited", in case it's accepted at this moment.
+    if not org or not db.organizations.delete_one({"_id": org["_id"], "status": "invited"}).deleted_count:
+        return jsonify({"error": "Invitation not found or already accepted"}), 404
+    db.memberships.delete_many({"organization_id": org["_id"]})
+    if admin:
+        db.users.delete_one({"_id": admin["_id"], "password_set": False, "organization_id": org["_id"]})
+        db.otps.delete_many({"email": admin["email"], "purpose": "admin_setup"})
+    log_activity('staff', 'Cancelled an LGU invitation',
+                 target={"type": "organization", "id": org["_id"], "label": org.get("name")})
+    return jsonify({"message": "Invitation cancelled"})
 
 def serialize_admin(u):
     doc = {
@@ -339,7 +512,8 @@ def delete_admin_account(admin_id):
 
     return jsonify({"message": "Removed from this organization's team"})
 
-def create_admin_with_setup_email(full_name, email, municipality='', role='lgu_member', permissions=None, organization_id=None):
+def create_admin_with_setup_email(full_name, email, municipality='', role='lgu_member', permissions=None,
+                                  organization_id=None, send_code=True):
     """Inserts a new admin/LGU-member user with no usable starting password and
     emails them a one-time code to set one, so nobody (not even the creating
     admin) ever knows another team member's password. An approved public
@@ -366,7 +540,8 @@ def create_admin_with_setup_email(full_name, email, municipality='', role='lgu_m
         "permissions": doc.get("permissions"), "municipality": municipality, "joined_at": doc["created_at"],
     })
 
-    create_and_send_otp(email, 'admin_setup', full_name)
+    if send_code:
+        create_and_send_otp(email, 'admin_setup', full_name)
     return db.users.find_one({"_id": result.inserted_id})
 
 def create_admin_from_approved_request(req, role, permissions):
@@ -477,6 +652,8 @@ def serialize_admin_request(r, db=None):
 @app.route('/api/admin-requests/start', methods=['POST'])
 @limiter.limit("5 per minute")
 def start_admin_request():
+    if not PUBLIC_ADMIN_REQUESTS:
+        return jsonify({"error": PUBLIC_REQUESTS_CLOSED_ERROR}), 403
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
 
@@ -494,6 +671,8 @@ def start_admin_request():
 @app.route('/api/admin-requests/verify-start-otp', methods=['POST'])
 @limiter.limit("10 per minute")
 def verify_admin_apply_start_otp():
+    if not PUBLIC_ADMIN_REQUESTS:
+        return jsonify({"error": PUBLIC_REQUESTS_CLOSED_ERROR}), 403
     data = request.get_json() or {}
     email = (data.get('email') or '').strip().lower()
     code = data.get('code') or ''
@@ -514,6 +693,8 @@ def verify_admin_apply_start_otp():
 @app.route('/api/admin-requests/start-google', methods=['POST'])
 @limiter.limit("5 per minute")
 def start_admin_request_google():
+    if not PUBLIC_ADMIN_REQUESTS:
+        return jsonify({"error": PUBLIC_REQUESTS_CLOSED_ERROR}), 403
     data = request.get_json() or {}
     credential = data.get('credential') or ''
     if not credential:
@@ -614,6 +795,7 @@ def complete_admin_invite_setup():
         "password": generate_password_hash(new_password),
         "password_set": True,
     }})
+    activate_invited_organization(db, user)
     log_activity('account', 'Set password and activated invited staff account',
                  actor={"id": user['_id'], "email": user['email'], "role": user['role'],
                         "full_name": user.get('full_name'), "organization_id": user.get('organization_id')})
@@ -632,6 +814,8 @@ def complete_admin_invite_setup():
 @app.route('/api/admin-requests', methods=['POST'])
 @limiter.limit("5 per minute")
 def submit_admin_request():
+    if not PUBLIC_ADMIN_REQUESTS:
+        return jsonify({"error": PUBLIC_REQUESTS_CLOSED_ERROR}), 403
     # multipart/form-data, not JSON, since a document upload is required.
     token = request.form.get('token') or ''
     full_name = (request.form.get('full_name') or '').strip()

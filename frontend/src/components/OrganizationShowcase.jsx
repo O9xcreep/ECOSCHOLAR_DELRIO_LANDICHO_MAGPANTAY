@@ -1,32 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useState } from 'react'
+import { parseServerDate } from '../dateUtils'
 
-function OrganizationShowcase({ organizations, loading, error, onRetry }) {
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [hovered, setHovered] = useState(false)
-  const [focused, setFocused] = useState(false)
+function formatDeadline(value) {
+  return parseServerDate(value).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function locationOf(org) {
+  return [org.municipality, org.province].filter(Boolean).join(', ')
+}
+
+function ScholarshipCard({ org, defaultOpen }) {
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
 
-  const activeOrganization = organizations[activeIndex]
-  const count = organizations.length
-  const reducedMotion = useMemo(
-    () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
-    [],
-  )
-
-  useEffect(() => {
-    if (count < 2 || hovered || focused || reducedMotion) return undefined
-    const timer = window.setInterval(() => {
-      setActiveIndex(index => (index + 1) % count)
-    }, 5000)
-    return () => window.clearInterval(timer)
-  }, [count, focused, hovered, reducedMotion])
-
   const copyJoinCode = async () => {
-    if (!activeOrganization?.join_code) return
     setCopyError('')
     try {
-      await navigator.clipboard.writeText(activeOrganization.join_code)
+      await navigator.clipboard.writeText(org.join_code)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1800)
     } catch {
@@ -34,77 +24,90 @@ function OrganizationShowcase({ organizations, loading, error, onRetry }) {
     }
   }
 
-  const changeOrganization = direction => {
-    setActiveIndex(index => (index + direction + count) % count)
-  }
+  return (
+    <li>
+      <details className="lp-org-card" open={defaultOpen}>
+        <summary>
+          <div className="lp-org-card-top">
+            <div className="lp-org-name-block">
+              <h3>{org.name}</h3>
+              {org.municipality && <p>{locationOf(org)}</p>}
+            </div>
+            <span className={`lp-org-status${org.is_open ? ' is-open' : ''}`}>
+              {org.is_open ? 'Applications Open' : 'Closed'}
+            </span>
+          </div>
+          <p className="lp-org-program">{org.program_name || 'No scholarship program yet'}</p>
+        </summary>
 
-  const handleBlur = event => {
-    if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
-  }
+        {org.program_name && (
+          <div className="lp-org-facts">
+            {org.slots != null && <span><strong>{org.slots}</strong> {org.slots === 1 ? 'slot' : 'slots'}</span>}
+            {org.deadline && (
+              <span>{org.is_open ? 'Apply until' : 'Closed'} <strong>{formatDeadline(org.deadline)}</strong></span>
+            )}
+          </div>
+        )}
+
+        <p className="lp-org-quals-title">Qualifications</p>
+        {org.qualifications?.length > 0 ? (
+          <ul className="lp-org-quals">
+            {org.qualifications.map((q, i) => <li key={i}>{q}</li>)}
+          </ul>
+        ) : (
+          <p className="lp-org-program">Ask this LGU&apos;s scholarship office for the qualifications.</p>
+        )}
+
+        <div className="lp-org-code-row">
+          <div>
+            <span>Organization code</span>
+            <strong>{org.join_code}</strong>
+          </div>
+          <button type="button" onClick={copyJoinCode}>{copied ? 'Copied!' : 'Copy code'}</button>
+        </div>
+        {copyError && <p className="lp-org-copy-error" role="status">{copyError}</p>}
+      </details>
+    </li>
+  )
+}
+
+function OrganizationShowcase({ organizations, loading, error, onRetry }) {
+  const [location, setLocation] = useState('')
+  const locations = [...new Set(organizations.map(locationOf).filter(Boolean))].sort()
+  // Open programs first; the server already sorts by name.
+  const sorted = organizations.filter(o => !location || locationOf(o) === location).sort((a, b) => Number(b.is_open) - Number(a.is_open))
 
   return (
-    <section
-      className="lp-org-showcase"
-      aria-label="Scholarship organizations"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onFocusCapture={() => setFocused(true)}
-      onBlurCapture={handleBlur}
-    >
+    <section className="lp-org-showcase" aria-label="Available scholarships">
       <div className="lp-org-showcase-heading">
         <div>
           <p className="lp-org-eyebrow">Scholarship Programs</p>
-          <h2>Find your LGU</h2>
+          <h2>Available scholarships</h2>
         </div>
-        {count > 1 && (
-          <div className="lp-org-controls">
-            <span aria-live="polite">{String(activeIndex + 1).padStart(2, '0')} / {String(count).padStart(2, '0')}</span>
-            <button type="button" onClick={() => changeOrganization(-1)} aria-label="Previous organization">‹</button>
-            <button type="button" onClick={() => changeOrganization(1)} aria-label="Next organization">›</button>
-          </div>
+        {locations.length > 1 && (
+          <select className="lp-org-filter" value={location} aria-label="Filter by location"
+            onChange={e => setLocation(e.target.value)}>
+            <option value="">All locations</option>
+            {locations.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
         )}
       </div>
 
       {loading ? (
-        <p className="lp-org-message">Loading organizations…</p>
+        <p className="lp-org-message">Loading scholarships…</p>
       ) : error ? (
         <div className="lp-org-message">
           <span>{error}</span>
           <button type="button" onClick={onRetry}>Retry</button>
         </div>
-      ) : count === 0 ? (
-        <p className="lp-org-message">No organizations are listed yet.</p>
+      ) : sorted.length === 0 ? (
+        <p className="lp-org-message">No scholarships are listed yet.</p>
       ) : (
-        <div className="lp-org-card" key={activeOrganization.id}>
-          <div className="lp-org-card-top">
-            <div className="lp-org-name-block">
-              <h3>{activeOrganization.name}</h3>
-              {activeOrganization.municipality && <p>{activeOrganization.municipality}</p>}
-            </div>
-            <span className={`lp-org-status${activeOrganization.is_open ? ' is-open' : ''}`}>
-              {activeOrganization.is_open ? 'Applications Open' : 'Not accepting'}
-            </span>
-          </div>
-          <p className="lp-org-program">
-            {activeOrganization.is_open
-              ? activeOrganization.program_name || 'Scholarship applications are open'
-              : activeOrganization.program_name
-                ? `${activeOrganization.program_name} is closed`
-                : 'No scholarship program is currently open'}
-          </p>
-          <div className="lp-org-code-row">
-            <div>
-              <span>Organization code</span>
-              <strong>{activeOrganization.join_code}</strong>
-            </div>
-            <button type="button" onClick={copyJoinCode}>
-              {copied ? 'Copied!' : 'Copy code'}
-            </button>
-          </div>
-          {copyError && <p className="lp-org-copy-error" role="status">{copyError}</p>}
-        </div>
+        <ul className="lp-org-list">
+          {sorted.map((org, i) => <ScholarshipCard key={org.id} org={org} defaultOpen={i === 0} />)}
+        </ul>
       )}
-      <p className="lp-org-hint">Use the code when creating a student account.</p>
+      <p className="lp-org-hint">Select a scholarship for details. Use its code when creating a student account.</p>
     </section>
   )
 }

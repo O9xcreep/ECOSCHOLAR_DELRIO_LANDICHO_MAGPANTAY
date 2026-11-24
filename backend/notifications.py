@@ -3,8 +3,8 @@
 from flask import jsonify, g
 
 from extensions import app, get_db, DEBUG
-from helpers import oid, iso
-from auth import require_auth
+from helpers import oid, iso, notify_students_if_program_closed
+from auth import require_auth, current_organization_oid
 
 def serialize_notification(n):
     return {
@@ -23,6 +23,7 @@ def get_notifications():
     try:
         db = get_db()
         user_oid = oid(g.current_user['id'])
+        notify_students_if_program_closed(db, current_organization_oid())
         cursor = db.notifications.find({"user_id": user_oid}).sort("created_at", -1).limit(30)
         notifications = [serialize_notification(n) for n in cursor]
         unread_count = db.notifications.count_documents({"user_id": user_oid, "is_read": False})

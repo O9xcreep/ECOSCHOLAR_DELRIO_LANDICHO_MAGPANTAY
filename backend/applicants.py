@@ -10,7 +10,7 @@ from extensions import app, limiter, get_db, DEBUG
 from helpers import oid, iso, derive_city, serialize_applicant, serialize_document, \
     resolve_notify_user_id, create_notification, STATUS_MESSAGES, STATUS_NOTIF_TYPE, \
     get_current_cycle, get_current_cycle_id, is_cycle_open, are_results_visible, \
-    ml_education_map, ml_occupation_categories, ml_housing_situations
+    ml_education_map, ml_occupation_categories, ml_housing_situations, REJECTION_REASONS
 from auth import require_auth, require_permission, current_organization_oid, is_full_access_role
 from documents import get_required_doc_labels, compute_display_status, \
     compute_admin_status, build_status_query_fragment, COMPUTED_STATUSES
@@ -47,6 +47,12 @@ def get_applicants():
         base_query = {"organization_id": org_id}
         if request.args.get('cycle') == 'current':
             base_query["cycle_id"] = get_current_cycle_id(db, org_id)
+        elif request.args.get('cycle'):
+            # A past program, for the Archive page.
+            cycle_oid = oid(request.args['cycle'])
+            if not cycle_oid:
+                return jsonify({"error": "Invalid cycle id"}), 400
+            base_query["cycle_id"] = cycle_oid
         # A withdrawn-then-resubmitted applicant leaves an old Withdrawn record
         # behind, linked via superseded_by (set in submit_application). Hide it
         # from the live queue by default so it doesn't show up twice; opt-in
@@ -528,6 +534,7 @@ def update_status(applicant_id):
                     "application.reviewed_at": now,
                     "application.reviewed_by_name": reviewed_by,
                 },
+                "$unset": {"application.rejection_reasons": "", "application.rejection_note": ""},
                 "$push": {
                     "audit_trail": {
                         "action": f'Status changed to {status}',
@@ -555,6 +562,71 @@ def update_status(applicant_id):
             "reviewed_by": reviewed_by
         })
 
+    except Exception as e:
+        app.logger.error(str(e))
+        if DEBUG:
+            raise
+        return jsonify({"error": "Something went wrong. Please try again."}), 500
+
+# ── REJECTION REASONS (multiple choice) ──
+@app.route('/api/rejection-reasons', methods=['GET'])
+@require_permission('can_review_applicants')
+def list_rejection_reasons():
+    return jsonify({"reasons": REJECTION_REASONS})
+
+@app.route('/api/applications/<applicant_id>/rejection-reasons', methods=['PUT'])
+@require_permission('can_review_applicants')
+def set_rejection_reasons(applicant_id):
+    applicant_oid = oid(applicant_id)
+    if not applicant_oid:
+        return jsonify({"error": "Invalid applicant id"}), 400
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        data = {}
+    chosen = data.get('reasons')
+    note = data.get('note') or ''
+    if not isinstance(chosen, list) or any(r not in REJECTION_REASONS for r in chosen):
+        return jsonify({"error": "Choose reasons from the list"}), 400
+    if not isinstance(note, str) or len(note.strip()) > 300:
+        return jsonify({"error": "The other reason must be 300 characters or less"}), 400
+    note = note.strip()
+    if not chosen and not note:
+        return jsonify({"error": "Choose at least one reason"}), 400
+    reasons = [r for r in REJECTION_REASONS if r in chosen]
+
+    try:
+        db = get_db()
+        org_id = current_organization_oid()
+        applicant = db.applicants.find_one({"_id": applicant_oid, "organization_id": org_id})
+        if not applicant:
+            return jsonify({"error": "Applicant not found"}), 404
+        if (applicant.get('application') or {}).get('status') != 'Rejected' or applicant.get('ml_status') == 'Eligible':
+            return jsonify({"error": "Reasons can only be set on a rejected application."}), 400
+
+        summary = '; '.join(reasons + ([note] if note else []))
+        reviewed_by = g.current_user.get('email', 'Admin')
+        db.applicants.update_one(
+            {"_id": applicant_oid},
+            {"$set": {"application.rejection_reasons": reasons, "application.rejection_note": note or None},
+             "$push": {"audit_trail": {
+                 "action": "Rejection reasons recorded",
+                 "performed_by": reviewed_by,
+                 "performed_by_role": "admin",
+                 "old_status": "Rejected",
+                 "new_status": "Rejected",
+                 "remarks": summary,
+                 "performed_at": datetime.utcnow(),
+             }}}
+        )
+        log_activity('application', 'Recorded rejection reasons',
+                     target={"type": "applicant", "id": applicant_oid, "label": applicant.get('full_name')},
+                     details=summary)
+        # Saying anything before results are released would reveal the decision.
+        if are_results_visible(db, org_id):
+            create_notification(db, resolve_notify_user_id(db, applicant), applicant,
+                                'The reasons your application was not approved are now listed in your application details.',
+                                'rejected')
+        return jsonify({"message": "Rejection reasons saved", "rejection_reasons": reasons, "rejection_note": note or None})
     except Exception as e:
         app.logger.error(str(e))
         if DEBUG:
@@ -710,6 +782,8 @@ def get_student_application():
                 application['ml_status'] = 'Pending'
                 application['ml_score'] = 0
                 application['rejection_reason'] = None
+                application['rejection_reasons'] = []
+                application['rejection_note'] = None
                 application['reviewed_at'] = None
                 application['reviewed_by_name'] = None
 

@@ -752,3 +752,20 @@ select.lp-input { cursor: pointer; }
   margin-top: 18px;
   text-align: center;
 }
+
+/* ── SCHOLARSHIP LIST ── */
+.lp-org-list { display: flex; flex-direction: column; gap: 10px; max-height: 38vh; overflow-y: auto; list-style: none; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.3) transparent; }
+.lp-org-card summary { cursor: pointer; list-style: none; }
+.lp-org-card summary::-webkit-details-marker { display: none; }
+.lp-org-facts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 12px; color: rgba(255,255,255,.85); }
+.lp-org-facts strong { font-weight: 650; }
+.lp-org-quals { margin: 10px 0 0 18px; font-size: 12px; line-height: 1.6; color: rgba(255,255,255,.8); list-style: disc; }
+.lp-org-quals-title { margin-top: 10px; font-size: 12px; font-weight: 650; }
+@media (max-width: 900px) {
+  .lp-org-list { max-height: none; }
+}
+.lp-showcase-mobile .lp-org-facts,
+.lp-showcase-mobile .lp-org-quals,
+.lp-showcase-mobile .lp-org-quals-title { color: var(--text-primary); }
+.lp-org-filter { max-width: 200px; padding: 6px 8px; border: 1px solid rgba(255,255,255,.3); border-radius: 8px; background: #0c1018; color: #fff; font: inherit; font-size: 12px; }
+.lp-showcase-mobile .lp-org-filter { border-color: var(--border); background: #fff; color: var(--text-primary); }

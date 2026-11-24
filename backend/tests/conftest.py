@@ -11,6 +11,8 @@ os.environ.setdefault('MONGO_URI', 'mongodb://localhost:1/ecoscholars_test')
 os.environ.setdefault('MONGO_DB_NAME', 'ecoscholars_test')
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-not-for-production')
 os.environ.setdefault('FLASK_DEBUG', 'true')
+# Off by default in production; the request/approval tests still cover it.
+os.environ['PUBLIC_ADMIN_REQUESTS'] = 'true'
 os.environ.setdefault('CORS_ORIGINS', 'http://localhost:5173')
 
 import mongomock

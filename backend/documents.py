@@ -67,6 +67,9 @@ NEAR_DUPLICATE_THRESHOLD = 8
 # the closest few so a common template doesn't store every other applicant.
 MAX_NEAR_DUPLICATE_CANDIDATES = 10
 
+# Must match ORIGINAL_HEADER_BYTES in frontend/src/fileUtils.js.
+MAX_ORIGINAL_HEADER_BYTES = 256 * 1024
+
 # Editing-tool names that shouldn't appear in a scanned form's metadata.
 EDITING_TOOL_SIGNATURES = ('photoshop', 'gimp', 'canva', 'illustrator', 'snapseed', 'picsart', 'lightroom')
 
@@ -88,7 +91,15 @@ def extract_metadata_flags(file_bytes, filename):
                 )
         else:
             image = Image.open(io.BytesIO(file_bytes))
-            software = image.getexif().get(0x0131, '')  # Software tag
+            # EXIF Software tag, PNG "Software" text, or the XMP CreatorTool.
+            xmp = image.info.get('xmp') or image.info.get('XML:com.adobe.xmp') or b''
+            if isinstance(xmp, str):
+                xmp = xmp.encode('utf-8', 'ignore')
+            creator = re.search(rb'CreatorTool(?:="|>)([^"<]+)', xmp)
+            software = ' '.join(str(s).strip() for s in (
+                image.getexif().get(0x0131, ''), image.info.get('Software', ''),
+                creator.group(1).decode('utf-8', 'ignore') if creator else '',
+            ) if s)
             if software and any(tool in software.lower() for tool in EDITING_TOOL_SIGNATURES):
                 flags.append(
                     f"Image metadata shows it was processed with '{software}', "
@@ -453,6 +464,11 @@ def upload_document():
             file_hash = hashlib.sha256(file_bytes).hexdigest()
             phash = compute_perceptual_hash(file_bytes, filename)
             metadata_flags = extract_metadata_flags(file_bytes, filename)
+            # The browser re-encodes photos before upload, which strips the metadata
+            # checked above, so it also sends the start of the original file.
+            original = request.files.get('original_header')
+            if original and not metadata_flags:
+                metadata_flags = extract_metadata_flags(original.read(MAX_ORIGINAL_HEADER_BYTES), 'original.jpg')
 
             new_gridfs_id = _fs.put(
                 file_bytes, filename=unique_filename,
