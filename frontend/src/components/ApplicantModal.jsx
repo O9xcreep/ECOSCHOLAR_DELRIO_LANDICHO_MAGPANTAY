@@ -3,6 +3,7 @@ import { apiFetch, displayStatus, connectionErrorMessage } from '../api'
 import { parseServerDate } from '../dateUtils'
 import './ApplicantModal.css'
 import ScoreBreakdown from './ScoreBreakdown'
+import RejectionReasonPicker from './RejectionReasonPicker'
 
 // Must match backend's SELFIE_DOC_LABEL / ID_DOC_LABEL (backend/app.py). The selfie is
 // pulled out of the generic documents grid below and shown side-by-side with the ID
@@ -767,6 +768,9 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
 
         {/* Footer */}
         <div className="modal-footer">
+          {isRejected && displayCurrentStatus !== 'Waitlisted' && (
+            <RejectionReasonPicker applicant={applicant} onSaved={onStatusChange} />
+          )}
           {(isApproved || isRejected || isPending) && (
             <div className="remarks-field">
               <label htmlFor="applicant-remarks">

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { apiFetch, getUser, setSession, logout, isFullAccess } from '../api'
 import NotificationBell from '../components/NotificationBell'
 import DisbandedStaffPrompt from '../components/DisbandedStaffPrompt'
-import { GraduationCapIcon, HomeIcon, RankingIcon, ApplicationsIcon, SettingsIcon, ActivityIcon } from '../components/NavIcons'
+import { GraduationCapIcon, HomeIcon, RankingIcon, ApplicationsIcon, SettingsIcon, ActivityIcon, ArchiveIcon } from '../components/NavIcons'
 import './AdminLayout.css'
 
 // Page enter/leave: fades + a small vertical slide, keyed by pathname so
@@ -84,6 +84,7 @@ function AdminLayout() {
     { to: '/admin/dashboard', label: 'Dashboard', Icon: HomeIcon, show: canReview },
     { to: '/admin/ranking', label: 'Ranking', Icon: RankingIcon, show: canReview },
     { to: '/admin/applications', label: 'Applications', Icon: ApplicationsIcon, show: canReview },
+    { to: '/admin/archive', label: 'Archive', Icon: ArchiveIcon, show: canReview },
     { to: '/admin/activity-log', label: 'Activity', Icon: ActivityIcon, show: isFullAccess(user) },
     { to: '/admin/settings', label: 'Settings', Icon: SettingsIcon, show: true },
   ].filter(item => item.show)

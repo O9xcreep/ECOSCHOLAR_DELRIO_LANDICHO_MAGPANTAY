@@ -18,6 +18,10 @@ from documents import get_doc_requirements_collection, serialize_doc_requirement
 from ml_scoring import recompute_approvals, reapply_eligibility_bar, eligibility_cutoff_for, ml_classifier
 from activity import log_activity
 
+# Shown publicly in the sign-in page's scholarship list.
+MAX_QUALIFICATIONS = 15
+MAX_QUALIFICATION_LENGTH = 200
+
 def describe_settings_change(set_fields, unset_fields):
     """Readable summary for the activity log. Never includes the reset password."""
     parts = []
@@ -27,6 +31,8 @@ def describe_settings_change(set_fields, unset_fields):
         parts.append(f"eligibility bar set to top {set_fields['eligibility_top_percent']}% of need")
     if 'hidden_builtin_fields' in set_fields:
         parts.append('hidden form fields: ' + (', '.join(set_fields['hidden_builtin_fields']) or 'none'))
+    if 'program_qualifications' in set_fields:
+        parts.append(f"listed qualifications updated ({len(set_fields['program_qualifications'])})")
     if 'results_visible_after' in set_fields:
         parts.append(f"results release date set to {set_fields['results_visible_after']:%Y-%m-%d %H:%M} UTC")
     if 'results_visible_after' in unset_fields:
@@ -75,6 +81,7 @@ def serialize_settings(db, org_id):
             "application.status": "Approved", "cycle_id": get_current_cycle_id(db, org_id), "organization_id": org_id
         }),
         "hidden_builtin_fields": get_hidden_builtin_fields(db, org_id),
+        "program_qualifications": doc.get('program_qualifications') or [],
         "results_visible_after": iso(doc.get('results_visible_after')),
         "results_visible_override": doc.get('results_visible_override'),
         "results_visible_now": are_results_visible(db, org_id),
@@ -128,6 +135,16 @@ def update_settings():
         if not isinstance(hidden, list) or any(f not in HIDEABLE_BUILTIN_FIELDS for f in hidden):
             return jsonify({"error": f"hidden_builtin_fields must be a list from {list(HIDEABLE_BUILTIN_FIELDS)}"}), 400
         set_fields['hidden_builtin_fields'] = hidden
+
+    if 'program_qualifications' in data:
+        qualifications = data.get('program_qualifications')
+        if not isinstance(qualifications, list) or not all(isinstance(q, str) for q in qualifications):
+            return jsonify({"error": "program_qualifications must be a list of text items"}), 400
+        qualifications = [q.strip() for q in qualifications if q.strip()]
+        if len(qualifications) > MAX_QUALIFICATIONS or any(len(q) > MAX_QUALIFICATION_LENGTH for q in qualifications):
+            return jsonify({"error": f"List at most {MAX_QUALIFICATIONS} qualifications of up to "
+                                     f"{MAX_QUALIFICATION_LENGTH} characters each"}), 400
+        set_fields['program_qualifications'] = qualifications
 
     if 'results_visible_after' in data:
         raw = data.get('results_visible_after')
@@ -308,7 +325,11 @@ def update_current_cycle_deadline():
         cycle = get_current_cycle(db, org_id)
         if not cycle:
             return jsonify({"error": "No program is currently running."}), 400
-        db.program_cycles.update_one({"_id": cycle["_id"]}, {"$set": {"deadline": deadline}})
+        db.program_cycles.update_one({"_id": cycle["_id"]}, {
+            "$set": {"deadline": deadline},
+            # Reopened or extended, so students are told again when it next closes.
+            "$unset": {"closed_notified_at": ""},
+        })
         log_activity('settings', 'Changed the application deadline', organization_id=org_id,
                      target={"type": "program_cycle", "id": cycle["_id"], "label": cycle.get("label")},
                      details=f"New deadline {deadline:%Y-%m-%d %H:%M} UTC")

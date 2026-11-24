@@ -12,6 +12,7 @@ from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, OperationFailure
 import gridfs
 from dotenv import load_dotenv
 
@@ -39,6 +40,10 @@ MAILJET_API_KEY = os.getenv('MAILJET_API_KEY', '')
 MAILJET_API_SECRET = os.getenv('MAILJET_API_SECRET', '')
 SMTP_FROM_NAME = os.getenv('SMTP_FROM_NAME', 'EcoScholar')
 SMTP_FROM_EMAIL = os.getenv('SMTP_FROM_EMAIL', '')
+
+# LGUs join by the System Owner's invitation. "true" reopens the public request
+# endpoints (anyone with a verified email can ask for an LGU account).
+PUBLIC_ADMIN_REQUESTS = os.getenv('PUBLIC_ADMIN_REQUESTS', 'false').strip().lower() == 'true'
 
 app = Flask(__name__)
 CORS_ORIGINS = [o.strip() for o in os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(',') if o.strip()]
@@ -68,6 +73,30 @@ def too_large(e):
 def rate_limited(e):
     return jsonify({"error": "Too many attempts. Please wait a minute and try again."}), 429
 
+# MongoDB auth failures: 18 (AuthenticationFailed), 8000 (Atlas "bad auth")
+MONGO_AUTH_ERROR_CODES = {18, 8000}
+
+# Without these, a database outage is an HTML 500 that the frontend can't parse
+# and reports as a problem with the user's internet connection. Details go to
+# the server log only.
+@app.errorhandler(ConnectionFailure)
+def database_unreachable(e):
+    # A rejected login makes pymongo drop that server, so it can surface here as
+    # a ServerSelectionTimeoutError with the auth error only in its message.
+    if 'authentication failed' in str(e).lower():
+        hint = "Database rejected the login - check the credentials in MONGO_URI"
+    else:
+        hint = "Database unreachable - check the Atlas cluster is running and its IP Access List"
+    app.logger.error(hint, exc_info=e)
+    return jsonify({"error": "The service is temporarily unavailable. Please try again later."}), 503
+
+@app.errorhandler(OperationFailure)
+def database_operation_failed(e):
+    if e.code not in MONGO_AUTH_ERROR_CODES:
+        raise e
+    app.logger.error("Database rejected the login - check the credentials in MONGO_URI", exc_info=e)
+    return jsonify({"error": "The service is temporarily unavailable. Please try again later."}), 503
+
 # ── UPLOAD CONFIG ──
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -92,6 +121,12 @@ def _ensure_indexes():
         _mongo_db.revoked_tokens.create_index("expires_at", expireAfterSeconds=0)
         _mongo_db.otps.create_index("expires_at", expireAfterSeconds=0)
         _mongo_db.organizations.create_index("join_code", unique=True)
+        # One account per LGU. Organizations from before this have no location_key.
+        _mongo_db.organizations.create_index(
+            "location_key",
+            unique=True,
+            partialFilterExpression={"location_key": {"$type": "string"}},
+        )
         _mongo_db.revoked_tokens.create_index("token_hash")
         _mongo_db.users.create_index("email", unique=True)
         _mongo_db.users.create_index("google_id", unique=True, sparse=True)

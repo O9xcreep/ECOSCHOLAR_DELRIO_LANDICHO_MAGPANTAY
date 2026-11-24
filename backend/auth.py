@@ -12,7 +12,7 @@ from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_transport
 
 from extensions import app, limiter, get_db, DEBUG, SECRET_KEY, FRONTEND_URL, GOOGLE_CLIENT_ID, _mongo_db
-from helpers import oid, send_email_async, get_organization_name, find_active_organization_by_code
+from helpers import activate_invited_organization, oid, send_email_async, get_organization_name, find_active_organization_by_code
 from activity import log_activity
 from field_crypto import encrypt_fields, decrypt_fields, ENCRYPTED_PROFILE_FIELDS
 
@@ -137,6 +137,7 @@ def build_session(db, user):
     """Builds the (user_payload, token) pair every successful sign-in
     returns - shared by password login and Google sign-in so both stay in
     sync (membership backfill, organization_name, lgu_member permissions)."""
+    activate_invited_organization(db, user)
     # An account created before the memberships feature has no membership
     # row for its own org yet - backfill it here on login instead of
     # requiring a one-time migration script to run first. Mirrors

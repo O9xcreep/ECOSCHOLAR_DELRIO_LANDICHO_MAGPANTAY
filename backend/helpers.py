@@ -136,6 +136,20 @@ STATUS_MESSAGES = {
 }
 STATUS_NOTIF_TYPE = {'Approved': 'approved', 'Rejected': 'rejected'}
 
+# ── REJECTION REASONS ── what a reviewer can tick on a rejected application.
+# They explain the model's decision to the student; they never change it.
+REJECTION_REASONS = [
+    "Household income is above the program's priority level",
+    "Did not meet the required grade / GWA",
+    "Incomplete or missing documents",
+    "Documents are unclear or could not be verified",
+    "Information does not match the submitted documents",
+    "Document appears edited or altered",
+    "Not a resident of the covered area",
+    "Already has another scholarship",
+    "Duplicate application",
+]
+
 # ── ACCEPTED APPLICANT LIMIT ──
 DEFAULT_APPLICANT_LIMIT = 20
 
@@ -209,6 +223,39 @@ def form_is_locked(db, org_id):
 
 FORM_LOCKED_ERROR = "The form is locked while a program is open. It can be edited again once this program ends."
 
+def notify_students_if_program_closed(db, org_id, force=False):
+    """Tells every student in the org, once per closing, that the current program
+    stopped accepting applications. There is no scheduler, so this runs on ordinary
+    requests; the conditional update makes sure only one of them sends it.
+    `force` is for a program being ended before its deadline. In-app only: emailing
+    a whole LGU at once would exhaust the email provider's free-tier limit."""
+    cycle = get_current_cycle(db, org_id) if org_id else None
+    if not cycle or (is_cycle_open(cycle) and not force):
+        return 0
+    now = datetime.utcnow()
+    claimed = db.program_cycles.update_one(
+        {"_id": cycle["_id"], "closed_notified_at": {"$exists": False}},
+        {"$set": {"closed_notified_at": now}}
+    )
+    if not claimed.modified_count:
+        return 0
+    user_ids = {m["user_id"] for m in db.memberships.find(
+        {"organization_id": org_id, "role": "student"}, {"user_id": 1})}
+    # Accounts from before memberships existed.
+    user_ids |= {u["_id"] for u in db.users.find({"organization_id": org_id, "role": "student"}, {"_id": 1})}
+    if user_ids:
+        label = cycle.get("label") or "The scholarship program"
+        db.notifications.insert_many([{
+            "user_id": user_id,
+            "applicant_id": None,
+            "message": f"{label} is now closed and no longer accepts applications.",
+            "type": "program_closed",
+            "is_read": False,
+            "organization_id": org_id,
+            "created_at": now,
+        } for user_id in user_ids])
+    return len(user_ids)
+
 def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None, eligibility_top_percent=None):
     """Archives the current cycle and opens a new one. Nothing is deleted;
     existing data just stops matching get_current_cycle_id(). The new program keeps the
@@ -218,6 +265,7 @@ def do_program_reset(db, org_id, performed_by, new_label=None, deadline=None, el
         eligibility_top_percent = get_eligibility_top_percent(db, org_id)
     current = get_current_cycle(db, org_id)
     if current:
+        notify_students_if_program_closed(db, org_id, force=True)
         db.program_cycles.update_one(
             {"_id": current["_id"]},
             {"$set": {"closed_at": now, "closed_by": performed_by}}
@@ -282,6 +330,14 @@ def generate_unique_join_code(db):
         if not db.organizations.find_one({"join_code": code}):
             return code
     raise RuntimeError("Could not generate a unique join code")
+
+def activate_invited_organization(db, user):
+    """An invited LGU goes live once its Admin has proven the invited email is theirs."""
+    if user.get("role") == "lgu_admin" and user.get("organization_id"):
+        db.organizations.update_one(
+            {"_id": user["organization_id"], "status": "invited", "invited_admin_id": user["_id"]},
+            {"$set": {"status": "active"}}
+        )
 
 def find_active_organization_by_code(db, code):
     code = (code or '').strip().upper()
@@ -363,6 +419,11 @@ def serialize_applicant(doc):
         "reviewed_by_name": application.get('reviewed_by_name'),
         "application_type": application.get('application_type'),
         "rejection_reason": application.get('rejection_reason'),
+        # Only a real rejection: a waitlisted applicant is stored as Rejected + Eligible.
+        "rejection_reasons": application.get('rejection_reasons') or []
+            if application.get('status') == 'Rejected' and doc.get('ml_status') != 'Eligible' else [],
+        "rejection_note": application.get('rejection_note')
+            if application.get('status') == 'Rejected' and doc.get('ml_status') != 'Eligible' else None,
         "admin_comment": application.get('admin_comment'),
         "city": derive_city(doc.get('address')),
         "extra_fields": doc.get('extra_fields', {}),

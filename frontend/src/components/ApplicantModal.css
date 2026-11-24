@@ -690,3 +690,12 @@
   color: var(--accent);
   font-style: italic;
 }
+
+/* ── REJECTION REASONS ── */
+.rejection-reasons { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+.rejection-reasons legend { float: none; width: auto; margin: 0; padding: 0 6px; font-size: 12px; font-weight: 600; }
+.rejection-reasons-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 6px 14px; max-height: 130px; overflow-y: auto; }
+.rejection-reasons-list label { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+.rejection-reasons-list input { margin-top: 3px; flex-shrink: 0; }
+.rejection-reasons-row { display: flex; gap: 8px; margin-top: 8px; }
+.rejection-reasons-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font: inherit; }

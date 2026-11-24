@@ -8,6 +8,18 @@
 const MAX_DIMENSION = 1600
 const JPEG_QUALITY = 0.8
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+// Must match MAX_ORIGINAL_HEADER_BYTES in backend/documents.py.
+const ORIGINAL_HEADER_BYTES = 256 * 1024
+
+// Re-encoding a photo strips its metadata, which the server checks for editing
+// tools - so the start of the original file travels along with the upload.
+const originalHeaders = new WeakMap()
+
+export function appendUploadFile(formData, file) {
+  formData.append('file', file)
+  const header = originalHeaders.get(file)
+  if (header) formData.append('original_header', header, 'original_header')
+}
 
 // Resizes/re-encodes an image file client-side; non-image files (PDFs) pass
 // through untouched since canvas can't help there. Falls back to the
@@ -32,7 +44,9 @@ export async function compressImageFile(file) {
     if (!blob) return file
 
     const newName = file.name.replace(/\.[^.]+$/, '') + '.jpg'
-    return new File([blob], newName, { type: 'image/jpeg', lastModified: Date.now() })
+    const compressed = new File([blob], newName, { type: 'image/jpeg', lastModified: Date.now() })
+    originalHeaders.set(compressed, new Blob([await file.slice(0, ORIGINAL_HEADER_BYTES).arrayBuffer()]))
+    return compressed
   } catch {
     return file
   }

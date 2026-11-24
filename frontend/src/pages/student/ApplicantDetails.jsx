@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, getUser, displayStatus, connectionErrorMessage } from '../../api'
 import { parseServerDate } from '../../dateUtils'
-import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
+import RejectionReasonList from '../../components/RejectionReasonList'
+import { compressImageFile, appendUploadFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import Reveal from '../../components/Reveal'
 import StatTile from '../../components/StatTile'
 import ScoreBreakdown from '../../components/ScoreBreakdown'
@@ -226,7 +227,7 @@ function ApplicantDetails() {
       })
     }
     const formData = new FormData()
-    formData.append('file', file)
+    appendUploadFile(formData, file)
     formData.append('applicant_id', application.id)
     formData.append('document_name', doc.document_name)
 
@@ -356,6 +357,7 @@ function ApplicantDetails() {
         {status === 'Rejected' && application.ml_status !== 'Eligible' && application.rejection_reason && (
           <p className="av-rejection-reason">{application.rejection_reason}</p>
         )}
+        <RejectionReasonList application={application} />
 
         {application.submitted_at && (
           <p className="av-submitted">

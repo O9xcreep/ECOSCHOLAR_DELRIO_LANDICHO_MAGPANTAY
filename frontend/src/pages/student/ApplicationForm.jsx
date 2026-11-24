@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { apiFetch, displayStatus, connectionErrorMessage } from '../../api'
 import { parseServerDate } from '../../dateUtils'
-import { compressImageFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
+import { compressImageFile, appendUploadFile, MAX_UPLOAD_BYTES } from '../../fileUtils'
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
 import { INCOME_RANGES } from '../../incomeRanges'
@@ -1051,7 +1051,7 @@ function ApplicationForm() {
       for (const [label, file] of Object.entries(step3Data)) {
         if (file instanceof File) {
           const formData = new FormData()
-          formData.append('file', file)
+          appendUploadFile(formData, file)
           formData.append('applicant_id', applicantId)
           formData.append('document_name', label)
 

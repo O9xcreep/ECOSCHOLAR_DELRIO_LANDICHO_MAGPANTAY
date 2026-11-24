@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { GoogleLogin } from '@react-oauth/google'
 import { API_BASE_URL, setSession, fetchWithTimeout, connectionErrorMessage } from '../api'
 import AuthShell from '../components/AuthShell'
@@ -72,8 +72,16 @@ function Login() {
     setOrganizationDirectory(previous => ({ ...previous, loading: true, error: '' }))
     try {
       const response = await fetchWithTimeout(`${API_BASE_URL}/api/organizations/directory`)
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Could not load organizations.')
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        // The server answered, so this isn't a problem with the user's connection.
+        setOrganizationDirectory({
+          organizations: [],
+          loading: false,
+          error: data.error || 'Could not load organizations. Please try again later.',
+        })
+        return
+      }
       setOrganizationDirectory({ organizations: data.organizations || [], loading: false, error: '' })
     } catch {
       setOrganizationDirectory({
@@ -750,10 +758,6 @@ function Login() {
               <p style={{ marginTop: '16px', textAlign: 'center', fontSize: '13.5px', color: 'var(--text-secondary)' }}>
                 Already have an account?{' '}
                 <button className="lp-link" type="button" onClick={() => switchTab('login')}>Sign in here</button>
-              </p>
-              <p style={{ marginTop: '8px', textAlign: 'center', fontSize: '12.5px', color: 'var(--text-secondary)' }}>
-                LGU official?{' '}
-                <Link className="lp-link" to="/apply-admin">Request an LGU account</Link>
               </p>
             </>
           )}
