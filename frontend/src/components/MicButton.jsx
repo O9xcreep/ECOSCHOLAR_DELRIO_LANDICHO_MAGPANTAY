@@ -17,7 +17,13 @@ const ERROR_MESSAGES = {
   network: 'Voice input needs an internet connection.',
 }
 
-export default function MicButton({ onText, lang = 'en-PH', label = 'this field', disabled = false }) {
+// compact: smaller button for search boxes and toolbars.
+// showStatus: show the "Listening..." text (the pulsing red button already signals it).
+// keepFocus: don't steal focus on click, so a rich-text editor keeps its cursor position.
+export default function MicButton({
+  onText, lang = 'en-PH', label = 'this field', disabled = false,
+  compact = false, showStatus = true, keepFocus = false,
+}) {
   const [listening, setListening] = useState(false)
   const [error, setError] = useState('')
   const recognitionRef = useRef(null)
@@ -71,7 +77,8 @@ export default function MicButton({ onText, lang = 'en-PH', label = 'this field'
     <>
       <button
         type="button"
-        className={`mic-button ${listening ? 'listening' : ''}`}
+        className={`mic-button ${compact ? 'compact' : ''} ${listening ? 'listening' : ''}`}
+        onMouseDown={keepFocus ? e => e.preventDefault() : undefined}
         onClick={toggle}
         disabled={disabled}
         aria-label={actionLabel}
@@ -85,18 +92,22 @@ export default function MicButton({ onText, lang = 'en-PH', label = 'this field'
           />
         </svg>
       </button>
-      {listening && <span className="mic-status" role="status">Listening…</span>}
+      {listening && showStatus && <span className="mic-status" role="status">Listening…</span>}
       {error && <span className="mic-error" role="alert">{error}</span>}
     </>
   )
 }
 
 // Wraps a single input or textarea and overlays the mic button inside it.
-export function DictationField({ children, onText, label, lang, multiline = false }) {
+export function DictationField({
+  children, onText, label, lang, multiline = false, compact = false, className = '',
+}) {
+  const classes = ['dictation-field', className, multiline && 'multiline', compact && 'compact',
+    isDictationSupported && 'has-mic'].filter(Boolean).join(' ')
   return (
-    <div className={`dictation-field ${multiline ? 'multiline' : ''} ${isDictationSupported ? 'has-mic' : ''}`}>
+    <div className={classes}>
       {children}
-      <MicButton onText={onText} label={label} lang={lang} />
+      <MicButton onText={onText} label={label} lang={lang} compact={compact} showStatus={!compact} />
     </div>
   )
 }

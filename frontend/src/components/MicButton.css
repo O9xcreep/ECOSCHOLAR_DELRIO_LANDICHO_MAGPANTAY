@@ -34,6 +34,21 @@
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
+.mic-button.compact {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.dictation-field.compact > .mic-button {
+  top: 5px;
+  right: 5px;
+}
+
+.dictation-field.compact.has-mic > input {
+  padding-right: 36px;
+}
+
 .mic-button:hover:not(:disabled) {
   color: var(--accent);
   border-color: var(--accent);

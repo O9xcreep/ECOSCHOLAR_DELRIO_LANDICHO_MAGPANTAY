@@ -6,6 +6,8 @@ import StatTile from '../../components/StatTile'
 import pageBg from '../../assets/admin-bg.jpg'
 import './Applications.css'
 import ApplicantModal from '../../components/ApplicantModal'
+import MicButton from '../../components/MicButton'
+import { dictationToSearch } from '../../dictation'
 
 const STAT_TAB_COLORS = {
   'Newly Submitted': '#3d6fa3',
@@ -423,6 +425,8 @@ function Applications() {
               value={search}
               onChange={e => setSearch(e.target.value)}
             />
+            <MicButton compact showStatus={false} label="the applicant search"
+              onText={t => setSearch(dictationToSearch(t))} />
           </div>
         </div>
       </div>

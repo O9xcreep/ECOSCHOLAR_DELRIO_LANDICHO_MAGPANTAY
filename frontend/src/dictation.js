@@ -12,3 +12,9 @@ export function appendDictation(current, text) {
   const base = (current || '').trimEnd()
   return base ? `${base} ${text}` : text
 }
+
+// Search boxes replace their text instead of appending, and drop any trailing
+// punctuation the speech service adds ("Juan dela Cruz." -> "Juan dela Cruz").
+export function dictationToSearch(text) {
+  return text.trim().replace(/[.?!,]+$/, '')
+}
