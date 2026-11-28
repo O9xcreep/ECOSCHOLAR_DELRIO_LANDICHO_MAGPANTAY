@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react'
 import { apiFetch, connectionErrorMessage } from '../api'
+import { DictationField } from './MicButton'
+import { appendDictation } from '../dictation'
+
+const NOTE_MAX = 300
 
 // Multiple-choice reasons for an application the eligibility model rejected. They
 // explain the decision to the student; they don't change it.
@@ -53,14 +57,20 @@ function RejectionReasonPicker({ applicant, onSaved }) {
         ))}
       </div>
       <div className="rejection-reasons-row">
-        <input
-          type="text"
-          maxLength={300}
-          placeholder="Other reason (optional)"
-          aria-label="Other reason"
-          value={note}
-          onChange={e => { setNote(e.target.value); setMessage('') }}
-        />
+        <DictationField
+          compact
+          className="rejection-note-field"
+          label="the other reason"
+          onText={t => { setNote(prev => appendDictation(prev, t).slice(0, NOTE_MAX)); setMessage('') }}>
+          <input
+            type="text"
+            maxLength={NOTE_MAX}
+            placeholder="Other reason (optional)"
+            aria-label="Other reason"
+            value={note}
+            onChange={e => { setNote(e.target.value); setMessage('') }}
+          />
+        </DictationField>
         <button type="button" className="btn-close-modal" onClick={save}
           disabled={saving || (selected.length === 0 && !note.trim())}>
           {saving ? 'Saving...' : 'Save Reasons'}

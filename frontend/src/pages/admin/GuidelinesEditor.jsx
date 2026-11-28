@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { apiFetch, connectionErrorMessage } from '../../api'
 import './GuidelinesEditor.css'
+import MicButton from '../../components/MicButton'
 
 // A dependency-free rich text editor: a contentEditable region driven by
 // document.execCommand, the same technique browsers have supported natively
@@ -66,6 +67,27 @@ function GuidelinesEditor() {
     setSaved(false)
   }
 
+  // Voice dictation: insert the spoken text where the cursor is. If the cursor
+  // isn't inside the editor (e.g. nothing clicked yet), add it at the end.
+  const handleDictation = text => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.focus()
+    const sel = window.getSelection()
+    if (!sel.rangeCount || !editor.contains(sel.anchorNode)) {
+      const range = document.createRange()
+      range.selectNodeContents(editor)
+      range.collapse(false)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+    const before = sel.anchorNode?.textContent?.slice(0, sel.anchorOffset) || ''
+    const needsSpace = before && !/\s$/.test(before)
+    document.execCommand('insertText', false, (needsSpace ? ' ' : '') + text)
+    setDirty(true)
+    setSaved(false)
+  }
+
   const handleSave = useCallback(async () => {
     setSaving(true)
     setSaveError('')
@@ -115,6 +137,9 @@ function GuidelinesEditor() {
           onMouseDown={e => e.preventDefault()} onClick={handleLink}>Link</button>
         <button type="button" className="ge-tool-btn" title="Insert table"
           onMouseDown={e => e.preventDefault()} onClick={handleInsertTable}>Table</button>
+        <span className="ge-tool-mic">
+          <MicButton compact keepFocus label="the guidelines" onText={handleDictation} disabled={loading} />
+        </span>
       </div>
 
       {loading ? (

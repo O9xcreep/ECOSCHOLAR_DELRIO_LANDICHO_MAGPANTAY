@@ -4,6 +4,8 @@ import { parseServerDate } from '../dateUtils'
 import './ApplicantModal.css'
 import ScoreBreakdown from './ScoreBreakdown'
 import RejectionReasonPicker from './RejectionReasonPicker'
+import { DictationField } from './MicButton'
+import { appendDictation } from '../dictation'
 
 // Must match backend's SELFIE_DOC_LABEL / ID_DOC_LABEL (backend/app.py). The selfie is
 // pulled out of the generic documents grid below and shown side-by-side with the ID
@@ -778,14 +780,20 @@ function ApplicantModal({ applicant, onClose, onStatusChange }) {
                   ? 'Comment for the applicant (required to Request Changes)'
                   : 'Note (optional, visible in the audit trail)'}
               </label>
-              <textarea
-                id="applicant-remarks"
-                ref={remarksRef}
-                rows={2}
-                placeholder="e.g. what's missing, or why this decision is being reconsidered..."
-                value={remarks}
-                onChange={e => setRemarks(e.target.value)}
-              />
+              <DictationField
+                multiline
+                label={isPending ? 'the comment' : 'the note'}
+                onText={text => setRemarks(prev => appendDictation(prev, text))}
+              >
+                <textarea
+                  id="applicant-remarks"
+                  ref={remarksRef}
+                  rows={2}
+                  placeholder="e.g. what's missing, or why this decision is being reconsidered..."
+                  value={remarks}
+                  onChange={e => setRemarks(e.target.value)}
+                />
+              </DictationField>
             </div>
           )}
 

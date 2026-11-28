@@ -3,6 +3,8 @@ import { apiFetch, displayStatus, connectionErrorMessage } from '../../api'
 import { parseServerDate } from '../../dateUtils'
 import pageBg from '../../assets/bg1.jpg'
 import './ActivityLog.css'
+import { DictationField } from '../../components/MicButton'
+import { dictationToSearch } from '../../dictation'
 
 const PAGE_SIZE = 25
 
@@ -74,8 +76,11 @@ function Archive() {
               onChange={e => { setCycleId(e.target.value); setPage(1) }}>
               {cycles.map(c => <option key={c.id} value={c.id}>{c.label} ({c.applicant_count})</option>)}
             </select>
-            <input className="activity-input activity-search" type="search" placeholder="Search name or course"
-              aria-label="Search archived applicants" value={search} onChange={e => setSearch(e.target.value)} />
+            <DictationField compact className="activity-search" label="the archive search"
+              onText={t => { const q = dictationToSearch(t); setSearch(q); setAppliedSearch(q); setPage(1) }}>
+              <input className="activity-input" type="search" placeholder="Search name or course"
+                aria-label="Search archived applicants" value={search} onChange={e => setSearch(e.target.value)} />
+            </DictationField>
             <button type="submit" className="activity-btn">Search</button>
           </form>
         )}

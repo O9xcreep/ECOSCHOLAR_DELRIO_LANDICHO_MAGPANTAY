@@ -699,3 +699,4 @@
 .rejection-reasons-list input { margin-top: 3px; flex-shrink: 0; }
 .rejection-reasons-row { display: flex; gap: 8px; margin-top: 8px; }
 .rejection-reasons-row input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; font: inherit; }
+.rejection-reasons-row .rejection-note-field { flex: 1; min-width: 0; }

@@ -3,6 +3,8 @@ import { apiFetch, connectionErrorMessage } from '../../api'
 import { parseServerDate } from '../../dateUtils'
 import pageBg from '../../assets/bg1.jpg'
 import './ActivityLog.css'
+import { DictationField } from '../../components/MicButton'
+import { dictationToSearch } from '../../dictation'
 
 const CATEGORY_LABELS = {
   auth: 'Sign-in',
@@ -101,14 +103,17 @@ function ActivityLog() {
 
       <div className="activity-card">
         <form className="activity-filters" onSubmit={submitSearch}>
-          <input
-            className="activity-input activity-search"
-            type="search"
-            placeholder="Search name, email, action, or applicant"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            aria-label="Search the activity log"
-          />
+          <DictationField compact className="activity-search" label="the activity log search"
+            onText={t => { const q = dictationToSearch(t); setSearch(q); setAppliedSearch(q); setPage(1) }}>
+            <input
+              className="activity-input"
+              type="search"
+              placeholder="Search name, email, action, or applicant"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              aria-label="Search the activity log"
+            />
+          </DictationField>
           <select className="activity-input" value={category} onChange={onFilter(setCategory)} aria-label="Category">
             <option value="">All categories</option>
             {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
