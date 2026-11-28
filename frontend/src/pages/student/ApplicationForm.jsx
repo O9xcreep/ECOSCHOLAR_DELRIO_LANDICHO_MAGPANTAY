@@ -6,6 +6,8 @@ import { compressImageFile, appendUploadFile, MAX_UPLOAD_BYTES } from '../../fil
 import pageBg from '../../assets/bg3.jpg'
 import './ApplicationForm.css'
 import { INCOME_RANGES } from '../../incomeRanges'
+import { DictationField } from '../../components/MicButton'
+import { appendDictation } from '../../dictation'
 
 // ── DATA ──
 // These three lists must match the eligibility model's encoding exactly
@@ -241,11 +243,27 @@ function CustomFieldsSection({ customFields, section, values, onChange, errors }
                 </div>
               )
             ) : f.type === 'textarea' ? (
-              <textarea
-                className={errors[f.key] ? 'input-error' : ''}
-                value={values[f.key] || ''}
-                onChange={e => onChange(f.key, e.target.value)}
-              />
+              <DictationField
+                multiline
+                label={f.label}
+                onText={t => onChange(f.key, appendDictation(values[f.key], t))}>
+                <textarea
+                  className={errors[f.key] ? 'input-error' : ''}
+                  value={values[f.key] || ''}
+                  onChange={e => onChange(f.key, e.target.value)}
+                />
+              </DictationField>
+            ) : f.type === 'text' ? (
+              <DictationField
+                label={f.label}
+                onText={t => onChange(f.key, appendDictation(values[f.key], t))}>
+                <input
+                  className={errors[f.key] ? 'input-error' : ''}
+                  type="text"
+                  value={values[f.key] || ''}
+                  onChange={e => onChange(f.key, e.target.value)}
+                />
+              </DictationField>
             ) : (
               <input
                 className={errors[f.key] ? 'input-error' : ''}
@@ -272,11 +290,13 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
         <div className="form-grid-2">
 
           <Field label="Full Name" error={errors.fullName}>
-            <input
-              className={errors.fullName ? 'input-error' : ''}
-              type="text" placeholder="Enter your full name"
-              value={data.fullName}
-              onChange={e => onChange('fullName', e.target.value)} />
+            <DictationField label="your full name" onText={t => onChange('fullName', appendDictation(data.fullName, t))}>
+              <input
+                className={errors.fullName ? 'input-error' : ''}
+                type="text" placeholder="Enter your full name"
+                value={data.fullName}
+                onChange={e => onChange('fullName', e.target.value)} />
+            </DictationField>
           </Field>
 
           {/* Email locked to logged-in account */}
@@ -299,11 +319,13 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
           </Field>
 
           <Field label="Address" error={errors.address}>
-            <input
-              className={`full ${errors.address ? 'input-error' : ''}`}
-              type="text" placeholder="Street, City, Province"
-              value={data.address}
-              onChange={e => onChange('address', e.target.value)} />
+            <DictationField label="your address" onText={t => onChange('address', appendDictation(data.address, t))}>
+              <input
+                className={`full ${errors.address ? 'input-error' : ''}`}
+                type="text" placeholder="Street, City, Province"
+                value={data.address}
+                onChange={e => onChange('address', e.target.value)} />
+            </DictationField>
           </Field>
 
           {!hiddenBuiltins.includes('religion') && (
@@ -370,11 +392,13 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
         <div className="form-grid-2">
 
           <Field label="Father's Name" error={errors.fatherName}>
-            <input
-              className={errors.fatherName ? 'input-error' : ''}
-              type="text" placeholder="First M. Last"
-              value={data.fatherName}
-              onChange={e => onChange('fatherName', e.target.value)} />
+            <DictationField label="your father's name" onText={t => onChange('fatherName', appendDictation(data.fatherName, t))}>
+              <input
+                className={errors.fatherName ? 'input-error' : ''}
+                type="text" placeholder="First M. Last"
+                value={data.fatherName}
+                onChange={e => onChange('fatherName', e.target.value)} />
+            </DictationField>
           </Field>
 
           <Field label="Father's Occupation" error={errors.fatherOccupation}>
@@ -398,11 +422,13 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
           </Field>
 
           <Field label="Mother's Name" error={errors.motherName}>
-            <input
-              className={errors.motherName ? 'input-error' : ''}
-              type="text" placeholder="First M. Last"
-              value={data.motherName}
-              onChange={e => onChange('motherName', e.target.value)} />
+            <DictationField label="your mother's name" onText={t => onChange('motherName', appendDictation(data.motherName, t))}>
+              <input
+                className={errors.motherName ? 'input-error' : ''}
+                type="text" placeholder="First M. Last"
+                value={data.motherName}
+                onChange={e => onChange('motherName', e.target.value)} />
+            </DictationField>
           </Field>
 
           <Field label="Mother's Occupation" error={errors.motherOccupation}>
@@ -506,13 +532,15 @@ function Step1({ data, onChange, errors, customFields, hiddenBuiltins, extraFiel
             <Field
               label="Please specify which scholarship you are receiving"
               error={errors.otherScholarshipDetails}>
-              <input
-                className={errors.otherScholarshipDetails ? 'input-error' : ''}
-                type="text"
-                placeholder="Enter scholarship name and details"
-                value={data.otherScholarshipDetails}
-                onChange={e => onChange('otherScholarshipDetails', e.target.value)}
-              />
+              <DictationField label="the scholarship details" onText={t => onChange('otherScholarshipDetails', appendDictation(data.otherScholarshipDetails, t))}>
+                <input
+                  className={errors.otherScholarshipDetails ? 'input-error' : ''}
+                  type="text"
+                  placeholder="Enter scholarship name and details"
+                  value={data.otherScholarshipDetails}
+                  onChange={e => onChange('otherScholarshipDetails', e.target.value)}
+                />
+              </DictationField>
             </Field>
           )}
 
